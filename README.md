@@ -40,6 +40,37 @@ network. Identifiers are returned unchanged. A future integration must load an
 authorized workspace's menu and resolve its targets within that same workspace;
 this helper does not perform authentication or workspace authorization.
 
+### Confirmed intent routing
+
+`resolve_intent` accepts an intent label from a future classifier and selects
+only a target in the configured menu, after explicit caller confirmation:
+
+```python
+from zentomic.intent import resolve_intent
+
+target = resolve_intent(
+    "technical_support",
+    {"sales": "team/Sales", "technical_support": "team/Support"},
+    fallback_target="team/Reception",
+    confirmed=True,
+)
+assert target == "team/Support"
+```
+
+Confirmation defaults to `False`. Only boolean `True` permits routing; truthy
+values such as `"true"` or `1` do not. Unconfirmed, missing, malformed, and unknown
+intents use the fallback. Labels match exactly, with no trimming or case
+conversion. Menus may be empty; all labels, targets, and the required fallback
+must be nonblank strings. Invalid configuration raises `ValueError`, including
+unused routes. Target identifiers are preserved, and the menu is not mutated.
+
+This is an offline policy helper, not speech recognition or an AI integration.
+It cannot establish whether a caller confirmed an intent. A future adapter must
+derive confirmation from trusted call-session state for that specific intent,
+not from model output or an untrusted webhook field. It must also authorize the
+menu and all targets within the workspace. Use a human reception target as the
+fallback for ambiguous or unconfirmed requests. No calls or messages are sent.
+
 ## Local development
 
 Use Python 3.12 or newer. No package installation, accounts, or secrets required.
@@ -65,9 +96,11 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
+- `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/__main__.py`: credential-free local smoke check.
 - `tests/test_handler.py`: offline standard-library unit tests.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
+- `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 
 ## Development boundaries
 
@@ -75,7 +108,7 @@ Keep this public repository free of credentials, account identifiers, real phone
 numbers, call transcripts, and customer data. Use synthetic fixtures only.
 Local `.env` files are ignored and are not loaded by the scaffold.
 
-Future increments can add intent routing, mocked service adapters, and
+Future increments can add mocked service adapters, call-session state, and
 webhook validation. Authentication, workspace isolation, Twilio signature
 verification, persistence, and deployment are not implemented. Do not connect
 this scaffold to real call traffic until those boundaries are designed and
