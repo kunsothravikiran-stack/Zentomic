@@ -40,6 +40,40 @@ network. Identifiers are returned unchanged. A future integration must load an
 authorized workspace's menu and resolve its targets within that same workspace;
 this helper does not perform authentication or workspace authorization.
 
+### Bounded input retries
+
+`resolve_gather` wraps the single-digit resolver with a finite collection
+budget. This lets a future IVR adapter reprompt on silence or invalid digits
+without trapping callers in an endless menu:
+
+```python
+from zentomic.gather import resolve_gather
+
+decision = resolve_gather(
+    None,
+    {"0": "reception", "1": "sales"},
+    fallback_target="reception",
+    attempts=0,
+    max_attempts=3,
+)
+assert (decision.action, decision.target, decision.attempts) == ("retry", None, 1)
+```
+
+`attempts` counts completed collections before this input, including silence;
+the immutable result includes the updated count. Configured digits return
+`route`, including a key explicitly mapped to reception. Missing, malformed,
+or unmapped digits return `retry` with no target until the last allowed attempt,
+then `fallback`. Valid input on the last attempt still routes. An already
+exhausted budget always falls back and leaves the count unchanged. Counts must
+be nonnegative integers and the maximum must be a positive integer (default 3);
+booleans are rejected. All menu configuration is validated even after exhaustion.
+
+This helper does not expose an endpoint, generate TwiML, or persist state.
+Before using it with real traffic, an adapter must authenticate callbacks,
+atomically deduplicate them, and persist the returned count in trusted,
+workspace-scoped call-session state. Do not accept attempt counts from callers
+or reset them on each callback. Transport errors are not collection attempts.
+
 ### Confirmed intent routing
 
 `resolve_intent` accepts an intent label from a future classifier and selects
@@ -96,10 +130,12 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
+- `zentomic/gather.py`: bounded collection retries with immutable decisions.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/__main__.py`: credential-free local smoke check.
 - `tests/test_handler.py`: offline standard-library unit tests.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
+- `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 
 ## Development boundaries
