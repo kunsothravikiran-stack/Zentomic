@@ -107,6 +107,26 @@ callback, deduplicate it, and pass its input plus trusted attempt state to
 never for `route` or `fallback`. Return XML with `Content-Type: application/xml`.
 Serialization alone does not enforce retry budgets, authorize targets, or dial.
 
+`render_hangup` provides a separate terminal response for a future explicit
+end-call flow, with an optional farewell:
+
+```python
+from zentomic.twiml import render_hangup
+
+xml = render_hangup("Thank you for calling. Goodbye.")
+# <Response><Say>Thank you for calling. Goodbye.</Say><Hangup /></Response>
+```
+
+Omit the prompt (or pass `None`) for only `Hangup`. Supplied text uses the same
+nonblank, 1000-character and XML-safety limits as collection prompts. The
+attribute-free `Hangup` is always the final top-level verb, following the
+[Twilio Hangup reference](https://www.twilio.com/docs/voice/twiml/hangup).
+Unlike `Reject`, `Hangup` does not prevent answering a call or provider billing.
+Rendering remains fully offline. This does not change routing: `fallback`
+still selects its configured target, and no digit implicitly ends a call.
+A future authenticated adapter must decide when termination is appropriate;
+the renderer neither verifies caller intent nor changes persisted session state.
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:
@@ -224,7 +244,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
-- `zentomic/twiml.py`: offline, XML-safe single-digit collection rendering.
+- `zentomic/twiml.py`: offline, XML-safe collection and terminal response rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/__main__.py`: credential-free local smoke check.
@@ -232,7 +252,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
-- `tests/test_twiml.py`: collection attributes, XML escaping, and renderer limits.
+- `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 - `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
 
