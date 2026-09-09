@@ -138,6 +138,34 @@ Only after those checks should `fields.get("Digits")` feed `resolve_gather`
 with trusted session state. Malformed requests must be rejected, not treated
 as silence or allowed to consume a collection attempt.
 
+`parse_form_event` adds offline transport checks around the body decoder:
+
+```python
+from zentomic.webhook_event import parse_form_event
+
+fields = parse_form_event({
+    "httpMethod": "POST",
+    "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+    "body": "Digits=1",
+    "isBase64Encoded": False,
+})
+assert fields == {"Digits": "1"}
+```
+
+It accepts REST v1 (including an omitted version) and HTTP v2 proxy events,
+requires POST, and accepts only form content with an optional UTF-8 charset.
+Header names are case-insensitive. Duplicate or conflicting content types are
+rejected, including v2 comma-joined duplicates; an exact single-value v1 mirror
+in `headers` and `multiValueHeaders` is accepted. These formats follow the
+[AWS proxy payload reference](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html).
+Other media-type parameters are intentionally unsupported. A missing body is
+invalid, while an explicit empty string decodes to `{}`. The encoding flag
+defaults to false only when absent. Invalid transport raises `ValueError`
+without consuming a collection attempt. The original event is not modified.
+This helper does not validate the path, authenticate the sender, or expose a
+voice route: signature validation and workspace/session checks remain required
+before acting on its result. The existing health handler is unchanged.
+
 ### Confirmed intent routing
 
 `resolve_intent` accepts an intent label from a future classifier and selects
@@ -198,6 +226,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/twiml.py`: offline, XML-safe single-digit collection rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
+- `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/__main__.py`: credential-free local smoke check.
 - `tests/test_handler.py`: offline standard-library unit tests.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
@@ -205,6 +234,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_twiml.py`: collection attributes, XML escaping, and renderer limits.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
+- `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
 
 ## Development boundaries
 
