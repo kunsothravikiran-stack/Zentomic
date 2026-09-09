@@ -74,6 +74,39 @@ atomically deduplicate them, and persist the returned count in trusted,
 workspace-scoped call-session state. Do not accept attempt counts from callers
 or reset them on each callback. Transport errors are not collection attempts.
 
+### Offline TwiML collection renderer
+
+`render_dtmf_gather` serializes a single hosted menu response without contacting
+Twilio or exposing an endpoint:
+
+```python
+from zentomic.twiml import render_dtmf_gather
+
+xml = render_dtmf_gather(
+    "Press 1 for sales. Press 0 for reception.",
+    action_path="/voice/menu-result",
+)
+```
+
+The generated `Gather` collects one keypad character, uses POST, and requests a
+callback even on silence (`actionOnEmptyResult="true"`). No finish key is used,
+so `*` and `#` can reach the resolver as invalid input. These attributes follow
+the [Twilio Gather reference](https://www.twilio.com/docs/voice/twiml/gather).
+Prompt markup is escaped as text, and invalid XML characters are rejected.
+Project limits are 1000 prompt characters and a 1–60 second timeout (default 5).
+
+Callback paths must contain slash-separated letters, ASCII digits, underscores,
+or hyphens, starting with `/`. External URLs, queries, fragments, dot segments,
+and percent escapes are intentionally unsupported. Use trusted configuration,
+not caller/model input. This renderer is for hosted webhook responses only;
+inline TwiML in the Calls API requires absolute callback URLs and is unsupported.
+
+The example path is not implemented. A future adapter must authenticate the
+callback, deduplicate it, and pass its input plus trusted attempt state to
+`resolve_gather`. Render another menu only for `retry` (or initial collection),
+never for `route` or `fallback`. Return XML with `Content-Type: application/xml`.
+Serialization alone does not enforce retry budgets, authorize targets, or dial.
+
 ### Confirmed intent routing
 
 `resolve_intent` accepts an intent label from a future classifier and selects
@@ -132,11 +165,13 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
+- `zentomic/twiml.py`: offline, XML-safe single-digit collection rendering.
 - `zentomic/__main__.py`: credential-free local smoke check.
 - `tests/test_handler.py`: offline standard-library unit tests.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
+- `tests/test_twiml.py`: collection attributes, XML escaping, and renderer limits.
 
 ## Development boundaries
 
