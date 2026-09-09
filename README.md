@@ -107,6 +107,37 @@ callback, deduplicate it, and pass its input plus trusted attempt state to
 never for `route` or `fallback`. Return XML with `Content-Type: application/xml`.
 Serialization alone does not enforce retry budgets, authorize targets, or dial.
 
+### Offline webhook form decoding
+
+`parse_form_body` prepares form-encoded callback input for a future adapter:
+
+```python
+from zentomic.webhook import parse_form_body
+
+fields = parse_form_body("Digits=1&Optional=", is_base64_encoded=False)
+assert fields == {"Digits": "1", "Optional": ""}
+```
+
+Pass the proxy event's `body` and `isBase64Encoded` flag as described in the
+[API Gateway proxy contract](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html).
+The helper accepts UTF-8 text or strict base64, with a project limit of 16 KiB
+on the decoded body and 128 fields. It also bounds input before decoding.
+Empty bodies produce an empty dictionary; blank values and unknown fields are
+retained. Names are case-sensitive. Form decoding happens once, including `+`
+as space, using [Python's form parser](https://docs.python.org/3/library/urllib.parse.html#urllib.parse.parse_qsl).
+Malformed escapes, invalid UTF-8/base64, missing `=`, empty field names, and
+duplicate decoded names raise `ValueError`. Error messages omit request data.
+
+This does not expose an endpoint or authenticate a webhook. A future adapter
+must enforce POST and `application/x-www-form-urlencoded`, validate the provider
+signature against the correct public URL and all form fields, authorize the
+workspace, and atomically deduplicate callbacks before routing or persisting
+state. Keep the original event for signature validation; do not filter fields,
+decode them again, log the body, or treat a successful parse as authentication.
+Only after those checks should `fields.get("Digits")` feed `resolve_gather`
+with trusted session state. Malformed requests must be rejected, not treated
+as silence or allowed to consume a collection attempt.
+
 ### Confirmed intent routing
 
 `resolve_intent` accepts an intent label from a future classifier and selects
@@ -166,12 +197,14 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/twiml.py`: offline, XML-safe single-digit collection rendering.
+- `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/__main__.py`: credential-free local smoke check.
 - `tests/test_handler.py`: offline standard-library unit tests.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_twiml.py`: collection attributes, XML escaping, and renderer limits.
+- `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 
 ## Development boundaries
 
