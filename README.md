@@ -224,6 +224,35 @@ atomically deduplicate and persist the decision before model calls or retries;
 never take the attempt count from callback fields or reset it on each request.
 This helper neither persists state nor enforces model costs or whole-call limits.
 
+### Strict classifier response boundary
+
+`parse_intent_response` admits a pending intent from a future classifier's text
+response. The application contract is one JSON object with exactly one field:
+
+```python
+from zentomic.classification import parse_intent_response
+
+pending = parse_intent_response(
+    '{"intent":"sales"}', allowed_intents=("sales", "support"),
+)
+assert pending == "sales"
+```
+
+Labels match the trusted workspace allowlist exactly, without trimming or case
+folding. Invalid output returns `None`: unknown/non-string labels, duplicate
+JSON keys (including escaped duplicates), extra fields, Markdown wrappers,
+malformed JSON, and responses over 4096 UTF-8 bytes including whitespace.
+Model-supplied destinations, confirmation flags, and retry counts are never
+accepted. Invalid allowlist configuration raises `ValueError`; an empty
+allowlist admits nothing. The parser does not log output or call a provider.
+
+A future adapter must handle `None` with a bounded retry or human fallback,
+persist accepted labels as pending within the authenticated current call step,
+and use the separate caller-confirmation policy before routing. Acceptance is
+not proof of classification accuracy, prompt-injection resistance, caller
+confirmation, or workspace authorization. This adds no model/SDK integration,
+provider response-envelope handling, endpoint, persistence, or token-cost cap.
+
 ### Offline forwarding renderer
 
 `render_dial(numbers, action_path=..., timeout=20, time_limit=14400)` serializes one `Dial` with
@@ -546,6 +575,7 @@ workspace authorization, current-step binding, or replay prevention.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
 - `zentomic/speech.py`: bounded speech result admission before classification.
+- `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/twiml.py`: offline collection, forwarding, and terminal response rendering.
@@ -561,6 +591,7 @@ workspace authorization, current-step binding, or replay prevention.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
 - `tests/test_speech.py`: speech budgets, text limits, and confirmation separation.
+- `tests/test_classification.py`: classifier schema, byte limits, and confirmation separation.
 - `tests/test_dial.py`: forwarding structure, destination validation, and offline safety.
 - `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
