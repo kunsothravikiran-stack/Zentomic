@@ -154,6 +154,41 @@ into the separate terminal decision described above.
 A future authenticated adapter must decide when termination is appropriate;
 the renderer neither verifies caller intent nor changes persisted session state.
 
+### Offline speech collection renderer
+
+`render_speech_gather` prepares an English, speech-only collection for a future
+intent classifier, without starting a call or contacting a provider:
+
+```python
+from zentomic.twiml import render_speech_gather
+
+xml = render_speech_gather(
+    "How can we help you today?",
+    action_path="/voice/speech-result",
+    timeout=5,
+    speech_timeout=2,
+)
+```
+
+The XML uses `input="speech"`, `language="en-US"`, POST, and
+`actionOnEmptyResult="true"`. `timeout` controls waiting for input;
+`speech_timeout` controls the pause ending an utterance. Neither is a
+whole-call duration or billing cap. These attributes follow the
+[Twilio Gather reference](https://www.twilio.com/docs/voice/twiml/gather).
+Both timeouts are project-limited to integers from 1 through 60 seconds;
+booleans and `"auto"` are intentionally unsupported. Prompt and callback-path
+validation are identical to the keypad renderer. No speech model or partial
+transcription callback is selected; keypad collection remains unchanged.
+
+The example endpoint is not implemented. A future adapter must authenticate
+and bind callbacks to the current call step, deduplicate them, and handle
+missing speech with a persisted retry budget. Treat `SpeechResult` as
+untrusted text, not a route identifier or evidence of caller confirmation.
+Classification must produce an allowlisted pending intent and require explicit
+confirmation before forwarding. This renderer does not implement that flow,
+transcription, storage, consent handling, or production speech integration.
+Generating XML is offline; executing speech collection with a provider is not.
+
 ### Offline forwarding renderer
 
 `render_dial(numbers, action_path=..., timeout=20, time_limit=14400)` serializes one `Dial` with
@@ -488,6 +523,7 @@ workspace authorization, current-step binding, or replay prevention.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_intent_confirmation.py`: bounded keypad confirmation and renderer composition.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
+- `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
 - `tests/test_dial.py`: forwarding structure, destination validation, and offline safety.
 - `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.

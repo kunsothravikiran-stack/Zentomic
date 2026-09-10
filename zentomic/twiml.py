@@ -51,6 +51,32 @@ def render_dtmf_gather(prompt: str, *, action_path: str, timeout: int = 5) -> st
     return tostring(response, encoding="unicode")
 
 
+def render_speech_gather(
+    prompt: str, *, action_path: str, timeout: int = 5, speech_timeout: int = 2,
+) -> str:
+    """Serialize an English speech-only collection for a future intent adapter.
+
+    timeout bounds waiting for input; speech_timeout is the pause that ends an
+    utterance, not a maximum recording duration or whole-call budget. Both are
+    project-limited to 1-60 seconds. This does not transcribe, classify, confirm,
+    retry, authenticate callbacks, or contact a speech provider.
+    """
+    _validate_prompt(prompt)
+    _validate_action_path(action_path)
+    for name, value in (("timeout", timeout), ("speech_timeout", speech_timeout)):
+        if type(value) is not int or not 1 <= value <= 60:
+            raise ValueError(f"{name} must be an integer from 1 to 60 seconds")
+
+    response = Element("Response")
+    gather = SubElement(response, "Gather", {
+        "input": "speech", "language": "en-US",
+        "action": action_path, "method": "POST", "actionOnEmptyResult": "true",
+        "timeout": str(timeout), "speechTimeout": str(speech_timeout),
+    })
+    SubElement(gather, "Say").text = prompt
+    return tostring(response, encoding="unicode")
+
+
 def render_dial(
     numbers: list[str] | tuple[str, ...], *, action_path: str, timeout: int = 20,
     time_limit: int = 14400,
