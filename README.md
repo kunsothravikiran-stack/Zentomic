@@ -168,6 +168,24 @@ integer. Booleans are rejected. Defaults are a 1 ms minimum and no reserve.
 Invalid limits raise `ValueError` even after expiry. Exact integer arithmetic
 is used without rounding up or resetting the original deadline.
 
+For an operation accepting only whole seconds, set `granularity_ms=1000`:
+
+```python
+timeout_ms = resolve_operation_timeout(
+    deadline_ms=601_000, now_ms=598_000,
+    maximum_ms=5_000, minimum_ms=1_000, reserve_ms=500,
+    granularity_ms=1_000,
+)
+assert timeout_ms == 2_000
+timeout_seconds = timeout_ms // 1_000  # Only convert after checking for None.
+```
+
+The positive-integer granularity defaults to 1 ms, preserving existing behavior.
+The helper rounds down after applying both the maximum and reserve, then checks
+the minimum again. It returns `None`, never zero, if no usable multiple fits,
+even when unrounded time met the minimum. Limits need not be exact multiples.
+The result remains milliseconds; granularity does not change the return unit.
+
 The adapter must actually apply the returned timeout, recheck on retries, and
 include any delay before execution in its margin. This pure helper neither
 cancels work nor guarantees cleanup fits in the reserve. Convert units without

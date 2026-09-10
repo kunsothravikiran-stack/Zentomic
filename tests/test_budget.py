@@ -10,6 +10,46 @@ from zentomic.twiml import render_hangup
 
 
 class CallBudgetTests(unittest.TestCase):
+    def test_operation_timeout_rounds_down_after_cap_and_reserve(self):
+        for remaining, maximum, expected in (
+            (10_000, 5500, 5000), (5999, 10_000, 5000),
+            (1499, 10_000, None), (1500, 10_000, 1000),
+        ):
+            with self.subTest(remaining=remaining, maximum=maximum):
+                self.assertEqual(resolve_operation_timeout(
+                    deadline_ms=10_000, now_ms=10_000 - remaining,
+                    maximum_ms=maximum, reserve_ms=500, granularity_ms=1000,
+                ), expected)
+
+    def test_quantized_timeout_must_still_meet_the_minimum(self):
+        for remaining, maximum, expected in (
+            (1999, 5000, None), (2000, 5000, 2000), (5000, 1999, None),
+        ):
+            with self.subTest(remaining=remaining, maximum=maximum):
+                self.assertEqual(resolve_operation_timeout(
+                    deadline_ms=remaining, now_ms=0, maximum_ms=maximum,
+                    minimum_ms=1500, granularity_ms=1000,
+                ), expected)
+
+    def test_timeout_granularity_is_strict_even_after_expiry(self):
+        for value in (None, True, False, 0, -1, 1.0, float("nan"),
+                      float("inf"), "synthetic-private-value", [], {}):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError) as caught:
+                    resolve_operation_timeout(deadline_ms=0, now_ms=0,
+                                              maximum_ms=1000, granularity_ms=value)
+                self.assertNotIn("synthetic-private-value", str(caught.exception))
+
+    def test_timeout_granularity_preserves_integer_precision_and_defaults(self):
+        self.assertEqual(resolve_operation_timeout(
+            deadline_ms=10**20 + 1999, now_ms=0, maximum_ms=10**21,
+            granularity_ms=1000,
+        ), 10**20 + 1000)
+        for remaining in (0, 1, 999, 1000, 5001):
+            kwargs = dict(deadline_ms=remaining, now_ms=0, maximum_ms=5000)
+            self.assertEqual(resolve_operation_timeout(**kwargs),
+                             resolve_operation_timeout(**kwargs, granularity_ms=1))
+
     def test_operation_timeout_caps_and_reserves_remaining_budget(self):
         for remaining, expected in ((6000, 3000), (4000, 3000),
                                     (3999, 2999), (2000, 1000),

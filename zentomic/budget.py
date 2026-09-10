@@ -43,18 +43,21 @@ def resolve_call_budget(
 
 def resolve_operation_timeout(
     *, deadline_ms: int, now_ms: int, maximum_ms: int,
-    minimum_ms: int = 1, reserve_ms: int = 0,
+    minimum_ms: int = 1, reserve_ms: int = 0, granularity_ms: int = 1,
 ) -> int | None:
     """Compute an operation's timeout within the remaining call budget.
 
     Return None when less than minimum_ms remains after reserving reserve_ms
-    for cleanup/transport. Otherwise cap the usable time at maximum_ms. All
+    for cleanup/transport. Cap the usable time at maximum_ms, then round down
+    to a multiple of granularity_ms. Return None if that falls below minimum_ms.
+    The result is still in milliseconds, never a count of timeout units. All
     limits are trusted integer milliseconds, not caller/model configuration.
     This does not reserve time in storage or enforce a timeout: an adapter must
     apply the result to its operation and recheck the fixed deadline on retry.
     Never round up when converting to a dependency's coarser timeout units.
     """
-    for name, value in (("maximum_ms", maximum_ms), ("minimum_ms", minimum_ms)):
+    for name, value in (("maximum_ms", maximum_ms), ("minimum_ms", minimum_ms),
+                        ("granularity_ms", granularity_ms)):
         if type(value) is not int or value < 1:
             raise ValueError(f"{name} must be a positive integer")
     if type(reserve_ms) is not int or reserve_ms < 0:
@@ -68,4 +71,6 @@ def resolve_operation_timeout(
     )
     if budget.action == "hangup":
         return None
-    return min(maximum_ms, budget.remaining_ms - reserve_ms)
+    usable_ms = min(maximum_ms, budget.remaining_ms - reserve_ms)
+    timeout_ms = (usable_ms // granularity_ms) * granularity_ms
+    return timeout_ms if timeout_ms >= minimum_ms else None
