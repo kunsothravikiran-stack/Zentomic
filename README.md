@@ -99,6 +99,36 @@ atomically deduplicate them, and persist the returned count in trusted,
 workspace-scoped call-session state. Do not accept attempt counts from callers
 or reset them on each callback. Transport errors are not collection attempts.
 
+### Whole-call deadline admission
+
+Per-step retries do not bound the total time spent across speech, confirmation,
+and forwarding. `resolve_call_budget` checks one fixed deadline shared by those
+steps without reading a clock or contacting a service:
+
+```python
+from zentomic.budget import resolve_call_budget
+
+# Synthetic millisecond timestamps in the same clock domain.
+# A future adapter persists the deadline once when the call session starts.
+decision = resolve_call_budget(deadline_ms=601_000, now_ms=501_000)
+assert (decision.action, decision.remaining_ms) == ("continue", 100_000)
+assert resolve_call_budget(deadline_ms=601_000, now_ms=601_000).action == "hangup"
+```
+
+At or after the deadline, the immutable result is `hangup` with zero remaining
+milliseconds, never a human fallback that could prolong the session. Both inputs
+must be nonnegative integers; booleans, floats, and strings are rejected. There
+is no default duration or product-plan policy. Use a trusted current clock and
+a deadline from authorized session state, never caller/model fields. Do not
+reset the deadline on retries, step transitions, or fallback.
+
+A future adapter must check before admitting each operation and persist a
+terminal outcome before returning `render_hangup()`. This is only admission:
+it does not stop an active Gather, Dial, or model request, schedule a timer,
+enforce a billing cap, or prevent replay. Operation-specific timeouts still
+need to account for the remaining budget. Clock rollback can extend admission;
+clock consistency and durable terminal-state handling remain adapter concerns.
+
 ### Offline TwiML collection renderer
 
 `render_dtmf_gather` serializes a single hosted menu response without contacting
@@ -614,6 +644,7 @@ transcripts and share the same fake-authentication and persistence limitations.
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
+- `zentomic/budget.py`: fixed whole-call deadline admission with injected timestamps.
 - `zentomic/speech.py`: bounded speech result admission before classification.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
@@ -626,6 +657,7 @@ transcripts and share the same fake-authentication and persistence limitations.
 - `tests/test_handler.py`: offline standard-library unit tests.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
+- `tests/test_budget.py`: shared deadlines, exact boundaries, and offline validation.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_intent_confirmation.py`: bounded keypad confirmation and renderer composition.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
