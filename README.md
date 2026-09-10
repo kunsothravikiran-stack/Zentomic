@@ -190,6 +190,34 @@ This helper does not validate the path, authenticate the sender, or expose a
 voice route: signature validation and workspace/session checks remain required
 before acting on its result. The existing health handler is unchanged.
 
+### Injected webhook signature gate
+
+`zentomic.authentication.validate_form_event(event, public_url=..., validator=...)`
+wraps transport parsing with a required signature-validation dependency. Inject
+a bound `twilio.request_validator.RequestValidator(...).validate` method from
+trusted application setup, configured with the expected account's auth token.
+Twilio recommends its [SDK validator](https://www.twilio.com/docs/usage/security#validating-requests);
+this repository does not implement its own signature algorithm or install the SDK.
+
+The gate passes the exact configured HTTPS public URL, every decoded form field,
+and the `X-Twilio-Signature` value to the validator. Preserve the public path and
+original query string; never derive the URL or expected account from untrusted
+Host/forwarded headers or caller fields. Credentials and fragments in the URL
+are rejected. Account selection and secret loading remain adapter responsibilities.
+
+Missing, malformed, duplicate, or conflicting signatures fail closed. Header
+names are case-insensitive; an exact v1 single/multivalue mirror is accepted.
+Only a validator result of boolean `True` releases the fields. False, truthy
+non-booleans, and validator exceptions raise `ValueError` without exposing
+dependency error details. Invalid transport never reaches the validator.
+
+Tests inject synthetic validators, not real credentials. They exercise gate
+behavior only, not cryptographic correctness or live SDK compatibility. This
+does not expose an authenticated endpoint. Production integration still needs
+the SDK, trusted configuration, signature integration tests, workspace/session
+authorization, and atomic callback deduplication. A valid signature alone does
+not prevent replay. Do not route or consume attempts until all checks succeed.
+
 ### Confirmed intent routing
 
 `resolve_intent` accepts an intent label from a future classifier and selects
@@ -251,6 +279,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `zentomic/twiml.py`: offline, XML-safe collection and terminal response rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
+- `zentomic/authentication.py`: dependency-injected form webhook signature gate.
 - `zentomic/__main__.py`: credential-free local smoke check.
 - `tests/test_handler.py`: offline standard-library unit tests.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
@@ -259,6 +288,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 - `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
+- `tests/test_authentication.py`: signature gate, dependency failures, and privacy.
 
 ## Development boundaries
 
@@ -267,7 +297,8 @@ numbers, call transcripts, and customer data. Use synthetic fixtures only.
 Local `.env` files are ignored and are not loaded by the scaffold.
 
 Future increments can add mocked service adapters, call-session state, and
-webhook validation. Authentication, workspace isolation, Twilio signature
+webhook validation. The signature gate has no configured production validator;
+end-to-end authentication, workspace isolation, cryptographic signature
 verification, persistence, and deployment are not implemented. Do not connect
 this scaffold to real call traffic until those boundaries are designed and
 tested. Do not add automatic deployments or paid service calls as part of
