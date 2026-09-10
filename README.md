@@ -122,6 +122,23 @@ is no default duration or product-plan policy. Use a trusted current clock and
 a deadline from authorized session state, never caller/model fields. Do not
 reset the deadline on retries, step transitions, or fallback.
 
+For a step that needs a minimum amount of time, supply a trusted
+`minimum_remaining_ms` threshold, including any safety margin:
+
+```python
+decision = resolve_call_budget(
+    deadline_ms=601_000, now_ms=598_000, minimum_remaining_ms=5_000,
+)
+assert (decision.action, decision.remaining_ms) == ("hangup", 3_000)
+```
+
+The threshold must be a positive integer, not a boolean, float, or request
+field. Exactly enough time permits `continue`; less time selects `hangup`
+even before expiry. The default of 1 millisecond preserves deadline-only
+admission. `remaining_ms` always reports actual time left, so adapters must
+check `action`, not just whether the remaining time is positive. This does not
+reserve or deduct time, guarantee completion, or enforce an operation timeout.
+
 A future adapter must check before admitting each operation and persist a
 terminal outcome before returning `render_hangup()`. This is only admission:
 it does not stop an active Gather, Dial, or model request, schedule a timer,

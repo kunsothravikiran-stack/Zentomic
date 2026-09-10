@@ -22,6 +22,50 @@ class CallBudgetTests(unittest.TestCase):
         self.assertEqual(resolve_call_budget(deadline_ms=10**20 + 1, now_ms=10**20),
                          CallBudget("continue", 1))
 
+    def test_step_reserve_boundary_preserves_actual_remaining_time(self):
+        for remaining, action in ((4999, "hangup"), (5000, "continue"),
+                                  (5001, "continue"), (0, "hangup")):
+            with self.subTest(remaining=remaining):
+                self.assertEqual(resolve_call_budget(
+                    deadline_ms=10_000, now_ms=10_000 - remaining,
+                    minimum_remaining_ms=5000,
+                ), CallBudget(action, remaining))
+
+    def test_step_reserves_share_the_original_deadline(self):
+        deadline = 10**20
+        self.assertEqual(resolve_call_budget(
+            deadline_ms=deadline, now_ms=deadline - 6000,
+            minimum_remaining_ms=5000,
+        ), CallBudget("continue", 6000))
+        # A later operation cannot restart the deadline to obtain its reserve.
+        self.assertEqual(resolve_call_budget(
+            deadline_ms=deadline, now_ms=deadline - 4000,
+            minimum_remaining_ms=5000,
+        ), CallBudget("hangup", 4000))
+        self.assertEqual(resolve_call_budget(
+            deadline_ms=deadline, now_ms=deadline + 1,
+            minimum_remaining_ms=5000,
+        ), CallBudget("hangup", 0))
+
+    def test_step_reserve_must_be_positive_integer_even_after_expiry(self):
+        for value in (None, True, False, 0, -1, 1.0, float("nan"),
+                      float("inf"), "synthetic-private-value", [], {}):
+            for now in (0, 1000):
+                with self.subTest(value=value, now=now):
+                    with self.assertRaises(ValueError) as caught:
+                        resolve_call_budget(deadline_ms=1000, now_ms=now,
+                                            minimum_remaining_ms=value)
+                    self.assertNotIn("synthetic-private-value", str(caught.exception))
+
+    def test_explicit_default_reserve_preserves_existing_behavior(self):
+        for deadline, now in ((0, 0), (1, 0), (100, 99), (100, 101)):
+            with self.subTest(deadline=deadline, now=now):
+                self.assertEqual(
+                    resolve_call_budget(deadline_ms=deadline, now_ms=now),
+                    resolve_call_budget(deadline_ms=deadline, now_ms=now,
+                                        minimum_remaining_ms=1),
+                )
+
     def test_shared_deadline_does_not_restart_between_steps(self):
         # One trusted deadline covers collection, classification, confirmation,
         # and fallback. These labels describe a synthetic adapter's checkpoints.
