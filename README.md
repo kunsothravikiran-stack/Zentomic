@@ -189,6 +189,41 @@ confirmation before forwarding. This renderer does not implement that flow,
 transcription, storage, consent handling, or production speech integration.
 Generating XML is offline; executing speech collection with a provider is not.
 
+### Bounded speech result admission
+
+`resolve_speech_gather` applies a finite collection budget before a future
+classifier receives text. It does not call a model or select an intent:
+
+```python
+from zentomic.speech import resolve_speech_gather
+
+decision = resolve_speech_gather(
+    "I need billing help", fallback_target="reception", attempts=0,
+)
+assert (decision.action, decision.transcript, decision.attempts) == (
+    "classify", "I need billing help", 1,
+)
+assert decision.target is None
+```
+
+Supply `SpeechResult` only after authenticating and binding the callback to
+the current speech step. Missing, non-string, blank, or oversized text retries
+within the budget, then falls back to the configured human target. The fixed
+`MAX_TRANSCRIPT_CHARS` limit is 2000 Unicode characters, including surrounding
+whitespace, not bytes or model tokens. Accepted text is preserved unchanged.
+Every completed collection consumes one attempt. Valid text on the last
+attempt can still be classified; an already exhausted budget always falls
+back without incrementing. Counts and fallback configuration follow
+`resolve_gather` validation. Retry/fallback decisions contain no transcript.
+
+`classify` is permission to proceed to a separately configured classifier,
+not confirmation or authorization to dial. Text remains untrusted, including
+instructions embedded in speech. Classifier output must still pass the
+allowlisted intent and caller-confirmation policies. A future adapter must
+atomically deduplicate and persist the decision before model calls or retries;
+never take the attempt count from callback fields or reset it on each request.
+This helper neither persists state nor enforces model costs or whole-call limits.
+
 ### Offline forwarding renderer
 
 `render_dial(numbers, action_path=..., timeout=20, time_limit=14400)` serializes one `Dial` with
@@ -510,6 +545,7 @@ workspace authorization, current-step binding, or replay prevention.
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
+- `zentomic/speech.py`: bounded speech result admission before classification.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/twiml.py`: offline collection, forwarding, and terminal response rendering.
@@ -524,6 +560,7 @@ workspace authorization, current-step binding, or replay prevention.
 - `tests/test_intent_confirmation.py`: bounded keypad confirmation and renderer composition.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
+- `tests/test_speech.py`: speech budgets, text limits, and confirmation separation.
 - `tests/test_dial.py`: forwarding structure, destination validation, and offline safety.
 - `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.

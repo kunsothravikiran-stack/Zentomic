@@ -1,0 +1,46 @@
+"""Offline, bounded admission of speech results to a future intent classifier."""
+
+from dataclasses import dataclass
+from typing import Literal
+
+from zentomic.gather import resolve_gather
+
+
+MAX_TRANSCRIPT_CHARS = 2000
+
+
+@dataclass(frozen=True)
+class SpeechDecision:
+    """Next action, optional transcript/target, and completed collection count."""
+
+    action: Literal["classify", "retry", "fallback"]
+    transcript: str | None
+    target: str | None
+    attempts: int
+
+
+def resolve_speech_gather(
+    speech: str | None, *, fallback_target: str, attempts: int, max_attempts: int = 3,
+) -> SpeechDecision:
+    """Admit bounded nonblank text, or retry silence within a trusted budget.
+
+    Reuse the keypad collection budget and configuration validation. Missing,
+    malformed, blank, or oversized results consume one attempt but never reach
+    a classifier. The 2000-character limit applies before whitespace trimming;
+    accepted text is returned unchanged. Valid text on the last attempt may
+    be classified, but an already exhausted budget always falls back.
+
+    Input must come from an authenticated callback bound to this speech step.
+    Persist/deduplicate the decision before classification or reprompting.
+    Text is still untrusted: this is not prompt-injection protection, intent
+    classification, confirmation, authorization, or a model token/cost limit.
+    """
+    budget = resolve_gather(
+        None, {}, fallback_target=fallback_target,
+        attempts=attempts, max_attempts=max_attempts,
+    )
+    if (attempts < max_attempts and isinstance(speech, str)
+            and len(speech) <= MAX_TRANSCRIPT_CHARS and speech.strip()):
+        return SpeechDecision("classify", speech, None, budget.attempts)
+    action = "retry" if budget.action == "retry" else "fallback"
+    return SpeechDecision(action, None, budget.target, budget.attempts)
