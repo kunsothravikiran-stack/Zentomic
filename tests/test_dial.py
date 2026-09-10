@@ -21,6 +21,7 @@ class DialTests(unittest.TestCase):
         self.assertEqual([child.tag for child in root], ["Dial"])
         self.assertEqual(root[0].attrib, {
             "action": "/voice/dial-result", "method": "POST", "timeout": "20",
+            "timeLimit": "14400",
             "sequential": "false", "record": "do-not-record",
         })
         self.assertEqual([child.tag for child in root[0]], ["Number"])
@@ -72,6 +73,38 @@ class DialTests(unittest.TestCase):
                      "/result\n", '/result" method="GET'):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 self.render(action_path=path)
+
+    def test_connected_duration_limit_bounds_and_types(self):
+        for limit in (1, 600, 14400):
+            with self.subTest(limit=limit):
+                dial = fromstring(self.render(time_limit=limit))[0]
+                self.assertEqual(dial.get("timeLimit"), str(limit))
+        for limit in (0, -1, 14401, 86400, True, False, 600.0, "600", None,
+                      [], {}, float("nan"), float("inf"), "private-limit"):
+            with self.subTest(limit=limit), self.assertRaises(ValueError) as caught:
+                self.render(time_limit=limit)
+            self.assertEqual(
+                str(caught.exception),
+                "time_limit must be an integer from 1 to 14400 seconds",
+            )
+
+    def test_connected_duration_and_ringing_timeout_are_independent(self):
+        for timeout, limit in ((60, 1), (5, 14400), (20, 600)):
+            with self.subTest(timeout=timeout, limit=limit):
+                dial = fromstring(self.render(timeout=timeout, time_limit=limit))[0]
+                self.assertEqual(dial.get("timeout"), str(timeout))
+                self.assertEqual(dial.get("timeLimit"), str(limit))
+                self.assertEqual(dial.get("action"), "/voice/dial-result")
+                self.assertEqual(dial.get("method"), "POST")
+                self.assertEqual(dial.get("record"), "do-not-record")
+
+    def test_one_duration_limit_applies_to_simultaneous_dial(self):
+        numbers = [f"+1202555010{i}" for i in range(10)]
+        dial = fromstring(self.render(numbers, time_limit=600))[0]
+        self.assertEqual(dial.get("timeLimit"), "600")
+        self.assertEqual(dial.get("sequential"), "false")
+        self.assertEqual([child.text for child in dial], numbers)
+        self.assertTrue(all(child.attrib == {} for child in dial))
 
     def test_errors_do_not_echo_destinations(self):
         for numbers in (["SyntheticPrivateDestination"], ["+12025550100"] * 2):

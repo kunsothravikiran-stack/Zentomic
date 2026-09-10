@@ -133,7 +133,7 @@ the renderer neither verifies caller intent nor changes persisted session state.
 
 ### Offline forwarding renderer
 
-`render_dial(numbers, action_path=..., timeout=20)` serializes one `Dial` with
+`render_dial(numbers, action_path=..., timeout=20, time_limit=14400)` serializes one `Dial` with
 1-10 unique `Number` children. Supply a list or tuple of already authorized,
 workspace-resolved phone destinations, not the opaque identifiers returned by
 the routing helpers. Values must have E.164-style syntax: `+`, a nonzero first
@@ -150,6 +150,29 @@ Dial outcome, including no-answer/busy/failure, before deciding what happens nex
 The project accepts integer ringing timeouts of 5-60 seconds (default 20).
 This is not a conversation-duration or billing cap; Twilio also adds a ringing
 buffer. See the [Dial reference](https://www.twilio.com/docs/voice/twiml/dial).
+
+Use `time_limit` to bound the connected duration of each Dial separately from
+ringing. It emits Twilio's `timeLimit` attribute and accepts integers from 1 to
+14400 seconds; booleans, floats, strings, and `None` are rejected. The default
+explicitly preserves Twilio's standard four-hour limit. For example:
+
+```python
+from zentomic.twiml import render_dial
+
+xml = render_dial(
+    ["+12025550100"],  # Fictional fixture, not a real destination.
+    action_path="/voice/dial-result", timeout=20, time_limit=600,
+)
+```
+
+This requests a ten-minute connected limit for this forwarding step, following
+the [Twilio timeLimit contract](https://www.twilio.com/docs/voice/twiml/dial#timelimit).
+Longer account-specific limits are intentionally unsupported. Supply the limit
+from trusted workspace policy, not caller/model input. It does not cap the
+parent call, menu time, later fallback attempts, or charges. A future adapter
+must track the remaining session budget across steps, terminate on exhaustion,
+and handle the authenticated Dial action callback. Serialization alone does
+not enforce a live limit or verify provider behavior.
 
 This is XML serialization only: it does not send TwiML, expose a voice endpoint,
 load numbers, or make calls. Use only trusted application configuration. A live

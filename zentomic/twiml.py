@@ -53,13 +53,15 @@ def render_dtmf_gather(prompt: str, *, action_path: str, timeout: int = 5) -> st
 
 def render_dial(
     numbers: list[str] | tuple[str, ...], *, action_path: str, timeout: int = 20,
+    time_limit: int = 14400,
 ) -> str:
     """Serialize simultaneous forwarding to 1-10 trusted phone destinations.
 
     Numbers must already be resolved and authorized within the call workspace.
     This checks E.164-style syntax only, not assignment, ownership, or safety.
     No caller/model-supplied destinations, SDK calls, or endpoint are provided.
-    timeout bounds ringing, not conversation length or provider billing.
+    timeout bounds ringing; time_limit bounds this Dial's connected duration.
+    Neither setting is a whole-session budget or a provider billing cap.
     """
     if not isinstance(numbers, (list, tuple)) or not 1 <= len(numbers) <= 10:
         raise ValueError("numbers must be a list or tuple of 1 to 10 destinations")
@@ -72,10 +74,13 @@ def render_dial(
     _validate_action_path(action_path)
     if type(timeout) is not int or not 5 <= timeout <= 60:
         raise ValueError("timeout must be an integer from 5 to 60 seconds")
+    if type(time_limit) is not int or not 1 <= time_limit <= 14400:
+        raise ValueError("time_limit must be an integer from 1 to 14400 seconds")
 
     response = Element("Response")
     dial = SubElement(response, "Dial", {
         "action": action_path, "method": "POST", "timeout": str(timeout),
+        "timeLimit": str(time_limit),
         "sequential": "false", "record": "do-not-record",
     })
     for number in destinations:
