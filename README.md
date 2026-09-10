@@ -159,6 +159,41 @@ caller/model-supplied phone numbers directly to this renderer. Output contains
 destinations, so do not log it with real configuration. Hosted webhook responses
 only; inline Calls API TwiML remains unsupported.
 
+### Bounded forwarding outcomes
+
+`resolve_dial_result` supplies an offline policy for the Number forwarding
+renderer above:
+
+```python
+from zentomic.dial import resolve_dial_result
+
+decision = resolve_dial_result(
+    "no-answer", fallback_target="reception", fallback_used=False,
+)
+assert (decision.action, decision.target) == ("fallback", "reception")
+```
+
+Pass authenticated `DialCallStatus`, not the parent `CallStatus` or a Number
+status-callback event. The supported values follow the
+[Twilio Dial action contract](https://www.twilio.com/docs/voice/twiml/dial#dialcallstatus):
+`busy`, `no-answer`, and `failed` select the configured fallback once;
+`completed` and `canceled` select `hangup` with no target. This is Zentomic's
+policy, not a provider-mandated next action. Once `fallback_used=True`, failures
+also select `hangup`, preventing repeated forwarding through this policy.
+Missing, malformed, unknown, and Conference-only `answered` statuses raise
+`ValueError` without echoing input. Values are not normalized. The fallback
+must be a nonblank opaque identifier and the state flag must be an actual
+boolean, even for terminal outcomes. Decisions are immutable.
+
+An adapter must authenticate and bind the callback to the current call and
+expected dial step, authorize the fallback within that workspace, and atomically
+deduplicate the callback and mark fallback as used **before** executing it.
+Load this flag from trusted session state, never the callback; do not reset it
+between attempts. These guarantees are not implemented by this pure helper.
+Do not apply this Number-only policy to conferences or child status callbacks.
+A `hangup` decision can use `render_hangup`; a `fallback` decision still needs
+authorized target resolution. No endpoint, persistence, or real call is added.
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:
@@ -334,6 +369,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
+- `zentomic/dial.py`: one-fallback Number dial outcome policy.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/twiml.py`: offline collection, forwarding, and terminal response rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
@@ -346,6 +382,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_dial.py`: forwarding structure, destination validation, and offline safety.
+- `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 - `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
 - `tests/test_authentication.py`: signature gate, dependency failures, and privacy.
