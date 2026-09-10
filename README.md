@@ -72,6 +72,27 @@ exhausted budget always falls back and leaves the count unchanged. Counts must
 be nonnegative integers and the maximum must be a positive integer (default 3);
 booleans are rejected. All menu configuration is validated even after exhaustion.
 
+An optional `hangup_digit` lets callers explicitly end an active menu:
+
+```python
+decision = resolve_gather(
+    "9", {"0": "reception", "1": "sales"},
+    fallback_target="reception", attempts=0, hangup_digit="9",
+)
+assert (decision.action, decision.target, decision.attempts) == ("hangup", None, 1)
+```
+
+The default `None` leaves all existing routing behavior unchanged. A configured
+hangup key must be an unused single ASCII digit from `0` through `9`; overlap
+with a route is an error, not a precedence rule. Input matches exactly without
+normalization. Hangup consumes one attempt, including on the last allowed
+collection. An already exhausted budget still falls back without incrementing
+or acting on the digit. Invalid configuration is rejected in either case.
+Use trusted menu configuration and mention the exit key in the collection
+prompt. For `hangup`, a future adapter must persist the terminal decision and
+return `render_hangup()` (described below), never reprompt or dial the fallback.
+This decision alone does not end a real call or provide replay protection.
+
 This helper does not expose an endpoint, generate TwiML, or persist state.
 Before using it with real traffic, an adapter must authenticate callbacks,
 atomically deduplicate them, and persist the returned count in trusted,
@@ -128,6 +149,8 @@ attribute-free `Hangup` is always the final top-level verb, following the
 Unlike `Reject`, `Hangup` does not prevent answering a call or provider billing.
 Rendering remains fully offline. This does not change routing: `fallback`
 still selects its configured target, and no digit implicitly ends a call.
+Only an explicitly configured `resolve_gather(..., hangup_digit=...)` opts
+into the separate terminal decision described above.
 A future authenticated adapter must decide when termination is appropriate;
 the renderer neither verifies caller intent nor changes persisted session state.
 
