@@ -565,6 +565,33 @@ the full offline suite. Explicit discovery with `python -m unittest discover
 
 The future Lambda entry point is `zentomic.handler.lambda_handler`.
 
+### Optional local package installation
+
+`pyproject.toml` makes the scaffold installable so its helpers and
+`python -m zentomic` can be used outside the repository directory. Runtime
+dependencies remain empty; the root-based test and smoke commands above still
+require no installation. Packaging uses
+[setuptools configuration](https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html).
+
+For editable development in an activated virtual environment, run
+`python -m pip install -e .` from the repository root. This may download build
+tools, but does not contact AWS, Twilio, or OpenAI. For an offline wheel build,
+use an environment with pip, setuptools 68 or newer, and wheel already installed:
+
+```sh
+python -m pip wheel --no-index --no-deps --no-build-isolation --wheel-dir dist .
+python -m pip install --no-index --no-deps dist/zentomic-0.1.0-py3-none-any.whl
+```
+
+The wheel includes only the `zentomic` package and distribution metadata, not
+the test package or local configuration files. Keep running the test suite
+from the repository root. Building or installing locally does not publish a
+package or produce a deployable Lambda bundle; there is no release or
+deployment automation. Version `0.1.0` identifies this offline scaffold, not
+the production service.
+
+### Cross-module tests
+
 `tests/test_voice_flow.py` exercises the offline cross-module contract: a
 synthetic authenticated callback, bounded confirmation, forwarding XML, and a
 terminal outcome, including the one-fallback limit. It covers both proxy

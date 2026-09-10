@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zentomic"
+version = "0.1.0"
+description = "Offline business IVR and AI call routing primitives"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/kunsothravikiran-stack/Zentomic"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["zentomic", "zentomic.*"]
+namespaces = false
