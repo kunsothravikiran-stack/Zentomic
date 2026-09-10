@@ -5,11 +5,65 @@ import unittest
 from unittest.mock import patch
 from xml.etree.ElementTree import fromstring
 
-from zentomic.budget import CallBudget, resolve_call_budget
+from zentomic.budget import CallBudget, resolve_call_budget, resolve_operation_timeout
 from zentomic.twiml import render_hangup
 
 
 class CallBudgetTests(unittest.TestCase):
+    def test_operation_timeout_caps_and_reserves_remaining_budget(self):
+        for remaining, expected in ((6000, 3000), (4000, 3000),
+                                    (3999, 2999), (2000, 1000),
+                                    (1999, None), (1000, None), (0, None), (-1, None)):
+            with self.subTest(remaining=remaining):
+                self.assertEqual(resolve_operation_timeout(
+                    deadline_ms=10_000, now_ms=10_000 - remaining,
+                    maximum_ms=3000, minimum_ms=1000, reserve_ms=1000,
+                ), expected)
+
+    def test_operation_timeout_defaults_and_large_integer_precision(self):
+        self.assertEqual(resolve_operation_timeout(
+            deadline_ms=10**20 + 1, now_ms=10**20, maximum_ms=1000,
+        ), 1)
+        self.assertIsNone(resolve_operation_timeout(
+            deadline_ms=0, now_ms=0, maximum_ms=1000,
+        ))
+
+    def test_operation_limits_are_validated_even_after_expiry(self):
+        for name in ("maximum_ms", "minimum_ms", "reserve_ms"):
+            invalid = (None, True, False, -1, 1.0, float("nan"),
+                       float("inf"), "synthetic-private-value", [], {})
+            if name != "reserve_ms":
+                invalid += (0,)
+            for value in invalid:
+                with self.subTest(name=name, value=value):
+                    with self.assertRaises(ValueError) as caught:
+                        resolve_operation_timeout(**{
+                            "deadline_ms": 0, "now_ms": 0, "maximum_ms": 1000,
+                            name: value,
+                        })
+                    self.assertNotIn("synthetic-private-value", str(caught.exception))
+        with self.assertRaises(ValueError):
+            resolve_operation_timeout(deadline_ms=0, now_ms=0,
+                                      maximum_ms=999, minimum_ms=1000)
+
+    def test_operation_timeout_reuses_strict_timestamp_validation(self):
+        for name in ("deadline_ms", "now_ms"):
+            for value in (None, True, -1, 1.0, "1000", [], {}):
+                with self.subTest(name=name, value=value), self.assertRaises(ValueError):
+                    resolve_operation_timeout(**{
+                        "deadline_ms": 0, "now_ms": 0, "maximum_ms": 1000,
+                        name: value,
+                    })
+
+    def test_operation_timeout_shrinks_without_resetting_the_deadline(self):
+        with patch("time.time", side_effect=AssertionError("Clock must be injected")), patch(
+            "socket.socket", side_effect=AssertionError("Network forbidden")
+        ):
+            results = [resolve_operation_timeout(
+                deadline_ms=10_000, now_ms=now, maximum_ms=5000, reserve_ms=500,
+            ) for now in (0, 6000, 9499, 9500)]
+        self.assertEqual(results, [5000, 3500, 1, None])
+
     def test_exact_deadline_and_later_are_terminal(self):
         for now in (999, 1000, 1001, 10**20):
             with self.subTest(now=now):

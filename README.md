@@ -146,6 +146,35 @@ enforce a billing cap, or prevent replay. Operation-specific timeouts still
 need to account for the remaining budget. Clock rollback can extend admission;
 clock consistency and durable terminal-state handling remain adapter concerns.
 
+For operations accepting a millisecond timeout, `resolve_operation_timeout`
+caps the configured maximum against this same deadline, leaving an optional
+cleanup/transport margin:
+
+```python
+from zentomic.budget import resolve_operation_timeout
+
+timeout_ms = resolve_operation_timeout(
+    deadline_ms=601_000, now_ms=598_000,
+    maximum_ms=5_000, minimum_ms=1_000, reserve_ms=500,
+)
+assert timeout_ms == 2_500
+```
+
+It returns `None` when the remaining time minus the reserve is below the
+minimum, including at expiry. Do not start the operation in that case; follow
+the terminal path. The minimum and maximum must be positive integer
+milliseconds with minimum <= maximum; the reserve must be a nonnegative
+integer. Booleans are rejected. Defaults are a 1 ms minimum and no reserve.
+Invalid limits raise `ValueError` even after expiry. Exact integer arithmetic
+is used without rounding up or resetting the original deadline.
+
+The adapter must actually apply the returned timeout, recheck on retries, and
+include any delay before execution in its margin. This pure helper neither
+cancels work nor guarantees cleanup fits in the reserve. Convert units without
+rounding up; if a provider's minimum or granularity cannot fit, skip the work.
+It is not a direct Gather/Dial wall-clock guarantee: those verbs have separate
+timing semantics. No SDK integration, timer, or active cancellation is added.
+
 ### Offline TwiML collection renderer
 
 `render_dtmf_gather` serializes a single hosted menu response without contacting
