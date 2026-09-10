@@ -1,6 +1,6 @@
 """Offline, bounded admission of speech results to a future intent classifier."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from zentomic.gather import resolve_gather
@@ -11,10 +11,14 @@ MAX_TRANSCRIPT_CHARS = 2000
 
 @dataclass(frozen=True)
 class SpeechDecision:
-    """Next action, optional transcript/target, and completed collection count."""
+    """Next action, optional transcript/target, and completed collection count.
+
+    Omit caller text from repr/str to reduce accidental diagnostic disclosure.
+    Explicit transcript access and serialization still require privacy controls.
+    """
 
     action: Literal["classify", "retry", "fallback"]
-    transcript: str | None
+    transcript: str | None = field(repr=False)
     target: str | None
     attempts: int
 

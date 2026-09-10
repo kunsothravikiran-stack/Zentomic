@@ -20,6 +20,26 @@ class SpeechDecisionTests(unittest.TestCase):
             with self.subTest(speech=speech):
                 self.assertEqual(self.decide(speech), SpeechDecision("classify", speech, None, 1))
 
+    def test_representations_do_not_expose_admitted_transcripts(self):
+        speech = "Synthetic private caller statement"
+        decision = self.decide(speech)
+        for rendered in (repr(decision), str(decision), f"{decision!r}",
+                         repr({"decision": decision}), repr([decision])):
+            with self.subTest(rendered=rendered):
+                self.assertNotIn(speech, rendered)
+                self.assertNotIn("transcript=", rendered)
+                self.assertIn("action='classify'", rendered)
+                self.assertIn("attempts=1", rendered)
+
+    def test_transcript_redaction_preserves_access_and_value_semantics(self):
+        decision = self.decide("Synthetic caller A")
+        self.assertEqual(decision.transcript, "Synthetic caller A")
+        self.assertEqual(decision, self.decide("Synthetic caller A"))
+        self.assertNotEqual(decision, self.decide("Synthetic caller B"))
+        self.assertEqual(hash(decision), hash(self.decide("Synthetic caller A")))
+        with self.assertRaises(FrozenInstanceError):
+            decision.transcript = "replacement"
+
     def test_missing_blank_and_malformed_results_retry_then_fall_back(self):
         for speech in (None, "", " \t\n", "\u2003", 1, True, [], {}, b"sales"):
             with self.subTest(speech=speech):

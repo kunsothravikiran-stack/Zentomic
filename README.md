@@ -251,6 +251,14 @@ attempt can still be classified; an already exhausted budget always falls
 back without incrementing. Counts and fallback configuration follow
 `resolve_gather` validation. Retry/fallback decisions contain no transcript.
 
+`SpeechDecision` omits its transcript from `repr` and `str`, including when a
+decision appears inside a list or dictionary, to reduce accidental disclosure
+in diagnostics. The original text remains available through `.transcript` for
+classification and still participates in equality. This is not general-purpose
+redaction: explicit attribute logging, `dataclasses.asdict`, and other object
+serialization can still expose caller text. Do not log or persist those without
+appropriate privacy controls.
+
 `classify` is permission to proceed to a separately configured classifier,
 not confirmation or authorization to dial. Text remains untrusted, including
 instructions embedded in speech. Classifier output must still pass the
