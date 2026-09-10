@@ -415,6 +415,16 @@ immediately fall back, including for `1`. Each completed collection increments
 the count once, unless the budget was already exhausted, in which case it
 always falls back without incrementing. All configuration is validated first.
 
+Pass `hangup_digit="9"` to optionally offer an explicit exit during confirmation.
+For a known pending intent with budget remaining, that exact digit returns
+`GatherDecision("hangup", None, attempts + 1)`, including on the last attempt.
+The key must be a single ASCII digit other than the reserved `1` and `2`;
+invalid keys are rejected even for unknown intents or exhausted budgets.
+The default `None` preserves existing behavior. Missing/unknown intents and
+exhausted budgets still fall back, even if the exit key was pressed. Mention
+the configured exit in the prompt, persist a `hangup` decision as terminal,
+and render `render_hangup()` without forwarding or collecting another digit.
+
 This is an offline policy, not proof that a real caller confirmed. A future
 adapter must authenticate the callback, bind it to the current confirmation
 step and its trusted pending intent, atomically deduplicate it, and persist the

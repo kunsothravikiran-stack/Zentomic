@@ -6,7 +6,7 @@ from unittest.mock import patch
 from xml.etree.ElementTree import fromstring
 
 from zentomic.intent import resolve_intent_confirmation
-from zentomic.twiml import render_dtmf_gather
+from zentomic.twiml import render_dtmf_gather, render_hangup
 
 
 class IntentConfirmationTests(unittest.TestCase):
@@ -60,6 +60,47 @@ class IntentConfirmationTests(unittest.TestCase):
     def test_confirmation_can_select_same_target_as_fallback(self):
         result = self.resolve("1", routes={"support": "team/Reception"})
         self.assertEqual((result.action, result.target), ("route", "team/Reception"))
+
+    def test_explicit_exit_consumes_one_attempt_without_a_destination(self):
+        for digit in "03456789":
+            for attempts in (0, 2):
+                with self.subTest(digit=digit, attempts=attempts):
+                    result = self.resolve(digit, hangup_digit=digit, attempts=attempts)
+                    self.assertEqual((result.action, result.target, result.attempts),
+                                     ("hangup", None, attempts + 1))
+
+    def test_exit_does_not_override_missing_intent_or_exhausted_budget(self):
+        for overrides, attempts in (({"intent": None}, 1), ({"routes": {}}, 1),
+                                    ({"intent": "unknown"}, 1), ({"attempts": 3}, 3)):
+            with self.subTest(overrides=overrides):
+                result = self.resolve("9", hangup_digit="9", **overrides)
+                self.assertEqual((result.action, result.target, result.attempts),
+                                 ("fallback", "team/Reception", attempts))
+
+    def test_exit_requires_an_exact_match_and_preserves_other_choices(self):
+        for digits in (9, "９", " 9", "9 ", "99", None):
+            with self.subTest(digits=digits):
+                self.assertEqual(self.resolve(digits, hangup_digit="9").action, "retry")
+        self.assertEqual(self.resolve("9").action, "retry")
+        self.assertEqual(self.resolve("9", hangup_digit=None).action, "retry")
+        self.assertEqual(self.resolve("1", hangup_digit="9").action, "route")
+        self.assertEqual(self.resolve("2", hangup_digit="9").action, "fallback")
+
+    def test_exit_configuration_always_rejects_reserved_or_invalid_keys(self):
+        for base in ({}, {"intent": None}, {"routes": {}}, {"attempts": 3}):
+            for digit in ("1", "2", "", "99", "９", "*", "#", " 9", 9, True, [], {}):
+                with self.subTest(base=base, digit=digit), self.assertRaises(ValueError):
+                    self.resolve("9", hangup_digit=digit, **base)
+
+    def test_retry_then_exit_composes_with_terminal_renderer_offline(self):
+        with patch.dict("os.environ", {}, clear=True), \
+                patch("socket.socket", side_effect=AssertionError("Network forbidden")):
+            retry = self.resolve(None, hangup_digit="9")
+            result = self.resolve("9", hangup_digit="9", attempts=retry.attempts)
+            self.assertEqual((result.action, result.target, result.attempts),
+                             ("hangup", None, 2))
+            root = fromstring(render_hangup())
+        self.assertEqual([child.tag for child in root], ["Hangup"])
 
     def test_custom_budget_and_unknown_intent_after_exhaustion(self):
         self.assertEqual(self.resolve(None, max_attempts=1).action, "fallback")

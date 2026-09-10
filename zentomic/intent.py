@@ -48,6 +48,7 @@ def resolve_intent_confirmation(
     fallback_target: str,
     attempts: int,
     max_attempts: int = 3,
+    hangup_digit: str | None = None,
 ) -> GatherDecision:
     """Resolve a bounded keypad confirmation for a trusted pending intent.
 
@@ -55,6 +56,8 @@ def resolve_intent_confirmation(
     Silence or invalid input retries within the existing collection budget.
     Missing/unknown intents and exhausted budgets always fall back. Every
     completed collection consumes an attempt unless already exhausted.
+    An optional ASCII digit other than 1 or 2 ends an active, known-intent
+    confirmation with no destination. It follows the same collection budget.
 
     The pending intent and attempt count must come from authenticated,
     workspace-scoped state for this exact confirmation step, not the webhook
@@ -66,8 +69,9 @@ def resolve_intent_confirmation(
     target = resolve_intent(intent, menu, fallback_target=fallback_target, confirmed=True)
     known = isinstance(intent, str) and intent in menu
     decision = resolve_gather(
-        digits, {"1": target, "2": fallback_target} if known else {},
+        digits, {"1": target, "2": fallback_target},
         fallback_target=fallback_target, attempts=attempts, max_attempts=max_attempts,
+        hangup_digit=hangup_digit,
     )
     if not known or digits == "2":
         return GatherDecision("fallback", fallback_target, decision.attempts)
