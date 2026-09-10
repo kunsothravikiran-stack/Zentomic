@@ -2,6 +2,8 @@
 
 from collections.abc import Mapping
 
+from zentomic.gather import GatherDecision, resolve_gather
+
 
 def resolve_intent(
     intent: str | None,
@@ -36,3 +38,37 @@ def resolve_intent(
     if confirmed is not True or not isinstance(intent, str):
         return fallback_target
     return menu.get(intent, fallback_target)
+
+
+def resolve_intent_confirmation(
+    digits: str | None,
+    intent: str | None,
+    routes: Mapping[str, str],
+    *,
+    fallback_target: str,
+    attempts: int,
+    max_attempts: int = 3,
+) -> GatherDecision:
+    """Resolve a bounded keypad confirmation for a trusted pending intent.
+
+    1 confirms the proposed route; 2 declines it and selects a human fallback.
+    Silence or invalid input retries within the existing collection budget.
+    Missing/unknown intents and exhausted budgets always fall back. Every
+    completed collection consumes an attempt unless already exhausted.
+
+    The pending intent and attempt count must come from authenticated,
+    workspace-scoped state for this exact confirmation step, not the webhook
+    or classifier's claim of confirmation. This does not persist or deduplicate.
+    """
+    if not isinstance(routes, Mapping):
+        raise ValueError("routes must be a mapping")
+    menu = dict(routes)
+    target = resolve_intent(intent, menu, fallback_target=fallback_target, confirmed=True)
+    known = isinstance(intent, str) and intent in menu
+    decision = resolve_gather(
+        digits, {"1": target, "2": fallback_target} if known else {},
+        fallback_target=fallback_target, attempts=attempts, max_attempts=max_attempts,
+    )
+    if not known or digits == "2":
+        return GatherDecision("fallback", fallback_target, decision.attempts)
+    return decision

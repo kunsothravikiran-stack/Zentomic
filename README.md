@@ -389,6 +389,41 @@ not from model output or an untrusted webhook field. It must also authorize the
 menu and all targets within the workspace. Use a human reception target as the
 fallback for ambiguous or unconfirmed requests. No calls or messages are sent.
 
+#### Bounded keypad confirmation
+
+`resolve_intent_confirmation` turns one completed confirmation collection into
+an immutable `GatherDecision`. Use `render_dtmf_gather` with a trusted prompt
+such as "For Support, press 1 to confirm or 2 for reception":
+
+```python
+from zentomic.intent import resolve_intent_confirmation
+
+decision = resolve_intent_confirmation(
+    "1", "technical_support", {"technical_support": "team/Support"},
+    fallback_target="team/Reception", attempts=0,
+)
+assert (decision.action, decision.target, decision.attempts) == (
+    "route", "team/Support", 1,
+)
+```
+
+Only exact ASCII `1` confirms; `2` immediately returns `fallback`. Silence and
+other input return `retry` without a target until the final attempt, then
+`fallback`. The default budget is three collections. A valid confirmation on
+the last attempt still routes. Missing, malformed, or unknown pending intents
+immediately fall back, including for `1`. Each completed collection increments
+the count once, unless the budget was already exhausted, in which case it
+always falls back without incrementing. All configuration is validated first.
+
+This is an offline policy, not proof that a real caller confirmed. A future
+adapter must authenticate the callback, bind it to the current confirmation
+step and its trusted pending intent, atomically deduplicate it, and persist the
+returned count and decision before rendering a retry or forwarding. Never use
+caller/model-supplied intent, confirmation flags, or attempt counts as that
+state. Do not accept a late confirmation for a changed intent or completed
+step. Route targets and the human fallback require workspace authorization.
+No new endpoint, session store, AI request, or telephony operation is added.
+
 ## Local development
 
 Use Python 3.12 or newer. No package installation, accounts, or secrets required.
@@ -426,6 +461,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
+- `tests/test_intent_confirmation.py`: bounded keypad confirmation and renderer composition.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_dial.py`: forwarding structure, destination validation, and offline safety.
 - `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
