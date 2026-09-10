@@ -569,6 +569,14 @@ The test harness is not an application adapter: its fake validator does not
 verify cryptography, and its local state does not implement persistence,
 workspace authorization, current-step binding, or replay prevention.
 
+`tests/test_speech_flow.py` extends that contract through speech admission,
+a mocked classifier, strict response parsing, and a separately authenticated
+confirmation before forwarding XML. It checks that rejected callbacks, silence,
+oversized speech, and exhausted budgets never invoke the classifier; malformed
+model output cannot become a confirmed route; and signed extra fields cannot
+supply confirmation or reset test-owned budgets. These tests use synthetic
+transcripts and share the same fake-authentication and persistence limitations.
+
 ## Layout
 
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
@@ -592,6 +600,7 @@ workspace authorization, current-step binding, or replay prevention.
 - `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
 - `tests/test_speech.py`: speech budgets, text limits, and confirmation separation.
 - `tests/test_classification.py`: classifier schema, byte limits, and confirmation separation.
+- `tests/test_speech_flow.py`: authenticated speech-to-confirmation cross-module contracts.
 - `tests/test_dial.py`: forwarding structure, destination validation, and offline safety.
 - `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
