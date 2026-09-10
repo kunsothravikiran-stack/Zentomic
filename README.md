@@ -442,7 +442,7 @@ From the repository root:
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m unittest discover -s tests -v
+python -m unittest -v
 python -m compileall -q zentomic tests
 python -m zentomic
 ```
@@ -452,6 +452,12 @@ and activate it with `.venv\Scripts\Activate.ps1`. The remaining `python`
 commands are the same. The last command invokes a synthetic health request
 locally and prints the proxy response; it does not start a server or use the
 network.
+
+The test directory is an importable package, so default discovery from the
+repository root (`python -m unittest` or `python -m unittest discover`) runs
+the full offline suite. Explicit discovery with `python -m unittest discover
+-s tests -v` remains supported. A discovery regression test checks that every
+`test_*.py` module is included, preventing a misleading empty test run.
 
 The future Lambda entry point is `zentomic.handler.lambda_handler`.
 
