@@ -218,6 +218,37 @@ the SDK, trusted configuration, signature integration tests, workspace/session
 authorization, and atomic callback deduplication. A valid signature alone does
 not prevent replay. Do not route or consume attempts until all checks succeed.
 
+`validate_call_event` adds exact account/call binding on top of that gate:
+
+```python
+from zentomic.authentication import validate_call_event
+
+# All configuration and session values below must come from trusted setup.
+fields = validate_call_event(
+    event,
+    public_url=configured_callback_url,
+    validator=trusted_signature_validator,
+    expected_account_sid=session.account_sid,
+    expected_call_sid=session.call_sid,
+)
+```
+
+This integration sketch is not a configured endpoint. The helper first validates
+the expected identifiers as nonblank strings, then authenticates the complete
+form, and only returns it when `AccountSid` and `CallSid` exactly match the
+expected session. Missing, blank, or mismatched fields fail with a generic
+`ValueError` that does not include identifiers. No trimming, case conversion,
+or provider identifier-format validation is performed. Unknown and blank
+optional fields remain available after successful validation.
+
+Select and authorize the session within the intended workspace before supplying
+these expected values. Never copy the callback's identifiers into the expected
+arguments, which would make the comparison meaningless. Account/call binding
+does not establish workspace ownership, verify the callback's current menu
+step, or prevent replay. Atomic deduplication and persisted attempt/state checks
+are still required before acting on an authenticated callback. The lower-level
+`validate_form_event` remains available for non-call form webhooks.
+
 ### Confirmed intent routing
 
 `resolve_intent` accepts an intent label from a future classifier and selects
@@ -279,7 +310,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `zentomic/twiml.py`: offline, XML-safe collection and terminal response rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
-- `zentomic/authentication.py`: dependency-injected form webhook signature gate.
+- `zentomic/authentication.py`: injected signature gate and trusted call-session binding.
 - `zentomic/__main__.py`: credential-free local smoke check.
 - `tests/test_handler.py`: offline standard-library unit tests.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
@@ -289,6 +320,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 - `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
 - `tests/test_authentication.py`: signature gate, dependency failures, and privacy.
+- `tests/test_call_authentication.py`: account/call binding and rejection before routing.
 
 ## Development boundaries
 
