@@ -34,6 +34,23 @@ class SpeechDecisionTests(unittest.TestCase):
                 self.assertEqual(self.decide(speech + "x").action, "retry")
         self.assertEqual(self.decide(" " * MAX_TRANSCRIPT_CHARS + "x").action, "retry")
 
+    def test_invalid_unicode_never_reaches_classification(self):
+        # Python strings (including decoded JSON) may contain surrogate code
+        # points that cannot be sent as UTF-8 to a classifier dependency.
+        for speech in ("\ud800", "\udfff", "sales \ud800 please", "\ud83d\ude00"):
+            for attempts, expected in ((0, "retry"), (2, "fallback"), (3, "fallback")):
+                with self.subTest(speech=repr(speech), attempts=attempts):
+                    decision = self.decide(speech, attempts=attempts)
+                    self.assertEqual(decision.action, expected)
+                    self.assertEqual(decision.attempts, min(attempts + 1, 3))
+                    self.assertIsNone(decision.transcript)
+                    self.assertEqual(decision.target, "reception" if expected == "fallback" else None)
+
+    def test_valid_unicode_is_not_normalized_or_replaced(self):
+        for speech in ("cafe\u0301", "\ud7ff\ue000", "\U00010000\U0010ffff", "😀"):
+            with self.subTest(speech=repr(speech)):
+                self.assertEqual(self.decide(speech), SpeechDecision("classify", speech, None, 1))
+
     def test_valid_final_attempt_classifies_but_exhaustion_never_does(self):
         self.assertEqual(self.decide("sales", attempts=2), SpeechDecision("classify", "sales", None, 3))
         self.assertEqual(self.decide("sales", max_attempts=1).action, "classify")

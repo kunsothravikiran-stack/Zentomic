@@ -207,10 +207,15 @@ assert decision.target is None
 ```
 
 Supply `SpeechResult` only after authenticating and binding the callback to
-the current speech step. Missing, non-string, blank, or oversized text retries
-within the budget, then falls back to the configured human target. The fixed
+the current speech step. Missing, non-string, blank, oversized, or invalid
+Unicode text retries within the budget, then falls back to the configured
+human target. The fixed
 `MAX_TRANSCRIPT_CHARS` limit is 2000 Unicode characters, including surrounding
 whitespace, not bytes or model tokens. Accepted text is preserved unchanged.
+Surrogate code points in Python strings are rejected without replacement or
+normalization, so admitted text can be encoded for a classifier dependency.
+The form decoder already rejects malformed UTF-8; this also protects direct
+uses of the speech policy outside that transport decoder.
 Every completed collection consumes one attempt. Valid text on the last
 attempt can still be classified; an already exhausted budget always falls
 back without incrementing. Counts and fallback configuration follow

@@ -27,8 +27,10 @@ def resolve_speech_gather(
     Reuse the keypad collection budget and configuration validation. Missing,
     malformed, blank, or oversized results consume one attempt but never reach
     a classifier. The 2000-character limit applies before whitespace trimming;
-    accepted text is returned unchanged. Valid text on the last attempt may
-    be classified, but an already exhausted budget always falls back.
+    accepted text must be UTF-8 encodable and is returned unchanged. Surrogate
+    code points are rejected, not silently replaced or repaired.
+    Valid text on the last attempt may be classified, but an already exhausted
+    budget always falls back.
 
     Input must come from an authenticated callback bound to this speech step.
     Persist/deduplicate the decision before classification or reprompting.
@@ -41,6 +43,11 @@ def resolve_speech_gather(
     )
     if (attempts < max_attempts and isinstance(speech, str)
             and len(speech) <= MAX_TRANSCRIPT_CHARS and speech.strip()):
-        return SpeechDecision("classify", speech, None, budget.attempts)
+        try:
+            speech.encode("utf-8")
+        except UnicodeEncodeError:
+            pass  # Malformed text follows the same finite retry budget.
+        else:
+            return SpeechDecision("classify", speech, None, budget.attempts)
     action = "retry" if budget.action == "retry" else "fallback"
     return SpeechDecision(action, None, budget.target, budget.attempts)
