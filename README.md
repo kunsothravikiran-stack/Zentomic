@@ -445,6 +445,15 @@ network.
 
 The future Lambda entry point is `zentomic.handler.lambda_handler`.
 
+`tests/test_voice_flow.py` exercises the offline cross-module contract: a
+synthetic authenticated callback, bounded confirmation, forwarding XML, and a
+terminal outcome, including the one-fallback limit. It covers both proxy
+formats and body encodings, rejected account/call bindings, and preservation
+of test-owned attempt/fallback state despite conflicting signed form fields.
+The test harness is not an application adapter: its fake validator does not
+verify cryptography, and its local state does not implement persistence,
+workspace authorization, current-step binding, or replay prevention.
+
 ## Layout
 
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
