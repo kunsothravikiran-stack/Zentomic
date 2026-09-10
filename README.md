@@ -471,7 +471,11 @@ The gate passes the exact configured HTTPS public URL, every decoded form field,
 and the `X-Twilio-Signature` value to the validator. Preserve the public path and
 original query string; never derive the URL or expected account from untrusted
 Host/forwarded headers or caller fields. Credentials and fragments in the URL
-are rejected. Account selection and secret loading remain adapter responsibilities.
+are rejected. The configured URL must also be UTF-8 encodable: lone surrogate
+code points fail before the validator is called. Valid Unicode and percent
+escapes are passed unchanged, with no normalization or silent repair. This is
+not DNS, reachability, or live SDK compatibility validation. Account selection
+and secret loading remain adapter responsibilities.
 
 Missing, malformed, duplicate, or conflicting signatures fail closed. Header
 names are case-insensitive; an exact v1 single/multivalue mirror is accepted.

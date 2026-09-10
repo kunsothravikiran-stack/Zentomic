@@ -50,6 +50,9 @@ def validate_form_event(
     if not isinstance(public_url, str) or any(char.isspace() for char in public_url):
         raise ValueError("public_url must be a configured HTTPS callback URL")
     try:
+        # urlsplit accepts lone surrogates, but SDK signature encoding cannot.
+        # Validate without normalizing or repairing the signed URL.
+        public_url.encode("utf-8")
         url = urlsplit(public_url)
         valid_url = (url.scheme == "https" and bool(url.hostname)
                      and url.username is None and url.password is None

@@ -113,6 +113,27 @@ class AuthenticationTests(unittest.TestCase):
         validate_form_event(candidate, public_url=URL, validator=validator)
         self.assertEqual(validator.call_args.args[0], URL)
 
+    def test_non_utf8_callback_urls_are_rejected_before_validator(self):
+        for character in ("\ud800", "\udfff"):
+            for url in (f"https://exam{character}ple.invalid/voice",
+                        f"https://example.invalid/{character}",
+                        f"https://example.invalid/voice?value={character}"):
+                with self.subTest(character=ascii(character), url=ascii(url)):
+                    validator = Mock(return_value=True)
+                    with self.assertRaises(ValueError) as caught:
+                        validate_form_event(event(), public_url=url, validator=validator)
+                    validator.assert_not_called()
+                    self.assertEqual(str(caught.exception),
+                                     "public_url must be a configured HTTPS callback URL")
+
+    def test_valid_unicode_callback_urls_reach_validator_unchanged(self):
+        for url in ("https://example.invalid/café?value=\U0001f600",
+                    "https://example.invalid/caf%C3%A9?value=%F0%9F%98%80"):
+            with self.subTest(url=url):
+                validator = Mock(return_value=True)
+                validate_form_event(event(), public_url=url, validator=validator)
+                self.assertEqual(validator.call_args.args[0], url)
+
     def test_validator_cannot_mutate_returned_fields_or_event(self):
         candidate = event()
         original = copy.deepcopy(candidate)
