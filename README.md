@@ -9,10 +9,14 @@ This repository starts with an offline, dependency-free Python scaffold. It is
 not an export of an existing production service. There are no cloud resources,
 deployment workflows, credentials, telephony operations, or AI API calls here.
 
-Implemented: a Lambda-compatible `GET /health` liveness endpoint supporting
-API Gateway REST API (v1) and HTTP API (v2) proxy events. It returns
+Implemented: a Lambda-compatible `/health` liveness endpoint supporting GET and
+HEAD with API Gateway REST API (v1) and HTTP API (v2) proxy events. GET returns
 `{"status":"ok","service":"zentomic"}` without checking external services.
-Other paths return 404; other methods on `/health` return 405 with `Allow: GET`.
+HEAD supports body-free liveness probes with the same status and headers as GET,
+following [HTTP HEAD semantics](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.2).
+Its proxy `body` is an empty string, including for unknown or invalid paths in
+supported proxy formats. Other paths return 404; other methods on `/health`
+return 405 with `Allow: GET, HEAD`. Method names are case-sensitive.
 Unsupported event versions return 400. Request contents are not logged or
 reflected in responses.
 

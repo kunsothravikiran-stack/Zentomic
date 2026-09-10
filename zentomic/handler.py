@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 
-def _response(status: int, payload: dict, **headers: str) -> dict:
+def _response(status: int, payload: dict, *, head: bool = False, **headers: str) -> dict:
     return {
         "statusCode": status,
         "headers": {
@@ -13,7 +13,7 @@ def _response(status: int, payload: dict, **headers: str) -> dict:
             "Cache-Control": "no-store",
             **headers,
         },
-        "body": json.dumps(payload, separators=(",", ":")),
+        "body": "" if head else json.dumps(payload, separators=(",", ":")),
         "isBase64Encoded": False,
     }
 
@@ -35,10 +35,11 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
     else:
         return _response(400, {"error": "invalid_request"})
 
+    head = method == "HEAD"
     if not isinstance(method, str) or not method or not isinstance(path, str) or not path:
-        return _response(400, {"error": "invalid_request"})
+        return _response(400, {"error": "invalid_request"}, head=head)
     if path != "/health":
-        return _response(404, {"error": "not_found"})
-    if method != "GET":
-        return _response(405, {"error": "method_not_allowed"}, Allow="GET")
-    return _response(200, {"status": "ok", "service": "zentomic"})
+        return _response(404, {"error": "not_found"}, head=head)
+    if method not in ("GET", "HEAD"):
+        return _response(405, {"error": "method_not_allowed"}, Allow="GET, HEAD")
+    return _response(200, {"status": "ok", "service": "zentomic"}, head=head)

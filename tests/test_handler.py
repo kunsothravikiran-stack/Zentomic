@@ -49,11 +49,48 @@ class HandlerTests(unittest.TestCase):
 
     def test_health_rejects_other_methods(self):
         for factory in (rest_event, http_event):
-            for method in ("POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"):
+            for method in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS", "head", "get"):
                 with self.subTest(format=factory.__name__, method=method):
                     result = lambda_handler(factory(method=method), None)
                     self.assertEqual(result["statusCode"], 405)
-                    self.assertEqual(result["headers"]["Allow"], "GET")
+                    self.assertEqual(result["headers"]["Allow"], "GET, HEAD")
+
+    def test_head_matches_get_without_content_for_both_proxy_formats(self):
+        for factory in (rest_event, http_event):
+            for path, status in (("/health", 200), ("/missing", 404), (None, 400), ("", 400)):
+                with self.subTest(format=factory.__name__, path=path):
+                    expected = lambda_handler(factory(path=path), None)
+                    expected["body"] = ""
+                    result = lambda_handler(factory("HEAD", path), None)
+                    self.assertEqual(result, expected)
+                    self.assertEqual(result["statusCode"], status)
+
+    def test_explicit_v1_head_and_v2_method_precedence(self):
+        events = (
+            {**rest_event("HEAD"), "version": "1.0"},
+            {**http_event("HEAD"), "httpMethod": "GET"},
+        )
+        for event in events:
+            with self.subTest(event=event):
+                result = lambda_handler(event, None)
+                self.assertEqual(result["statusCode"], 200)
+                self.assertEqual(result["body"], "")
+        event = {**http_event("GET"), "httpMethod": "HEAD"}
+        self.assertEqual(json.loads(lambda_handler(event, None)["body"])["status"], "ok")
+
+    def test_head_is_offline_and_preserves_request_privacy(self):
+        event = {**http_event("HEAD"), "body": "synthetic-private-marker"}
+        original = copy.deepcopy(event)
+        output = StringIO()
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "socket.socket", side_effect=AssertionError("Network forbidden")
+        ), redirect_stdout(output), redirect_stderr(output):
+            result = lambda_handler(event, None)
+        self.assertEqual(result["statusCode"], 200)
+        self.assertEqual(result["body"], "")
+        self.assertEqual(event, original)
+        self.assertEqual(output.getvalue(), "")
+        self.assertNotIn("synthetic", json.dumps(result))
 
     def test_invalid_events_return_400(self):
         events = (
