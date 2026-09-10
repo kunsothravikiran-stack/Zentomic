@@ -58,6 +58,31 @@ class ClassifierResponseTests(unittest.TestCase):
                 with self.subTest(labels=labels), self.assertRaises(ValueError):
                     self.parse(response, labels)
 
+    def test_non_utf8_allowlist_labels_are_rejected_before_parsing(self):
+        for label in ("synthetic-private-\ud800", "\udfff", "\ud83d\ude00"):
+            for response in (None, "not json", json.dumps({"intent": label})):
+                with self.subTest(label=repr(label), response=repr(response)):
+                    with self.assertRaises(ValueError) as caught:
+                        self.parse(response, ["sales", label])
+                    self.assertEqual(str(caught.exception),
+                                     "allowed_intents must contain only UTF-8 encodable strings")
+                    self.assertTrue(caught.exception.__suppress_context__)
+
+    def test_unicode_labels_preserve_literal_and_escaped_json_equivalence(self):
+        for label in ("తెలుగు", "Café", "Cafe\u0301", "😀"):
+            for escaped in (False, True):
+                with self.subTest(label=label, escaped=escaped):
+                    self.assertEqual(
+                        self.parse(json.dumps({"intent": label}, ensure_ascii=escaped), [label]),
+                        label,
+                    )
+        self.assertIsNone(self.parse(json.dumps({"intent": "Café"}), ["Cafe\u0301"]))
+
+    def test_escaped_lone_surrogates_in_output_fail_closed(self):
+        for response in ('{"intent":"\\ud800"}', '{"intent":"sales\\udfff"}'):
+            with self.subTest(response=response):
+                self.assertIsNone(self.parse(response))
+
     def test_pending_label_still_requires_independent_confirmation(self):
         routes = {"sales": "sales-team"}
         with patch.dict("os.environ", {}, clear=True), patch(

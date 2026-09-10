@@ -351,7 +351,14 @@ JSON keys (including escaped duplicates), extra fields, Markdown wrappers,
 malformed JSON, and responses over 4096 UTF-8 bytes including whitespace.
 Model-supplied destinations, confirmation flags, and retry counts are never
 accepted. Invalid allowlist configuration raises `ValueError`; an empty
-allowlist admits nothing. The parser does not log output or call a provider.
+allowlist admits nothing. Allowlist labels must be UTF-8 encodable, even when
+the response is missing or invalid. Surrogate code points in configuration are
+rejected with a generic error before parsing, so an escaped JSON string cannot
+admit a non-encodable pending label. Valid Unicode labels and JSON surrogate
+pairs representing real Unicode characters remain supported; labels are never
+normalized, repaired, or case-folded. This check applies to classifier admission,
+not to all identifiers in the routing helpers.
+The parser does not log output or call a provider.
 
 A future adapter must handle `None` with a bounded retry or human fallback,
 persist accepted labels as pending within the authenticated current call step,

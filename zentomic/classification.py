@@ -21,7 +21,8 @@ def parse_intent_response(
 ) -> str | None:
     """Accept exactly {\"intent\": <allowlisted string>} or return None.
 
-    Labels match exactly. Invalid trusted configuration raises ValueError;
+    Labels must be UTF-8 encodable and match exactly, without normalization.
+    Invalid trusted configuration raises ValueError;
     malformed, oversized, ambiguous, or unknown model output returns None.
     An empty allowlist admits nothing. This neither invokes a model nor
     establishes confirmation: persist a pending label and confirm separately.
@@ -32,6 +33,13 @@ def parse_intent_response(
     labels = tuple(allowed_intents)
     if any(not isinstance(label, str) or not label.strip() for label in labels):
         raise ValueError("allowed_intents must contain only nonblank strings")
+    try:
+        for label in labels:
+            label.encode("utf-8")
+    except UnicodeEncodeError:
+        # JSON escapes can decode to lone surrogates even in an ASCII response.
+        # Reject unusable trusted labels before they can become pending state.
+        raise ValueError("allowed_intents must contain only UTF-8 encodable strings") from None
     if not isinstance(response, str) or len(response) > MAX_RESPONSE_BYTES:
         return None
     try:
