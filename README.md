@@ -131,6 +131,34 @@ still selects its configured target, and no digit implicitly ends a call.
 A future authenticated adapter must decide when termination is appropriate;
 the renderer neither verifies caller intent nor changes persisted session state.
 
+### Offline forwarding renderer
+
+`render_dial(numbers, action_path=..., timeout=20)` serializes one `Dial` with
+1-10 unique `Number` children. Supply a list or tuple of already authorized,
+workspace-resolved phone destinations, not the opaque identifiers returned by
+the routing helpers. Values must have E.164-style syntax: `+`, a nonzero first
+digit, and 2-15 ASCII digits total. No trimming or normalization is performed;
+extensions, SIP addresses, duplicates, and malformed values raise `ValueError`.
+Syntax validation does not establish number assignment, ownership, or permission.
+
+The renderer explicitly selects simultaneous ringing and disables Dial recording.
+The first connected destination wins, which can include voicemail, as explained
+in the [Twilio Number reference](https://www.twilio.com/docs/voice/twiml/number).
+The required action uses POST and the same root-relative path restrictions as
+the Gather renderer. A future action handler must authenticate and handle the
+Dial outcome, including no-answer/busy/failure, before deciding what happens next.
+The project accepts integer ringing timeouts of 5-60 seconds (default 20).
+This is not a conversation-duration or billing cap; Twilio also adds a ringing
+buffer. See the [Dial reference](https://www.twilio.com/docs/voice/twiml/dial).
+
+This is XML serialization only: it does not send TwiML, expose a voice endpoint,
+load numbers, or make calls. Use only trusted application configuration. A live
+adapter must authorize each destination within the current workspace, enforce
+dialing/cost policy, deduplicate callbacks, and manage call state. Never pass
+caller/model-supplied phone numbers directly to this renderer. Output contains
+destinations, so do not log it with real configuration. Hosted webhook responses
+only; inline Calls API TwiML remains unsupported.
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:
@@ -307,7 +335,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
-- `zentomic/twiml.py`: offline, XML-safe collection and terminal response rendering.
+- `zentomic/twiml.py`: offline collection, forwarding, and terminal response rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.
@@ -317,6 +345,7 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
+- `tests/test_dial.py`: forwarding structure, destination validation, and offline safety.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 - `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
 - `tests/test_authentication.py`: signature gate, dependency failures, and privacy.
