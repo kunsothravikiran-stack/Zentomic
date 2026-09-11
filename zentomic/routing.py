@@ -4,7 +4,14 @@ from collections.abc import Mapping
 
 
 def _valid_target(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
+    """Reject identifiers that cannot cross a UTF-8 persistence boundary."""
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def resolve_dtmf(
@@ -17,14 +24,15 @@ def resolve_dtmf(
 
     Missing, malformed, or unmapped input returns the configured fallback.
     Configuration errors raise ValueError, even when the input would fall back.
-    Target identifiers are returned unchanged; they are not phone numbers to
+    Targets must be UTF-8 encodable and are returned unchanged, not repaired
+    or normalized; they are not phone numbers to
     dial. Callers must authorize and resolve them within the current workspace.
     This function never mutates the menu, logs inputs, or contacts services.
     """
     if not isinstance(routes, Mapping):
         raise ValueError("routes must be a mapping")
     if not _valid_target(fallback_target):
-        raise ValueError("fallback_target must be a nonblank string")
+        raise ValueError("fallback_target must be a nonblank UTF-8 encodable string")
 
     # Snapshot the caller's menu and validate every entry before routing.
     menu = dict(routes)
@@ -32,7 +40,7 @@ def resolve_dtmf(
         if not isinstance(digit, str) or len(digit) != 1 or digit not in "0123456789":
             raise ValueError("route keys must be single ASCII digits")
         if not _valid_target(target):
-            raise ValueError("route targets must be nonblank strings")
+            raise ValueError("route targets must be nonblank UTF-8 encodable strings")
 
     if not isinstance(digits, str) or len(digits) != 1 or digits not in "0123456789":
         return fallback_target

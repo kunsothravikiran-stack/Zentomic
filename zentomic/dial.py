@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from zentomic.routing import _valid_target
+
 
 _FAILED_STATUSES = frozenset({"busy", "no-answer", "failed"})
 _TERMINAL_STATUSES = frozenset({"completed", "canceled"})
@@ -27,8 +29,8 @@ def resolve_dial_result(
     a fallback; never take it from the request or reset it on each callback.
     This helper does not authenticate, deduplicate, persist, render, or dial.
     """
-    if not isinstance(fallback_target, str) or not fallback_target.strip():
-        raise ValueError("fallback_target must be a nonblank string")
+    if not _valid_target(fallback_target):
+        raise ValueError("fallback_target must be a nonblank UTF-8 encodable string")
     if type(fallback_used) is not bool:
         raise ValueError("fallback_used must be a boolean")
     if not isinstance(status, str) or status not in _FAILED_STATUSES | _TERMINAL_STATUSES:

@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 
 from zentomic.gather import GatherDecision, resolve_gather
+from zentomic.routing import _valid_target
 
 
 def resolve_intent(
@@ -25,15 +26,15 @@ def resolve_intent(
     """
     if not isinstance(routes, Mapping):
         raise ValueError("routes must be a mapping")
-    if not isinstance(fallback_target, str) or not fallback_target.strip():
-        raise ValueError("fallback_target must be a nonblank string")
+    if not _valid_target(fallback_target):
+        raise ValueError("fallback_target must be a nonblank UTF-8 encodable string")
 
     menu = dict(routes)
     for label, target in menu.items():
         if not isinstance(label, str) or not label.strip():
             raise ValueError("intent labels must be nonblank strings")
-        if not isinstance(target, str) or not target.strip():
-            raise ValueError("route targets must be nonblank strings")
+        if not _valid_target(target):
+            raise ValueError("route targets must be nonblank UTF-8 encodable strings")
 
     if confirmed is not True or not isinstance(intent, str):
         return fallback_target

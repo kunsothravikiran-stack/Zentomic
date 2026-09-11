@@ -36,13 +36,21 @@ assert target == "support"
 ```
 
 Menus may be empty or contain up to ten single ASCII digit keys. Targets and
-the required fallback must be nonblank strings; invalid configuration raises
+the required fallback must be nonblank UTF-8 encodable strings; invalid configuration raises
 `ValueError` before selecting a route. Input is not trimmed or coerced, so
 multi-digit values, whitespace, Unicode digits, `*`, and `#` use the fallback.
 The resolver does not log input, mutate the menu, or access the environment or
 network. Identifiers are returned unchanged. A future integration must load an
 authorized workspace's menu and resolve its targets within that same workspace;
 this helper does not perform authentication or workspace authorization.
+
+Target validation is shared by keypad, confirmed-intent, and dial-result
+policies, including their collection and speech helpers. Surrogate code points
+are rejected before a decision, even in an unused route or a fallback that
+would not be selected. This avoids carrying an identifier that cannot be
+encoded for future session persistence. Valid Unicode identifiers, including
+their whitespace and normalization form, are preserved exactly. This is not
+database-key validation, persistence, or workspace authorization.
 
 ### Bounded input retries
 
@@ -752,7 +760,8 @@ Confirmation defaults to `False`. Only boolean `True` permits routing; truthy
 values such as `"true"` or `1` do not. Unconfirmed, missing, malformed, and unknown
 intents use the fallback. Labels match exactly, with no trimming or case
 conversion. Menus may be empty; all labels, targets, and the required fallback
-must be nonblank strings. Invalid configuration raises `ValueError`, including
+must be nonblank strings; targets and fallback must also be UTF-8 encodable.
+Invalid configuration raises `ValueError`, including
 unused routes. Target identifiers are preserved, and the menu is not mutated.
 
 This is an offline policy helper, not speech recognition or an AI integration.
