@@ -575,6 +575,12 @@ state. Returning an unchanged or terminal value does not deduplicate delivery
 or authorize repeated cleanup. Atomic storage, reconciliation, idempotent side
 effects, and parent/child call coordination remain future adapter work.
 Offline tests cover every known state pair and delayed/duplicate sequences.
+`tests/test_call_status_flow.py` also composes transport decoding, mocked
+signature verification, call binding, and lifecycle transitions across both
+proxy formats and body encodings. It checks that rejected callbacks leave the
+local state unchanged and signature failures never reach the transition policy.
+These are sequential in-memory checks, not database concurrency or real
+signature validation tests.
 
 ### Offline webhook form decoding
 
@@ -911,6 +917,7 @@ adapter. A usable pending label still requires separate caller confirmation.
 - `tests/test_dial.py`: forwarding structure, destination validation, and offline safety.
 - `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
 - `tests/test_call_status.py`: lifecycle values, rejection, and authenticated composition.
+- `tests/test_call_status_flow.py`: authenticated lifecycle sequences and rejected updates.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 - `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
 - `tests/test_authentication.py`: signature gate, dependency failures, and privacy.
