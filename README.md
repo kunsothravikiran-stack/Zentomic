@@ -252,6 +252,11 @@ so `*` and `#` can reach the resolver as invalid input. These attributes follow
 the [Twilio Gather reference](https://www.twilio.com/docs/voice/twiml/gather).
 Prompt markup is escaped as text, and invalid XML characters are rejected.
 Project limits are 1000 prompt characters and a 1–60 second timeout (default 5).
+Collection and farewell prompts preserve their original text through XML
+parsing, including CR and CRLF line endings. Carriage returns are serialized as
+character references to avoid [XML end-of-line normalization](https://www.w3.org/TR/xml/#sec-line-ends).
+Literal reference text remains escaped text, and the character limit applies
+before serialization. This preserves text, not a provider's spoken formatting.
 
 Callback paths must contain slash-separated letters, ASCII digits, underscores,
 or hyphens, starting with `/`. External URLs, queries, fragments, dot segments,

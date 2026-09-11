@@ -4,6 +4,13 @@ import re
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 
+def _serialize(response: Element) -> str:
+    """Preserve prompt carriage returns through XML end-of-line handling."""
+    # Escape markup first so literal caller-like text such as "&#13;" stays
+    # text. Raw CR/CRLF would otherwise be normalized to LF by XML parsers.
+    return tostring(response, encoding="unicode").replace("\r", "&#13;")
+
+
 def _validate_prompt(prompt: str) -> None:
     """Apply shared text limits before serializing a Say element."""
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 1000:
@@ -48,7 +55,7 @@ def render_dtmf_gather(prompt: str, *, action_path: str, timeout: int = 5) -> st
         "timeout": str(timeout),
     })
     SubElement(gather, "Say").text = prompt
-    return tostring(response, encoding="unicode")
+    return _serialize(response)
 
 
 def render_speech_gather(
@@ -74,7 +81,7 @@ def render_speech_gather(
         "timeout": str(timeout), "speechTimeout": str(speech_timeout),
     })
     SubElement(gather, "Say").text = prompt
-    return tostring(response, encoding="unicode")
+    return _serialize(response)
 
 
 def render_dial(
@@ -111,7 +118,7 @@ def render_dial(
     })
     for number in destinations:
         SubElement(dial, "Number").text = number
-    return tostring(response, encoding="unicode")
+    return _serialize(response)
 
 
 def render_redirect(*, action_path: str) -> str:
@@ -127,7 +134,7 @@ def render_redirect(*, action_path: str) -> str:
     _validate_action_path(action_path)
     response = Element("Response")
     SubElement(response, "Redirect", {"method": "POST"}).text = action_path
-    return tostring(response, encoding="unicode")
+    return _serialize(response)
 
 
 def render_hangup(prompt: str | None = None) -> str:
@@ -143,4 +150,4 @@ def render_hangup(prompt: str | None = None) -> str:
     if prompt is not None:
         SubElement(response, "Say").text = prompt
     SubElement(response, "Hangup")
-    return tostring(response, encoding="unicode")
+    return _serialize(response)
