@@ -15,7 +15,8 @@ def resolve_intent(
 ) -> str:
     """Select an allowlisted target only after explicit caller confirmation.
 
-    Intent labels match exactly, without trimming, case folding, or coercion.
+    Intent labels must be UTF-8 encodable and match exactly, without trimming,
+    case folding, or coercion, consistent with classifier allowlist validation.
     Missing, malformed, unknown, or unconfirmed intents use the fallback.
     Only the boolean True counts as confirmation, not truthy strings/numbers.
     Invalid configuration raises ValueError before any route is selected.
@@ -33,6 +34,10 @@ def resolve_intent(
     for label, target in menu.items():
         if not isinstance(label, str) or not label.strip():
             raise ValueError("intent labels must be nonblank strings")
+        try:
+            label.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError("intent labels must be UTF-8 encodable strings") from None
         if not _valid_target(target):
             raise ValueError("route targets must be nonblank UTF-8 encodable strings")
 

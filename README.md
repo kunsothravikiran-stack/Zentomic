@@ -760,9 +760,15 @@ Confirmation defaults to `False`. Only boolean `True` permits routing; truthy
 values such as `"true"` or `1` do not. Unconfirmed, missing, malformed, and unknown
 intents use the fallback. Labels match exactly, with no trimming or case
 conversion. Menus may be empty; all labels, targets, and the required fallback
-must be nonblank strings; targets and fallback must also be UTF-8 encodable.
+must be nonblank UTF-8 encodable strings.
 Invalid configuration raises `ValueError`, including
 unused routes. Target identifiers are preserved, and the menu is not mutated.
+Routing labels use the same encoding requirement as classifier allowlists:
+surrogate code points in any configured label are rejected, even without
+confirmation or after the confirmation retry budget is exhausted. Valid Unicode
+labels retain their exact whitespace and normalization form. Malformed incoming
+labels that are absent from a valid menu still fall back; they do not become
+configuration errors.
 
 This is an offline policy helper, not speech recognition or an AI integration.
 It cannot establish whether a caller confirmed an intent. A future adapter must
