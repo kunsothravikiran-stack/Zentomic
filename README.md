@@ -547,6 +547,35 @@ a session. Synthetic tests cover all values, strict rejection, and composition
 with the injected authentication gate across both proxy formats and encodings;
 they do not verify real signatures or delivery ordering.
 
+`advance_call_status` adds a pure application policy for retaining progress:
+
+```python
+from zentomic.call_status import advance_call_status
+
+assert advance_call_status(None, "ringing") == "ringing"
+assert advance_call_status("in-progress", "queued") == "in-progress"
+assert advance_call_status("ringing", "completed") == "completed"
+assert advance_call_status("completed", "ringing") == "completed"
+assert advance_call_status("completed", "failed") == "completed"
+```
+
+`None` denotes no stored observation. Active progress follows the project order
+`queued` < `ringing` < `in-progress`, allowing missing intermediate events. The
+first stored terminal outcome is retained, including for conflicting terminal
+observations. This is an application retention policy, not reconstruction of
+provider event order or reconciliation of conflicting outcomes. Both statuses
+are strictly validated, even after termination; only the stored value may be
+`None`. Invalid state is rejected without reflecting its contents.
+
+Authenticate and bind the incoming callback to the same account and call leg
+before using this helper. Read current state from trusted workspace-scoped
+storage, then conditionally save against the version read. If another writer
+wins, reload and recompute; an unconditional write can still lose terminal
+state. Returning an unchanged or terminal value does not deduplicate delivery
+or authorize repeated cleanup. Atomic storage, reconciliation, idempotent side
+effects, and parent/child call coordination remain future adapter work.
+Offline tests cover every known state pair and delayed/duplicate sequences.
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:
