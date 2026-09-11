@@ -88,6 +88,21 @@ The guard catches accidental network use; it is not a security sandbox and
 does not isolate subprocesses, native libraries, or previously captured socket
 handles. Tests can also override its mocks. No live integration checks run.
 
+To keep the same guard while working on a specific feature, supply one or more
+dotted unittest module, class, or method names. For example:
+
+```sh
+python -m tests tests.test_handler tests.test_cli
+python -m tests tests.test_handler.HandlerTests
+python -m tests tests.test_handler.HandlerTests.test_health_supports_both_proxy_formats
+```
+
+Only the selected tests run; their loading and execution stay inside the guard.
+Missing modules, classes, or methods fail with a nonzero exit status, as does a
+selection containing no tests. Names are trusted local test selectors, not file
+paths or shell patterns. A focused pass does not replace the full suite before
+committing. With no names, `python -m tests` still discovers the entire suite.
+
 ### Offline keypad demo
 
 Try a complete local menu walkthrough without credentials or a server:

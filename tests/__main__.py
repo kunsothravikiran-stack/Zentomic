@@ -4,6 +4,7 @@ This catches accidental environment/network use, not hostile code. It cannot
 isolate subprocesses, native libraries, or previously captured socket handles.
 """
 
+import argparse
 import os
 import unittest
 from contextlib import ExitStack, contextmanager
@@ -25,13 +26,21 @@ def offline_guard():
         yield
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "names", nargs="*",
+        help="dotted unittest module, class, or method names; omit for the full suite",
+    )
+    args = parser.parse_args(argv)
     root = Path(__file__).resolve().parent.parent
-    # Keep discovery inside the guard so import-time work is covered too.
+    # Keep discovery and named loading inside the guard, including imports.
     with offline_guard():
-        suite = unittest.TestLoader().discover(
-            str(root / "tests"), top_level_dir=str(root),
-        )
+        loader = unittest.TestLoader()
+        if args.names:
+            suite = loader.loadTestsFromNames(args.names)
+        else:
+            suite = loader.discover(str(root / "tests"), top_level_dir=str(root))
         if suite.countTestCases() == 0:
             raise RuntimeError("Offline test discovery found no tests")
         result = unittest.TextTestRunner(verbosity=2).run(suite)
