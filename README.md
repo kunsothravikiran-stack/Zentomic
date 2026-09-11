@@ -65,7 +65,16 @@ UTF-16/UTF-32 files and repeated or misplaced BOMs before the object are rejecte
 Use synthetic events only, not exported
 production requests or credentials. This is a local handler invocation, not an
 HTTP server, API Gateway emulator, or voice webhook adapter. Without `--stdin`,
-the existing smoke request is unchanged and standard input is not read.
+the existing smoke request is unchanged unless a file is selected below.
+
+To replay a saved synthetic event without shell-pipeline encoding conversions,
+use `python -m zentomic --event-file synthetic-event.json`. Quote paths with
+spaces. The file is opened read-only in binary mode and closed after a bounded
+read; standard input is not read. The same UTF-8/BOM, JSON, byte-limit, response,
+and exit-code rules apply. Missing or unreadable files return the same generic
+input diagnostic without printing the path. `--event-file` and `--stdin` cannot
+be combined. Use trusted local regular files, not device paths or named pipes;
+this reader has no I/O timeout. Neither option starts a server or contacts AWS.
 
 The test directory is an importable package, so default discovery from the
 repository root (`python -m unittest` or `python -m unittest discover`) runs

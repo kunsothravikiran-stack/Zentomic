@@ -1,4 +1,4 @@
-"""Invoke the health handler with a synthetic or stdin event, entirely locally."""
+"""Invoke the health handler with a synthetic, stdin, or file event locally."""
 
 import argparse
 import json
@@ -25,18 +25,25 @@ def _reject_constant(value: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stdin", action="store_true",
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--stdin", action="store_true",
                         help="read one UTF-8 JSON proxy event from stdin (at most 64 KiB)")
+    source.add_argument("--event-file", metavar="PATH",
+                        help="read one local UTF-8 JSON proxy event file (at most 64 KiB)")
     args = parser.parse_args(argv)
     event = {
         "version": "2.0",
         "rawPath": "/health",
         "requestContext": {"http": {"method": "GET"}},
     }
-    if args.stdin:
+    if args.stdin or args.event_file is not None:
         try:
             # Read bytes, not text characters, to bound multibyte input too.
-            raw = sys.stdin.buffer.read(MAX_EVENT_BYTES + 1)
+            if args.event_file is not None:
+                with open(args.event_file, "rb") as stream:
+                    raw = stream.read(MAX_EVENT_BYTES + 1)
+            else:
+                raw = sys.stdin.buffer.read(MAX_EVENT_BYTES + 1)
             if len(raw) > MAX_EVENT_BYTES:
                 raise ValueError("event too large")
             # Accept an optional leading UTF-8 BOM from local editor exports.

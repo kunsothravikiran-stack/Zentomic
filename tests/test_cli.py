@@ -109,6 +109,61 @@ class EventCliTests(unittest.TestCase):
         self.assertEqual(output.getvalue(), "")
         self.assertNotIn("synthetic-private", errors.getvalue())
 
+    def test_event_file_matches_stdin_and_closes_file_without_reading_stdin(self):
+        for raw in (b'{"httpMethod":"HEAD","path":"/health"}',
+                    b'\xef\xbb\xbf{"version":"2.0","rawPath":"/health",'
+                    b'"requestContext":{"http":{"method":"GET"}}}',
+                    b'{"httpMethod":"GET","path":"/missing"}',
+                    b'{"duplicate":1,"duplicate":2}',
+                    b'{"body":"\xff"}',
+                    b'{}' + b' ' * (MAX_EVENT_BYTES - 2),
+                    b'{}' + b' ' * MAX_EVENT_BYTES):
+            with self.subTest(raw=raw[:40]):
+                expected = self.invoke(raw)[:3]
+                stream = io.BytesIO(raw)
+                with patch("builtins.open", return_value=stream) as opened, \
+                        patch.object(stream, "read", wraps=stream.read) as read:
+                    actual = self.invoke(b"do not read", ["--event-file", "synthetic.json"])
+                    read.assert_called_once_with(MAX_EVENT_BYTES + 1)
+                self.assertEqual(actual[:3], expected)
+                self.assertEqual(actual[3], 0)
+                opened.assert_called_once_with("synthetic.json", "rb")
+                self.assertTrue(stream.closed)
+
+    def test_event_file_errors_do_not_reflect_path_or_invoke_handler(self):
+        for failure in (FileNotFoundError("synthetic-private-path"),
+                        PermissionError("synthetic-private-path"),
+                        IsADirectoryError("synthetic-private-path")):
+            with self.subTest(failure=type(failure)), \
+                    patch("builtins.open", side_effect=failure), \
+                    patch("zentomic.__main__.lambda_handler") as handler:
+                code, output, errors, consumed = self.invoke(
+                    b"do not read", ["--event-file", "synthetic-private-path"],
+                )
+                self.assertEqual((code, output, consumed), (2, "", 0))
+                self.assertEqual(errors, "Invalid event: provide one UTF-8 JSON object of at most 65536 bytes.\n")
+                handler.assert_not_called()
+
+    def test_event_file_is_closed_after_read_failure(self):
+        stream = io.BytesIO(b"{}")
+        with patch("builtins.open", return_value=stream), \
+                patch.object(stream, "read", side_effect=OSError("private-device")), \
+                patch("zentomic.__main__.lambda_handler") as handler:
+            code, output, errors, consumed = self.invoke(
+                b"do not read", ["--event-file", "synthetic.json"],
+            )
+        self.assertEqual((code, output, consumed), (2, "", 0))
+        self.assertNotIn("private-device", errors)
+        self.assertTrue(stream.closed)
+        handler.assert_not_called()
+
+    def test_event_file_and_stdin_are_mutually_exclusive(self):
+        with patch("builtins.open") as opened:
+            with self.assertRaises(SystemExit) as error:
+                self.invoke(b"{}", ["--stdin", "--event-file", "synthetic.json"])
+        self.assertEqual(error.exception.code, 2)
+        opened.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
