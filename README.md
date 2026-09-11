@@ -3,6 +3,14 @@
 Modern business IVR and AI call routing, intended for Python AWS Lambda,
 API Gateway, DynamoDB, Twilio, and OpenAI.
 
+## Navigation
+
+- [Local development](#local-development): run the offline tests and health smoke check.
+- [Routing and voice helpers](#routing-and-voice-helpers): collection, budgets, TwiML, and intent policies.
+- [Webhook decoding](#offline-webhook-form-decoding) and [authentication](#injected-webhook-signature-gate).
+- [Packaging and integration tests](#packaging-and-integration-tests).
+- [Repository layout](#layout) and [development boundaries](#development-boundaries).
+
 ## Current scope
 
 This repository starts with an offline, dependency-free Python scaffold. It is
@@ -19,6 +27,43 @@ supported proxy formats. Other paths return 404; other methods on `/health`
 return 405 with `Allow: GET, HEAD`. Method names are case-sensitive.
 Unsupported event versions return 400. Request contents are not logged or
 reflected in responses.
+
+## Local development
+
+Use Python 3.12 or newer. No package installation, accounts, or secrets required.
+From the repository root:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m unittest -v
+python -m compileall -q zentomic tests
+python -m zentomic
+```
+
+On Windows PowerShell, create the environment with `py -3 -m venv .venv`
+and activate it with `.venv\Scripts\Activate.ps1`. The remaining `python`
+commands are the same. The last command invokes a synthetic health request
+locally and prints the proxy response; it does not start a server or use the
+network.
+
+The test directory is an importable package, so default discovery from the
+repository root (`python -m unittest` or `python -m unittest discover`) runs
+the full offline suite. Explicit discovery with `python -m unittest discover
+-s tests -v` remains supported. A discovery regression test checks that every
+`test_*.py` module is included, preventing a misleading empty test run.
+
+The suite also runs each README Python example in a separate namespace with
+an empty environment and socket creation blocked, so examples include their
+own imports. The adapter sketch marked `# example: compile-only` is checked
+for syntax but not executed because it requires trusted configuration and
+session state. These checks are not a sandbox for untrusted documentation and
+do not validate live integrations. Run just these checks with
+`python -m unittest tests.test_readme -v`.
+
+The future Lambda entry point is `zentomic.handler.lambda_handler`.
+
+## Routing and voice helpers
 
 Also implemented: a pure single-digit IVR menu resolver. It selects an opaque
 target identifier for digits `0` through `9`, with an explicit fallback for
@@ -888,40 +933,7 @@ state. Do not accept a late confirmation for a changed intent or completed
 step. Route targets and the human fallback require workspace authorization.
 No new endpoint, session store, AI request, or telephony operation is added.
 
-## Local development
-
-Use Python 3.12 or newer. No package installation, accounts, or secrets required.
-From the repository root:
-
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m unittest -v
-python -m compileall -q zentomic tests
-python -m zentomic
-```
-
-On Windows PowerShell, create the environment with `py -3 -m venv .venv`
-and activate it with `.venv\Scripts\Activate.ps1`. The remaining `python`
-commands are the same. The last command invokes a synthetic health request
-locally and prints the proxy response; it does not start a server or use the
-network.
-
-The test directory is an importable package, so default discovery from the
-repository root (`python -m unittest` or `python -m unittest discover`) runs
-the full offline suite. Explicit discovery with `python -m unittest discover
--s tests -v` remains supported. A discovery regression test checks that every
-`test_*.py` module is included, preventing a misleading empty test run.
-
-The suite also runs each README Python example in a separate namespace with
-an empty environment and socket creation blocked, so examples include their
-own imports. The adapter sketch marked `# example: compile-only` is checked
-for syntax but not executed because it requires trusted configuration and
-session state. These checks are not a sandbox for untrusted documentation and
-do not validate live integrations. Run just these checks with
-`python -m unittest tests.test_readme -v`.
-
-The future Lambda entry point is `zentomic.handler.lambda_handler`.
+## Packaging and integration tests
 
 ### Optional local package installation
 
