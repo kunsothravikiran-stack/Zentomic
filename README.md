@@ -398,6 +398,32 @@ not proof of classification accuracy, prompt-injection resistance, caller
 confirmation, or workspace authorization. This adds no model/SDK integration,
 provider response-envelope handling, endpoint, persistence, or token-cost cap.
 
+### Hosted voice-step transitions
+
+`render_redirect` serializes a server-selected transition, for example from an
+accepted pending intent to its confirmation step. It emits only a top-level
+[`Redirect` with explicit POST](https://www.twilio.com/docs/voice/twiml/redirect),
+not an HTTP 3xx response or a phone transfer:
+
+```python
+from zentomic.twiml import render_redirect
+from zentomic.response import twiml_response
+
+response = twiml_response(render_redirect(action_path="/voice/confirm-intent"))
+assert response["statusCode"] == 200
+assert response["body"] == (
+    '<Response><Redirect method="POST">/voice/confirm-intent</Redirect></Response>'
+)
+```
+
+Paths use the existing root-relative named-segment policy: no external hosts,
+queries, fragments, traversal, or encoded separators. Use trusted application
+configuration, never caller/model input. Persist the authorized next step before
+responding; authenticate and bind the next callback to that stored step. Carry
+forward the original deadline and bounded transition/retry counters. Rendering
+does not prevent loops, reset counters, fetch a URL, or add an endpoint. These
+paths require hosted TwiML with a base URL, not inline Calls API TwiML.
+
 ### TwiML proxy responses
 
 `twiml_response` wraps an existing renderer's output in a success envelope for

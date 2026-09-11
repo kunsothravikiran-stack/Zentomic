@@ -1,4 +1,4 @@
-"""Offline TwiML serialization for collection, forwarding, and call endings."""
+"""Offline TwiML for collection, forwarding, transitions, and call endings."""
 
 import re
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -111,6 +111,22 @@ def render_dial(
     })
     for number in destinations:
         SubElement(dial, "Number").text = number
+    return tostring(response, encoding="unicode")
+
+
+def render_redirect(*, action_path: str) -> str:
+    """Serialize a POST transition to a trusted, hosted application voice step.
+
+    Reuse the root-relative callback path policy; caller/model URLs are never
+    appropriate. Persist the authorized next step before returning this XML.
+    The receiving adapter must authenticate again and enforce the existing
+    session deadline and transition budget, not reset them on redirection.
+    This neither performs a request nor prevents redirect loops, and is not
+    intended for inline TwiML without a hosted base URL.
+    """
+    _validate_action_path(action_path)
+    response = Element("Response")
+    SubElement(response, "Redirect", {"method": "POST"}).text = action_path
     return tostring(response, encoding="unicode")
 
 
