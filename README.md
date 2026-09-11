@@ -722,6 +722,16 @@ model output cannot become a confirmed route; and signed extra fields cannot
 supply confirmation or reset test-owned budgets. These tests use synthetic
 transcripts and share the same fake-authentication and persistence limitations.
 
+`tests/test_budget_flow.py` demonstrates the deadline boundary around that
+mocked classification step: authenticate first, read a fresh clock, pass the
+remaining-budget timeout to the dependency, and read the clock again before
+admitting its result. It checks insufficient budget, late-result rejection,
+cleanup reserves, timeout granularity, and one unchanged deadline across
+callbacks. Signed form fields cannot supply test-owned timing configuration.
+The mock's `timeout_ms` keyword is not an SDK API, and these tests do not prove
+provider cancellation, enforce a live timeout, or implement a production
+adapter. A usable pending label still requires separate caller confirmation.
+
 ## Layout
 
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
@@ -741,6 +751,7 @@ transcripts and share the same fake-authentication and persistence limitations.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_budget.py`: shared deadlines, exact boundaries, and offline validation.
+- `tests/test_budget_flow.py`: authenticated classifier timeout and late-result contracts.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_intent_confirmation.py`: bounded keypad confirmation and renderer composition.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
