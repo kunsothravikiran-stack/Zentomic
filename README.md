@@ -398,6 +398,37 @@ not proof of classification accuracy, prompt-injection resistance, caller
 confirmation, or workspace authorization. This adds no model/SDK integration,
 provider response-envelope handling, endpoint, persistence, or token-cost cap.
 
+### TwiML proxy responses
+
+`twiml_response` wraps an existing renderer's output in a success envelope for
+API Gateway [REST v1 proxy integrations](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html)
+and [HTTP v2 proxy integrations](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html).
+It returns status 200, `Content-Type: application/xml; charset=utf-8`,
+`Cache-Control: no-store`, and `isBase64Encoded: false`. The XML stays unchanged
+in `body`, not JSON-quoted or base64-encoded. Return the dictionary from a future
+Lambda adapter; let the runtime serialize the outer envelope.
+
+```python
+from zentomic.response import twiml_response
+from zentomic.twiml import render_hangup
+
+response = twiml_response(render_hangup("Goodbye."))
+assert response["statusCode"] == 200
+assert response["body"] == "<Response><Say>Goodbye.</Say><Hangup /></Response>"
+assert response["isBase64Encoded"] is False
+```
+
+Supply only application-generated TwiML after authenticating the callback,
+authorizing the decision, and persisting required call state. This helper checks
+only that the input is a nonblank UTF-8 encodable string, not XML validity,
+allowed verbs, or destination safety. It does not sanitize caller/model XML.
+Authentication failures require a separate non-success response, not this
+success-only wrapper. Headers are newly allocated per invocation; no request
+headers are reflected. Offline tests cover all four renderers, Unicode and XML
+escaping, JSON envelope round trips, invalid text, and independent headers.
+This adds no voice endpoint or live API Gateway/provider verification; the
+existing `/health` handler remains unchanged.
+
 ### Offline forwarding renderer
 
 `render_dial(numbers, action_path=..., timeout=20, time_limit=14400)` serializes one `Dial` with
