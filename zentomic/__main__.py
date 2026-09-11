@@ -39,7 +39,9 @@ def main(argv: list[str] | None = None) -> int:
             raw = sys.stdin.buffer.read(MAX_EVENT_BYTES + 1)
             if len(raw) > MAX_EVENT_BYTES:
                 raise ValueError("event too large")
-            event = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object,
+            # Accept an optional leading UTF-8 BOM from local editor exports.
+            # Keep decoding explicit: json.loads(bytes) also accepts UTF-16/32.
+            event = json.loads(raw.decode("utf-8-sig"), object_pairs_hook=_unique_object,
                                parse_constant=_reject_constant)
             if not isinstance(event, dict):
                 raise ValueError("event must be an object")

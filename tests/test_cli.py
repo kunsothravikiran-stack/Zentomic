@@ -74,6 +74,31 @@ class EventCliTests(unittest.TestCase):
         self.assertEqual(json.loads(output)["statusCode"], 200)
         self.assertNotIn("తెలుగు", output)
 
+    def test_leading_utf8_bom_replays_the_same_event(self):
+        for event in (
+            {"httpMethod": "HEAD", "path": "/health"},
+            {"version": "2.0", "rawPath": "/health",
+             "requestContext": {"http": {"method": "GET"}}, "body": "తెలుగు"},
+        ):
+            raw = json.dumps(event, ensure_ascii=False).encode("utf-8")
+            with self.subTest(event=event):
+                self.assertEqual(self.invoke(b"\xef\xbb\xbf" + raw)[:3], self.invoke(raw)[:3])
+
+    def test_bom_bytes_count_toward_input_limit(self):
+        exact = b"\xef\xbb\xbf{}" + b" " * (MAX_EVENT_BYTES - 5)
+        self.assertEqual(self.invoke(exact)[:1], (0,))
+        code, output, _, consumed = self.invoke(exact + b" ")
+        self.assertEqual((code, output, consumed), (2, "", MAX_EVENT_BYTES + 1))
+
+    def test_only_one_leading_utf8_bom_is_accepted(self):
+        for raw in (b"\xef\xbb\xbf\xef\xbb\xbf{}", b" \xef\xbb\xbf{}",
+                    "{}".encode("utf-16"), "{}".encode("utf-32")):
+            with self.subTest(raw=raw), patch("zentomic.__main__.lambda_handler") as handler:
+                code, output, errors, _ = self.invoke(raw)
+                self.assertEqual((code, output), (2, ""))
+                self.assertEqual(errors, "Invalid event: provide one UTF-8 JSON object of at most 65536 bytes.\n")
+                handler.assert_not_called()
+
     def test_read_failure_has_generic_diagnostics(self):
         stream = Mock()
         stream.read.side_effect = OSError("synthetic-private-device-name")
