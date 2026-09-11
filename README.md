@@ -47,6 +47,23 @@ commands are the same. The last command invokes a synthetic health request
 locally and prints the proxy response; it does not start a server or use the
 network.
 
+To replay a synthetic API Gateway event through the same local health handler,
+pipe a UTF-8 JSON object to `python -m zentomic --stdin`. For example, in Bash:
+
+```sh
+printf '%s' '{"httpMethod":"HEAD","path":"/health"}' | python -m zentomic --stdin
+```
+
+REST v1 and HTTP v2 use the existing handler contracts. Standard output contains
+only the proxy response, including 400/404/405 responses; these successful
+replays exit 0. Invalid JSON, duplicate object keys, non-JSON numeric constants,
+non-object input, read errors, or input over 64 KiB produce a generic diagnostic
+on standard error and exit 2 without invoking the handler. The size limit is in
+UTF-8 bytes and includes whitespace. Use synthetic events only, not exported
+production requests or credentials. This is a local handler invocation, not an
+HTTP server, API Gateway emulator, or voice webhook adapter. Without `--stdin`,
+the existing smoke request is unchanged and standard input is not read.
+
 The test directory is an importable package, so default discovery from the
 repository root (`python -m unittest` or `python -m unittest discover`) runs
 the full offline suite. Explicit discovery with `python -m unittest discover
