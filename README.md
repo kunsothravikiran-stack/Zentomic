@@ -63,6 +63,14 @@ do not validate live integrations. Run just these checks with
 
 The future Lambda entry point is `zentomic.handler.lambda_handler`.
 
+For a guarded run of the entire suite, use `python -m tests`. This clears the
+inherited environment and blocks common Python socket creation, connection,
+and DNS entrypoints during both discovery and execution. It exits nonzero on
+test failures or empty discovery. Existing unittest commands remain supported.
+The guard catches accidental network use; it is not a security sandbox and
+does not isolate subprocesses, native libraries, or previously captured socket
+handles. Tests can also override its mocks. No live integration checks run.
+
 ## Routing and voice helpers
 
 Also implemented: a pure single-digit IVR menu resolver. It selects an opaque
