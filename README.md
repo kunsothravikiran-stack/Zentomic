@@ -75,6 +75,8 @@ booleans are rejected. All menu configuration is validated even after exhaustion
 An optional `hangup_digit` lets callers explicitly end an active menu:
 
 ```python
+from zentomic.gather import resolve_gather
+
 decision = resolve_gather(
     "9", {"0": "reception", "1": "sales"},
     fallback_target="reception", attempts=0, hangup_digit="9",
@@ -126,6 +128,8 @@ For a step that needs a minimum amount of time, supply a trusted
 `minimum_remaining_ms` threshold, including any safety margin:
 
 ```python
+from zentomic.budget import resolve_call_budget
+
 decision = resolve_call_budget(
     deadline_ms=601_000, now_ms=598_000, minimum_remaining_ms=5_000,
 )
@@ -171,6 +175,8 @@ is used without rounding up or resetting the original deadline.
 For an operation accepting only whole seconds, set `granularity_ms=1000`:
 
 ```python
+from zentomic.budget import resolve_operation_timeout
+
 timeout_ms = resolve_operation_timeout(
     deadline_ms=601_000, now_ms=598_000,
     maximum_ms=5_000, minimum_ms=1_000, reserve_ms=500,
@@ -190,6 +196,8 @@ For work that must also finish within the current serverless invocation, pass
 `invocation_remaining_ms` from a fresh, trusted runtime remaining-time reading:
 
 ```python
+from zentomic.budget import resolve_operation_timeout
+
 timeout_ms = resolve_operation_timeout(
     deadline_ms=601_000, now_ms=598_000,
     maximum_ms=5_000, minimum_ms=1_000, reserve_ms=500,
@@ -570,6 +578,7 @@ not prevent replay. Do not route or consume attempts until all checks succeed.
 `validate_call_event` adds exact account/call binding on top of that gate:
 
 ```python
+# example: compile-only
 from zentomic.authentication import validate_call_event
 
 # All configuration and session values below must come from trusted setup.
@@ -699,6 +708,14 @@ the full offline suite. Explicit discovery with `python -m unittest discover
 -s tests -v` remains supported. A discovery regression test checks that every
 `test_*.py` module is included, preventing a misleading empty test run.
 
+The suite also runs each README Python example in a separate namespace with
+an empty environment and socket creation blocked, so examples include their
+own imports. The adapter sketch marked `# example: compile-only` is checked
+for syntax but not executed because it requires trusted configuration and
+session state. These checks are not a sandbox for untrusted documentation and
+do not validate live integrations. Run just these checks with
+`python -m unittest tests.test_readme -v`.
+
 The future Lambda entry point is `zentomic.handler.lambda_handler`.
 
 ### Optional local package installation
@@ -786,6 +803,7 @@ adapter. A usable pending label still requires separate caller confirmation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.
 - `zentomic/__main__.py`: credential-free local smoke check.
 - `tests/test_handler.py`: offline standard-library unit tests.
+- `tests/test_readme.py`: isolated executable Python examples and sketch syntax.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_budget.py`: shared deadlines, exact boundaries, and offline validation.
