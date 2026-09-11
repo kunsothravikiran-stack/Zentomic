@@ -44,6 +44,7 @@ def resolve_call_budget(
 def resolve_operation_timeout(
     *, deadline_ms: int, now_ms: int, maximum_ms: int,
     minimum_ms: int = 1, reserve_ms: int = 0, granularity_ms: int = 1,
+    invocation_remaining_ms: int | None = None,
 ) -> int | None:
     """Compute an operation's timeout within the remaining call budget.
 
@@ -52,6 +53,10 @@ def resolve_operation_timeout(
     to a multiple of granularity_ms. Return None if that falls below minimum_ms.
     The result is still in milliseconds, never a count of timeout units. All
     limits are trusted integer milliseconds, not caller/model configuration.
+    An optional invocation_remaining_ms also caps available time before the
+    reserve is deducted. Supply a fresh nonnegative remaining duration from
+    the trusted runtime, not a timestamp or the original invocation timeout.
+    None preserves call-deadline-only behavior; zero admits no work.
     This does not reserve time in storage or enforce a timeout: an adapter must
     apply the result to its operation and recheck the fixed deadline on retry.
     Never round up when converting to a dependency's coarser timeout units.
@@ -62,6 +67,10 @@ def resolve_operation_timeout(
             raise ValueError(f"{name} must be a positive integer")
     if type(reserve_ms) is not int or reserve_ms < 0:
         raise ValueError("reserve_ms must be a nonnegative integer")
+    if invocation_remaining_ms is not None and (
+        type(invocation_remaining_ms) is not int or invocation_remaining_ms < 0
+    ):
+        raise ValueError("invocation_remaining_ms must be a nonnegative integer or None")
     if minimum_ms > maximum_ms:
         raise ValueError("minimum_ms must not exceed maximum_ms")
 
@@ -71,6 +80,11 @@ def resolve_operation_timeout(
     )
     if budget.action == "hangup":
         return None
-    usable_ms = min(maximum_ms, budget.remaining_ms - reserve_ms)
+    remaining_ms = budget.remaining_ms
+    if invocation_remaining_ms is not None:
+        remaining_ms = min(remaining_ms, invocation_remaining_ms)
+    if remaining_ms < minimum_ms + reserve_ms:
+        return None
+    usable_ms = min(maximum_ms, remaining_ms - reserve_ms)
     timeout_ms = (usable_ms // granularity_ms) * granularity_ms
     return timeout_ms if timeout_ms >= minimum_ms else None

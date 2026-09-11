@@ -10,6 +10,56 @@ from zentomic.twiml import render_hangup
 
 
 class CallBudgetTests(unittest.TestCase):
+    def test_invocation_budget_caps_work_and_preserves_cleanup_reserve(self):
+        for call_remaining, invocation_remaining, expected in (
+            (10_000, 2000, 1500), (2000, 10_000, 1500),
+            (10_000, 10_000, 3000), (10_000, 1500, 1000),
+            (10_000, 1499, None), (10_000, 500, None),
+            (10_000, 0, None), (0, 10_000, None),
+        ):
+            with self.subTest(call=call_remaining, invocation=invocation_remaining):
+                self.assertEqual(resolve_operation_timeout(
+                    deadline_ms=call_remaining, now_ms=0, maximum_ms=3000,
+                    minimum_ms=1000, reserve_ms=500,
+                    invocation_remaining_ms=invocation_remaining,
+                ), expected)
+
+    def test_invocation_cap_is_applied_before_granularity_and_minimum(self):
+        for remaining, expected in ((2499, None), (2500, 2000), (3499, 2000)):
+            with self.subTest(remaining=remaining):
+                self.assertEqual(resolve_operation_timeout(
+                    deadline_ms=10_000, now_ms=0, maximum_ms=5000,
+                    minimum_ms=1500, reserve_ms=500, granularity_ms=1000,
+                    invocation_remaining_ms=remaining,
+                ), expected)
+
+    def test_invocation_budget_validation_is_strict_even_after_call_expiry(self):
+        for value in (True, False, -1, 1.0, float("nan"), float("inf"),
+                      "synthetic-private-value", [], {}):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError) as caught:
+                    resolve_operation_timeout(
+                        deadline_ms=0, now_ms=0, maximum_ms=1000,
+                        invocation_remaining_ms=value,
+                    )
+                self.assertEqual(str(caught.exception),
+                                 "invocation_remaining_ms must be a nonnegative integer or None")
+
+    def test_invocation_budget_default_precision_and_new_invocation(self):
+        for remaining in (0, 1, 999, 5001):
+            kwargs = dict(deadline_ms=remaining, now_ms=0, maximum_ms=5000)
+            self.assertEqual(resolve_operation_timeout(**kwargs),
+                             resolve_operation_timeout(**kwargs, invocation_remaining_ms=None))
+        self.assertEqual(resolve_operation_timeout(
+            deadline_ms=10**22, now_ms=0, maximum_ms=10**22,
+            invocation_remaining_ms=10**20 + 1,
+        ), 10**20 + 1)
+        # A fresh invocation budget must never reset the persisted call deadline.
+        self.assertEqual(resolve_operation_timeout(
+            deadline_ms=10_000, now_ms=9999, maximum_ms=5000,
+            invocation_remaining_ms=10_000,
+        ), 1)
+
     def test_operation_timeout_rounds_down_after_cap_and_reserve(self):
         for remaining, maximum, expected in (
             (10_000, 5500, 5000), (5999, 10_000, 5000),

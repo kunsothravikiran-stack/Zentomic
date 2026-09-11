@@ -186,6 +186,29 @@ the minimum again. It returns `None`, never zero, if no usable multiple fits,
 even when unrounded time met the minimum. Limits need not be exact multiples.
 The result remains milliseconds; granularity does not change the return unit.
 
+For work that must also finish within the current serverless invocation, pass
+`invocation_remaining_ms` from a fresh, trusted runtime remaining-time reading:
+
+```python
+timeout_ms = resolve_operation_timeout(
+    deadline_ms=601_000, now_ms=598_000,
+    maximum_ms=5_000, minimum_ms=1_000, reserve_ms=500,
+    invocation_remaining_ms=2_000,  # Synthetic remaining duration, not a timestamp.
+)
+assert timeout_ms == 1_500
+```
+
+The smaller of call time and invocation time is used before deducting the
+reserve, applying the operation maximum, and rounding down. The reserve is
+deducted once, leaving that margin within both budgets. The optional value must
+be a nonnegative integer; zero admits no work, and `None` (the default) leaves
+existing behavior unchanged. Invalid values raise `ValueError` even after the
+call expires. Refresh this reading before each operation or retry, never use
+the invocation's original timeout or a caller field. A new invocation's larger
+budget cannot extend the persisted call deadline. `None` means do not start the
+operation, not that the runtime has enough time left to persist or send a
+terminal response. This adds no runtime integration or cancellation mechanism.
+
 The adapter must actually apply the returned timeout, recheck on retries, and
 include any delay before execution in its margin. This pure helper neither
 cancels work nor guarantees cleanup fits in the reserve. Convert units without
