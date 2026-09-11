@@ -71,6 +71,31 @@ The guard catches accidental network use; it is not a security sandbox and
 does not isolate subprocesses, native libraries, or previously captured socket
 handles. Tests can also override its mocks. No live integration checks run.
 
+### Offline keypad demo
+
+Try a complete local menu walkthrough without credentials or a server:
+
+```sh
+python -m zentomic.demo
+python -m zentomic.demo 2
+python -m zentomic.demo 8 8 8
+python -m zentomic.demo 9
+```
+
+The default demonstrates silence, a reprompt, and selection of `demo-sales`.
+The other commands select `demo-support`, exhaust three attempts and fall back
+to `demo-reception`, or explicitly hang up. Positional arguments are synthetic
+keypad inputs in order. Unprovided inputs become silence; processing stops on
+route, fallback, or hangup, with at most three attempts. Supplied input is not
+echoed in the JSON output. Use synthetic values only, since command arguments
+can remain in shell history and process listings.
+
+Output shows decisions, attempt counts, and locally rendered collection or
+hangup TwiML. Routing stops at an opaque demo target: there is no phone-number
+lookup, dialing, speech recognition, AI call, HTTP server, or network access.
+The demo does not authenticate callbacks, persist state, or model concurrency
+and is not a production adapter. The existing health smoke command is unchanged.
+
 ## Routing and voice helpers
 
 Also implemented: a pure single-digit IVR menu resolver. It selects an opaque
