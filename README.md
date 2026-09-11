@@ -433,6 +433,34 @@ per-step retry budgets independently. On `hangup`, emit `render_hangup()` rather
 than redirecting or dialing. Tests simulate a rapid redirect loop offline;
 no live endpoint, persistence, or provider integration is added.
 
+To apply both whole-call limits with one decision, use `resolve_voice_step_budget`:
+
+```python
+from zentomic.budget import resolve_voice_step_budget
+
+decision = resolve_voice_step_budget(
+    deadline_ms=100, now_ms=95, minimum_remaining_ms=10,
+    transitions=1, max_transitions=3,
+)
+assert (decision.action, decision.remaining_ms, decision.transitions) == ("hangup", 5, 1)
+```
+
+Both the fixed deadline and transition limit must admit the next step. Only a
+combined `continue` increments the count; denial preserves it, even if the count
+alone would have admitted work. `remaining_ms` reports actual time left, not a
+reservation or permission to continue. Both policies validate their inputs even
+if one denies work. The minimum time defaults to 1 ms. Existing individual
+helpers remain available and unchanged.
+
+This is a pure composition, not a session controller. Authenticate, bind to the
+expected step, reject replays, and check persisted terminal state first. Save
+the returned count atomically with the next step before work; on a conflict,
+reload state and recompute with a fresh clock. A denial still needs a durable
+terminal decision. Per-step retries, operation/invocation timeouts, and active
+cancellation remain separate. Offline tests cover both denial paths, exact
+boundaries, counter preservation, strict configuration, and repeated decisions;
+they do not test database concurrency or live calls.
+
 `render_redirect` serializes a server-selected transition, for example from an
 accepted pending intent to its confirmation step. It emits only a top-level
 [`Redirect` with explicit POST](https://www.twilio.com/docs/voice/twiml/redirect),
@@ -956,7 +984,7 @@ adapter. A usable pending label still requires separate caller confirmation.
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
-- `zentomic/budget.py`: fixed whole-call deadline admission with injected timestamps.
+- `zentomic/budget.py`: individual and combined whole-call time/count admission and timeouts.
 - `zentomic/speech.py`: bounded speech result admission before classification.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
@@ -972,6 +1000,7 @@ adapter. A usable pending label still requires separate caller confirmation.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_budget.py`: shared deadlines, exact boundaries, and offline validation.
+- `tests/test_voice_step_budget.py`: combined time/count admission without spending denied steps.
 - `tests/test_budget_flow.py`: authenticated classifier timeout and late-result contracts.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_intent_confirmation.py`: bounded keypad confirmation and renderer composition.

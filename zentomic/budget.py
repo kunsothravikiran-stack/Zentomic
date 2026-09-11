@@ -72,6 +72,42 @@ def resolve_call_budget(
     return CallBudget(action, remaining)
 
 
+@dataclass(frozen=True)
+class VoiceStepBudget:
+    """Combined admission, actual time left, and next persisted count."""
+
+    action: Literal["continue", "hangup"]
+    remaining_ms: int
+    transitions: int
+
+
+def resolve_voice_step_budget(
+    *, deadline_ms: int, now_ms: int, transitions: int, max_transitions: int,
+    minimum_remaining_ms: int = 1,
+) -> VoiceStepBudget:
+    """Admit one voice step only when both whole-call budgets permit it.
+
+    Validate both policies even when one denies work. Increment the count only
+    for a combined admission; denial preserves it and reports actual time left.
+    Inputs must come from trusted call state/configuration and a fresh clock.
+
+    Use after authentication, call/step binding, replay and terminal-state
+    checks. Atomically persist the returned count with the next step before
+    emitting work; on a conflict reload and recompute. This pure composition
+    does not persist, read a clock, cancel work, or enforce operation timeouts.
+    """
+    time_budget = resolve_call_budget(
+        deadline_ms=deadline_ms, now_ms=now_ms,
+        minimum_remaining_ms=minimum_remaining_ms,
+    )
+    count_budget = resolve_transition_budget(
+        transitions=transitions, max_transitions=max_transitions,
+    )
+    if time_budget.action == "hangup" or count_budget.action == "hangup":
+        return VoiceStepBudget("hangup", time_budget.remaining_ms, transitions)
+    return VoiceStepBudget("continue", time_budget.remaining_ms, count_budget.transitions)
+
+
 def resolve_operation_timeout(
     *, deadline_ms: int, now_ms: int, maximum_ms: int,
     minimum_ms: int = 1, reserve_ms: int = 0, granularity_ms: int = 1,
