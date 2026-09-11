@@ -408,6 +408,31 @@ provider response-envelope handling, endpoint, persistence, or token-cost cap.
 
 ### Hosted voice-step transitions
 
+`resolve_transition_budget` bounds rapid step changes even when the whole-call
+deadline has not expired. Pass the previously admitted transition count from
+trusted call-session state and an explicit configured maximum:
+
+```python
+from zentomic.budget import resolve_transition_budget
+
+decision = resolve_transition_budget(transitions=2, max_transitions=3)
+assert (decision.action, decision.transitions) == ("continue", 3)
+decision = resolve_transition_budget(transitions=decision.transitions, max_transitions=3)
+assert (decision.action, decision.transitions) == ("hangup", 3)
+```
+
+Each `continue` admits exactly one next step, including the last allowed one.
+At or above the limit, `hangup` preserves the count; a zero limit admits no
+transitions. Both counts must be nonnegative integers, never booleans or caller
+input. Authenticate, bind, and deduplicate callbacks first. Atomically persist
+the new count and authorized next step before acting. Keep one counter across
+menus, confirmation, and fallback; do not reset it on redirects or new Lambda
+invocations. Replays and concurrent writes require a storage-level guard, which
+this helper does not implement. Continue enforcing whole-call deadlines and
+per-step retry budgets independently. On `hangup`, emit `render_hangup()` rather
+than redirecting or dialing. Tests simulate a rapid redirect loop offline;
+no live endpoint, persistence, or provider integration is added.
+
 `render_redirect` serializes a server-selected transition, for example from an
 accepted pending intent to its confirmation step. It emits only a top-level
 [`Redirect` with explicit POST](https://www.twilio.com/docs/voice/twiml/redirect),

@@ -1,7 +1,38 @@
-"""Offline admission against a fixed, trusted whole-call deadline."""
+"""Offline admission against trusted whole-call time and transition budgets."""
 
 from dataclasses import dataclass
 from typing import Literal
+
+
+@dataclass(frozen=True)
+class TransitionBudget:
+    """Next action and the total number of admitted voice transitions."""
+
+    action: Literal["continue", "hangup"]
+    transitions: int
+
+
+def resolve_transition_budget(
+    *, transitions: int, max_transitions: int,
+) -> TransitionBudget:
+    """Admit one next voice step within a call-wide transition count limit.
+
+    Count previously admitted transitions from trusted session state, not form
+    fields. A successful admission increments once, including the last allowed
+    transition. At or above the limit, hang up without changing the count;
+    zero disables all transitions. Keep the same counter across voice steps.
+
+    This complements, but does not replace, the whole-call deadline or per-step
+    retry budgets. Authenticate and deduplicate first, then atomically persist
+    the new count with the next step before emitting a redirect or other work.
+    This pure helper does not persist, deduplicate, or end a real call.
+    """
+    for name, value in (("transitions", transitions), ("max_transitions", max_transitions)):
+        if type(value) is not int or value < 0:
+            raise ValueError(f"{name} must be a nonnegative integer")
+    if transitions >= max_transitions:
+        return TransitionBudget("hangup", transitions)
+    return TransitionBudget("continue", transitions + 1)
 
 
 @dataclass(frozen=True)
