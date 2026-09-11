@@ -11,7 +11,7 @@ from xml.etree.ElementTree import fromstring
 
 from tests.test_voice_flow import ACCOUNT, CALL, FALLBACK, ROUTES, callback
 from zentomic.authentication import validate_call_event
-from zentomic.budget import resolve_call_budget, resolve_operation_timeout
+from zentomic.budget import resolve_operation_timeout
 from zentomic.classification import parse_intent_response
 from zentomic.speech import resolve_speech_gather
 from zentomic.twiml import render_hangup
@@ -55,10 +55,12 @@ class BudgetFlowTests(unittest.TestCase):
             return None, None
         output = self.classifier(decision.transcript, timeout_ms=timeout_ms)
         # A dependency can return late despite its requested timeout. Never
-        # reuse the admission timestamp to authorize a subsequent step.
-        if resolve_call_budget(
+        # reuse either admission reading to authorize a subsequent step. This
+        # one-millisecond gate only rejects expiry, not a persistence/IO budget.
+        if resolve_operation_timeout(
             deadline_ms=self.deadline_ms, now_ms=self.clock(),
-        ).action == "hangup":
+            maximum_ms=1, invocation_remaining_ms=self.invocation_remaining(),
+        ) is None:
             return None, render_hangup()
         return parse_intent_response(output, allowed_intents=ROUTES.keys()), None
 
@@ -109,17 +111,17 @@ class BudgetFlowTests(unittest.TestCase):
 
     def test_invocation_budget_is_refreshed_and_not_taken_from_callback(self):
         fields = {"SpeechResult": "support", "invocation_remaining_ms": "999999999"}
-        self.invocation_remaining.side_effect = [2_250, 750, 749]
+        self.invocation_remaining.side_effect = [2_250, 1_000, 750, 250, 749]
         self.assertEqual(self.collect(fields), ("support", None))
         self.assertEqual(self.collect(fields), ("support", None))
         self.assert_hangup(self.collect(fields))
-        self.assertEqual(self.invocation_remaining.call_count, 3)
+        self.assertEqual(self.invocation_remaining.call_count, 5)
         self.assertEqual([call.kwargs["timeout_ms"] for call in self.classifier.call_args_list],
                          [2_000, 500])
         self.assertEqual(self.deadline_ms, 5_000)
 
     def test_larger_new_invocation_does_not_extend_call_deadline(self):
-        self.invocation_remaining.side_effect = [750, 60_000]
+        self.invocation_remaining.side_effect = [750, 250, 60_000]
         self.clock.side_effect = [1_000, 2_000, 5_000]
         self.assertEqual(self.collect({"SpeechResult": "support"}), ("support", None))
         self.assert_hangup(self.collect({"SpeechResult": "support"}))
@@ -134,6 +136,34 @@ class BudgetFlowTests(unittest.TestCase):
                     self.assert_hangup(self.collect({"SpeechResult": "support"}))
                     parse.assert_not_called()
                 self.classifier.assert_called_once_with("support", timeout_ms=500)
+
+    def test_expired_invocation_discards_result_before_parsing(self):
+        for version in ("1.0", "2.0"):
+            for encoded in (False, True):
+                with self.subTest(version=version, encoded=encoded):
+                    self.classifier.reset_mock()
+                    self.invocation_remaining.side_effect = [750, 0]
+                    # The call still has time, but this invocation does not.
+                    self.clock.side_effect = [1_000, 1_500]
+                    with patch(__name__ + ".parse_intent_response") as parse:
+                        self.assert_hangup(self.collect({"SpeechResult": "support"}, version, encoded))
+                        parse.assert_not_called()
+                    self.classifier.assert_called_once_with("support", timeout_ms=500)
+
+    def test_result_admission_uses_fresh_runtime_sample_at_boundary(self):
+        self.invocation_remaining.side_effect = [750, 1]
+        self.clock.side_effect = [1_000, 4_999]
+        self.assertEqual(self.collect({"SpeechResult": "support"}), ("support", None))
+        self.assertEqual(self.invocation_remaining.call_count, 2)
+
+    def test_result_gate_rejects_invalid_runtime_sample_before_parsing(self):
+        for remaining in (-1, True, 1.0, "1000"):
+            with self.subTest(remaining=remaining):
+                self.invocation_remaining.side_effect = [750, remaining]
+                with patch(__name__ + ".parse_intent_response") as parse:
+                    with self.assertRaises(ValueError):
+                        self.collect({"SpeechResult": "support"})
+                    parse.assert_not_called()
 
     def test_callbacks_share_deadline_and_cannot_supply_timing_configuration(self):
         fields = {"SpeechResult": "support", "deadline_ms": "999999999",

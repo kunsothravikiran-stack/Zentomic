@@ -755,10 +755,17 @@ The example also samples a trusted mock runtime's remaining invocation duration
 after authentication on every collection. Integration checks cover the shorter
 invocation cap, cleanup reserve and rounding, refusing to start when too little
 runtime remains, ignoring caller-supplied runtime values, and a new invocation
-never extending the fixed call deadline. Rejected callbacks read neither clock
-nor runtime budget. The runtime mock only governs admission; it does not model
-time passing during classification or enforce cancellation. An exhausted runtime
-may prevent even a serialized hangup from reaching the provider.
+never extending the fixed call deadline. Before parsing a classifier result,
+the example samples both budgets again and discards output if either has
+expired, even when the other still has time. Tests script runtime exhaustion
+during classification, the positive one-millisecond boundary, and invalid
+runtime readings. This final gate only checks expiry: it does not reserve time
+for parsing, persistence, or transport. Any subsequent operation still needs its
+own fresh admission check with an appropriate minimum and cleanup reserve.
+Rejected callbacks read neither clock nor runtime budget. The runtime mock
+only governs admission; scripted readings do not enforce cancellation or model
+an actual Lambda timeout. An exhausted runtime may prevent even a serialized
+hangup from reaching the provider.
 The mock's `timeout_ms` keyword is not an SDK API, and these tests do not prove
 provider cancellation, enforce a live timeout, or implement a production
 adapter. A usable pending label still requires separate caller confirmation.
