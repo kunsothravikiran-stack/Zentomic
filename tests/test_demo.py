@@ -7,7 +7,7 @@ from contextlib import redirect_stdout
 from xml.etree.ElementTree import fromstring
 
 from tests.__main__ import offline_guard
-from zentomic.demo import main, simulate_keypad
+from zentomic.demo import main, simulate_confirmation, simulate_keypad
 
 
 class KeypadDemoTests(unittest.TestCase):
@@ -75,6 +75,65 @@ class KeypadDemoTests(unittest.TestCase):
                 self.assertEqual(steps, simulate_keypad(["8", "2"]))
             self.assertEqual(steps[1]["action"], "retry")
             self.assertEqual(steps[-1]["target"], "demo-support")
+
+
+class ConfirmationDemoTests(unittest.TestCase):
+    def test_cli_requires_explicit_confirmation(self):
+        for label in ("sales", "support"):
+            for digits, action, target in ((["1"], "route", "demo-" + label),
+                                            (["2"], "fallback", "demo-reception"),
+                                            ([], "fallback", "demo-reception")):
+                output = io.StringIO()
+                with self.subTest(label=label, digits=digits), offline_guard(), \
+                        redirect_stdout(output):
+                    self.assertEqual(main(["--intent", label, *digits]), 0)
+                steps = json.loads(output.getvalue())["steps"]
+                self.assertEqual(steps[-1]["action"], action)
+                self.assertEqual(steps[-1]["target"], target)
+                self.assertNotIn("target", steps[0])
+                gather = fromstring(steps[0]["twiml"]).find("Gather")
+                self.assertEqual(gather.get("action"), "/voice/confirm")
+                self.assertIn(label, gather.findtext("Say"))
+
+    def test_bounded_retry_and_explicit_hangup(self):
+        for digit, action in (("1", "route"), ("2", "fallback"), ("9", "hangup")):
+            with self.subTest(digit=digit), offline_guard():
+                steps = simulate_confirmation("sales", ["8", "", digit])
+            self.assertEqual([step["action"] for step in steps],
+                             ["gather", "retry", "retry", action])
+            self.assertEqual([step["attempts"] for step in steps], [0, 1, 2, 3])
+            if action == "hangup":
+                self.assertNotIn("target", steps[-1])
+                self.assertIsNotNone(fromstring(steps[-1]["twiml"]).find("Hangup"))
+        with offline_guard():
+            self.assertEqual(simulate_confirmation("sales", ["8"] * 3 + ["1"])[-1],
+                             {"action": "fallback", "attempts": 3, "target": "demo-reception"})
+
+    def test_stops_consuming_after_terminal_decision(self):
+        for digit in ("1", "2", "9"):
+            def inputs():
+                yield digit
+                raise AssertionError("consumed input after terminal decision")
+
+            with self.subTest(digit=digit), offline_guard():
+                self.assertEqual(len(simulate_confirmation("support", inputs())), 2)
+
+    def test_unknown_label_is_rejected_without_reflection_or_consumption(self):
+        def inputs():
+            raise AssertionError("consumed input with invalid configuration")
+            yield
+
+        for label in ("synthetic-private", " sales", "SALES", None, []):
+            with self.subTest(label=label), offline_guard():
+                with self.assertRaisesRegex(ValueError, "^intent must be sales or support$"):
+                    simulate_confirmation(label, inputs())
+
+    def test_invalid_digits_are_not_reflected(self):
+        with offline_guard():
+            expected = simulate_confirmation("sales", ["8", "1"])
+            for digit in ("synthetic-private", " 1", "１", "12"):
+                with self.subTest(digit=digit):
+                    self.assertEqual(simulate_confirmation("sales", [digit, "1"]), expected)
 
 
 if __name__ == "__main__":

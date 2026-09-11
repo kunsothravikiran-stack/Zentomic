@@ -128,6 +128,32 @@ lookup, dialing, speech recognition, AI call, HTTP server, or network access.
 The demo does not authenticate callbacks, persist state, or model concurrency
 and is not a production adapter. The existing health smoke command is unchanged.
 
+### Offline intent confirmation demo
+
+Exercise a pending intent's separate confirmation step with the same local demo:
+
+```sh
+python -m zentomic.demo --intent sales 1
+python -m zentomic.demo --intent support 2
+python -m zentomic.demo --intent sales
+python -m zentomic.demo --intent support 9
+```
+
+These confirm sales, decline support in favor of reception, exhaust three
+silent attempts and fall back, or hang up. `--intent` accepts only the fixed
+synthetic labels `sales` and `support`. Unlike the default keypad walkthrough,
+omitting digits in this mode never supplies a successful selection. Invalid
+digits and silence retry up to three attempts; `1` confirms, `2` declines,
+and `9` ends the simulation. JSON includes only fixed prompts, decisions,
+attempt counts, and opaque demo targets, not supplied keypad input.
+
+This starts after classification with a synthetic pending label. It does not
+transcribe, call an AI model, authenticate or persist confirmation, or dial a
+destination. Production confirmation must use trusted call-session state,
+not a caller's choice of label. Use synthetic command arguments only; the same
+shell-history and process-list privacy caveats apply. Existing keypad demo
+commands are unchanged.
+
 ## Routing and voice helpers
 
 Also implemented: a pure single-digit IVR menu resolver. It selects an opaque
