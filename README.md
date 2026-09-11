@@ -515,6 +515,38 @@ Do not apply this Number-only policy to conferences or child status callbacks.
 A `hangup` decision can use `render_hangup`; a `fallback` decision still needs
 authorized target resolution. No endpoint, persistence, or real call is added.
 
+### Call lifecycle status classification
+
+`is_terminal_call_status` distinguishes a call leg's terminal outcomes from
+known active states. This is separate from the forwarding fallback policy:
+
+```python
+from zentomic.call_status import is_terminal_call_status
+
+assert is_terminal_call_status("completed") is True
+assert is_terminal_call_status("no-answer") is True
+assert is_terminal_call_status("in-progress") is False
+```
+
+Terminal values are `completed`, `busy`, `failed`, `no-answer`, and `canceled`;
+`queued`, `ringing`, and `in-progress` return `False`. Missing, unknown, or
+non-string values raise a generic `ValueError`. Matching is exact, without
+normalization. These are
+[Twilio Call Status values](https://www.twilio.com/docs/voice/api/call-resource#call-status-values),
+not subscription event names such as `initiated` or `answered`. `completed`
+does not prove a human answered or a business task succeeded.
+
+Use authenticated `CallStatus` bound to the expected account and call leg,
+not `DialCallStatus`. A child leg ending does not imply the parent call ended.
+Twilio documents that status callbacks can arrive out of order. This helper
+classifies only the supplied value; a future adapter must atomically deduplicate
+updates and prevent delayed active events from reopening terminal state.
+It does not authorize cleanup, persist state, end calls, expose an endpoint,
+or make provider requests. Unknown statuses must not trigger cleanup or reopen
+a session. Synthetic tests cover all values, strict rejection, and composition
+with the injected authentication gate across both proxy formats and encodings;
+they do not verify real signatures or delivery ordering.
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:
@@ -827,6 +859,7 @@ adapter. A usable pending label still requires separate caller confirmation.
 - `zentomic/speech.py`: bounded speech result admission before classification.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
+- `zentomic/call_status.py`: strict terminal versus active call-leg classification.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/twiml.py`: offline collection, forwarding, and terminal response rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
@@ -848,6 +881,7 @@ adapter. A usable pending label still requires separate caller confirmation.
 - `tests/test_speech_flow.py`: authenticated speech-to-confirmation cross-module contracts.
 - `tests/test_dial.py`: forwarding structure, destination validation, and offline safety.
 - `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
+- `tests/test_call_status.py`: lifecycle values, rejection, and authenticated composition.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 - `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
 - `tests/test_authentication.py`: signature gate, dependency failures, and privacy.
