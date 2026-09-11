@@ -461,6 +461,14 @@ cancellation remain separate. Offline tests cover both denial paths, exact
 boundaries, counter preservation, strict configuration, and repeated decisions;
 they do not test database concurrency or live calls.
 
+`tests/test_voice_admission_flow.py` composes authentication, terminal-state
+checks, combined admission, and proxy-wrapped redirects across synthetic v1/v2
+callbacks. It verifies a shared counter across different voice steps, fresh
+clock checks, caller-field isolation, and no admission after authentication
+failure or a terminal decision. Its state is sequential and test-owned, not a
+durable session implementation or a test of replay protection, atomic writes,
+provider signature cryptography, or operation timeout enforcement.
+
 `render_redirect` serializes a server-selected transition, for example from an
 accepted pending intent to its confirmation step. It emits only a top-level
 [`Redirect` with explicit POST](https://www.twilio.com/docs/voice/twiml/redirect),
@@ -1001,6 +1009,7 @@ adapter. A usable pending label still requires separate caller confirmation.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_budget.py`: shared deadlines, exact boundaries, and offline validation.
 - `tests/test_voice_step_budget.py`: combined time/count admission without spending denied steps.
+- `tests/test_voice_admission_flow.py`: authenticated multi-step redirect admission contracts.
 - `tests/test_budget_flow.py`: authenticated classifier timeout and late-result contracts.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_intent_confirmation.py`: bounded keypad confirmation and renderer composition.
