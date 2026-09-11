@@ -751,6 +751,14 @@ remaining-budget timeout to the dependency, and read the clock again before
 admitting its result. It checks insufficient budget, late-result rejection,
 cleanup reserves, timeout granularity, and one unchanged deadline across
 callbacks. Signed form fields cannot supply test-owned timing configuration.
+The example also samples a trusted mock runtime's remaining invocation duration
+after authentication on every collection. Integration checks cover the shorter
+invocation cap, cleanup reserve and rounding, refusing to start when too little
+runtime remains, ignoring caller-supplied runtime values, and a new invocation
+never extending the fixed call deadline. Rejected callbacks read neither clock
+nor runtime budget. The runtime mock only governs admission; it does not model
+time passing during classification or enforce cancellation. An exhausted runtime
+may prevent even a serialized hangup from reaching the provider.
 The mock's `timeout_ms` keyword is not an SDK API, and these tests do not prove
 provider cancellation, enforce a live timeout, or implement a production
 adapter. A usable pending label still requires separate caller confirmation.

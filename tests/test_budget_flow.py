@@ -24,10 +24,11 @@ class BudgetFlowTests(unittest.TestCase):
         self.validator = Mock(return_value=True)
         self.classifier = Mock(return_value='{"intent":"support"}')
         self.clock = Mock(return_value=1_000)
+        self.invocation_remaining = Mock(return_value=60_000)
         self.deadline_ms = 5_000
 
     def collect(self, fields, version="2.0", encoded=False):
-        """Show authentication, fresh timeout calculation, and late-result gating.
+        """Show authentication, fresh call/runtime budgets, and late-result gating.
 
         Return (pending label, terminal XML). Nonclassifiable speech and invalid
         model output return (None, None); retry/fallback orchestration is outside
@@ -43,6 +44,7 @@ class BudgetFlowTests(unittest.TestCase):
             deadline_ms=self.deadline_ms, now_ms=self.clock(),
             maximum_ms=2_000, minimum_ms=500, reserve_ms=250,
             granularity_ms=100,
+            invocation_remaining_ms=self.invocation_remaining(),
         )
         if timeout_ms is None:
             return None, render_hangup()
@@ -83,6 +85,46 @@ class BudgetFlowTests(unittest.TestCase):
                 self.assert_hangup(self.collect({"SpeechResult": "support"}))
         self.classifier.assert_not_called()
 
+    def test_invocation_budget_caps_timeout_in_all_proxy_formats(self):
+        for version in ("1.0", "2.0"):
+            for encoded in (False, True):
+                for remaining, expected in ((1_750, 1_500), (1_000, 700), (750, 500)):
+                    with self.subTest(version=version, encoded=encoded, remaining=remaining):
+                        self.classifier.reset_mock()
+                        self.invocation_remaining.return_value = remaining
+                        self.assertEqual(
+                            self.collect({"SpeechResult": "support"}, version, encoded),
+                            ("support", None),
+                        )
+                        self.classifier.assert_called_once_with("support", timeout_ms=expected)
+
+    def test_short_invocation_does_not_start_or_parse_classifier_work(self):
+        for remaining in (0, 250, 749):
+            with self.subTest(remaining=remaining):
+                self.invocation_remaining.return_value = remaining
+                with patch(__name__ + ".parse_intent_response") as parse:
+                    self.assert_hangup(self.collect({"SpeechResult": "support"}))
+                    parse.assert_not_called()
+        self.classifier.assert_not_called()
+
+    def test_invocation_budget_is_refreshed_and_not_taken_from_callback(self):
+        fields = {"SpeechResult": "support", "invocation_remaining_ms": "999999999"}
+        self.invocation_remaining.side_effect = [2_250, 750, 749]
+        self.assertEqual(self.collect(fields), ("support", None))
+        self.assertEqual(self.collect(fields), ("support", None))
+        self.assert_hangup(self.collect(fields))
+        self.assertEqual(self.invocation_remaining.call_count, 3)
+        self.assertEqual([call.kwargs["timeout_ms"] for call in self.classifier.call_args_list],
+                         [2_000, 500])
+        self.assertEqual(self.deadline_ms, 5_000)
+
+    def test_larger_new_invocation_does_not_extend_call_deadline(self):
+        self.invocation_remaining.side_effect = [750, 60_000]
+        self.clock.side_effect = [1_000, 2_000, 5_000]
+        self.assertEqual(self.collect({"SpeechResult": "support"}), ("support", None))
+        self.assert_hangup(self.collect({"SpeechResult": "support"}))
+        self.classifier.assert_called_once_with("support", timeout_ms=500)
+
     def test_late_results_are_discarded_before_parsing(self):
         for finished in (5_000, 5_001):
             with self.subTest(finished=finished):
@@ -112,6 +154,7 @@ class BudgetFlowTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.collect({"SpeechResult": "support", **overrides})
         self.clock.assert_not_called()
+        self.invocation_remaining.assert_not_called()
         self.classifier.assert_not_called()
 
 
