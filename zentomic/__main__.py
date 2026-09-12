@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import sys
 
 from zentomic.handler import lambda_handler
@@ -21,6 +22,15 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 def _reject_constant(value: str) -> None:
     raise ValueError("non-JSON constant")
+
+
+def _finite_float(value: str) -> float:
+    # parse_constant rejects literal Infinity, but not JSON numbers like 1e400
+    # that overflow Python's float during decoding, including nested values.
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("JSON number exceeds finite float range")
+    return number
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -49,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
             # Accept an optional leading UTF-8 BOM from local editor exports.
             # Keep decoding explicit: json.loads(bytes) also accepts UTF-16/32.
             event = json.loads(raw.decode("utf-8-sig"), object_pairs_hook=_unique_object,
-                               parse_constant=_reject_constant)
+                               parse_constant=_reject_constant, parse_float=_finite_float)
             if not isinstance(event, dict):
                 raise ValueError("event must be an object")
         except (ValueError, RecursionError, OSError):

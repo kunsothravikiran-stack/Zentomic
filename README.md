@@ -57,11 +57,14 @@ printf '%s' '{"httpMethod":"HEAD","path":"/health"}' | python -m zentomic --stdi
 REST v1 and HTTP v2 use the existing handler contracts. Standard output contains
 only the proxy response, including 400/404/405 responses; these successful
 replays exit 0. Invalid JSON, duplicate object keys, non-JSON numeric constants,
-non-object input, read errors, or input over 64 KiB produce a generic diagnostic
+decimal/exponent numbers that overflow Python's finite float range (such as
+`1e400`), non-object input, read errors, or input over 64 KiB produce a generic diagnostic
 on standard error and exit 2 without invoking the handler. The size limit is in
 UTF-8 bytes and includes whitespace and an optional leading UTF-8 byte-order
 mark (BOM). UTF-8 files saved with a BOM replay identically to BOM-free input;
 UTF-16/UTF-32 files and repeated or misplaced BOMs before the object are rejected.
+Numbers otherwise use standard Python JSON integer/float decoding, including
+floating-point rounding and underflow; replay is not a lossless numeric decoder.
 Use synthetic events only, not exported
 production requests or credentials. This is a local handler invocation, not an
 HTTP server, API Gateway emulator, or voice webhook adapter. Without `--stdin`,

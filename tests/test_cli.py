@@ -66,6 +66,28 @@ class EventCliTests(unittest.TestCase):
         self.assertGreater(len(multibyte), MAX_EVENT_BYTES)
         self.assertEqual(self.invoke(multibyte)[:2], (2, ""))
 
+    def test_overflowing_json_numbers_never_reach_handler(self):
+        for number in (b"1e400", b"-1e400", b"1.8e308", b"9" * 400 + b".0"):
+            raw = b'{"private-number":[{"nested":' + number + b'}]}'
+            with self.subTest(number=number[:20]), \
+                    patch("zentomic.__main__.lambda_handler", return_value={}) as handler:
+                code, output, errors, _ = self.invoke(raw)
+                self.assertEqual((code, output), (2, ""))
+                self.assertEqual(errors, "Invalid event: provide one UTF-8 JSON object of at most 65536 bytes.\n")
+                handler.assert_not_called()
+
+    def test_finite_numbers_keep_standard_json_types(self):
+        raw = b'{"values":[0,1.25,-2.5e2,1.7976931348623157e308,5e-324,' + b"9" * 400 + b']}'
+        with patch("zentomic.__main__.lambda_handler", return_value={}) as handler:
+            code, output, errors, _ = self.invoke(raw)
+        self.assertEqual((code, output, errors), (0, "{}\n", ""))
+        values = handler.call_args.args[0]["values"]
+        self.assertEqual(values, [0, 1.25, -250.0, float.fromhex("0x1.fffffffffffffp+1023"),
+                                  5e-324, int("9" * 400)])
+        self.assertIs(type(values[0]), int)
+        self.assertIs(type(values[1]), float)
+        self.assertIs(type(values[-1]), int)
+
     def test_valid_utf8_is_accepted_without_reflecting_input(self):
         raw = json.dumps({"httpMethod": "GET", "path": "/health", "body": "తెలుగు"},
                          ensure_ascii=False).encode("utf-8")
@@ -115,6 +137,7 @@ class EventCliTests(unittest.TestCase):
                     b'"requestContext":{"http":{"method":"GET"}}}',
                     b'{"httpMethod":"GET","path":"/missing"}',
                     b'{"duplicate":1,"duplicate":2}',
+                    b'{"value":1e400}',
                     b'{"body":"\xff"}',
                     b'{}' + b' ' * (MAX_EVENT_BYTES - 2),
                     b'{}' + b' ' * MAX_EVENT_BYTES):
