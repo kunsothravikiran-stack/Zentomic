@@ -11,6 +11,25 @@ from zentomic.demo import main, simulate_classification, simulate_confirmation, 
 
 
 class KeypadDemoTests(unittest.TestCase):
+    def test_all_modes_stop_consuming_at_the_retry_budget(self):
+        for run in (simulate_keypad,
+                    lambda digits: simulate_confirmation("sales", digits),
+                    lambda digits: simulate_classification('{"intent":"sales"}', digits)):
+            consumed = []
+
+            def inputs():
+                for digit in ("8", "", "8"):
+                    consumed.append(digit)
+                    yield digit
+                raise AssertionError("consumed input beyond the retry budget")
+
+            with self.subTest(run=run), offline_guard():
+                steps = run(inputs())
+            self.assertEqual(consumed, ["8", "", "8"])
+            self.assertEqual(steps[-1], {
+                "action": "fallback", "attempts": 3, "target": "demo-reception",
+            })
+
     def test_default_cli_demonstrates_retry_then_route(self):
         output = io.StringIO()
         with offline_guard(), redirect_stdout(output):

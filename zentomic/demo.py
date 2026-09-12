@@ -2,33 +2,32 @@
 
 import argparse
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from zentomic.classification import parse_intent_response
-from zentomic.gather import resolve_gather
+from zentomic.gather import GatherDecision, resolve_gather
 from zentomic.intent import resolve_intent_confirmation
 from zentomic.twiml import render_dtmf_gather, render_hangup
 
 
-def simulate_keypad(digits: Iterable[str]) -> list[dict]:
-    """Show a fixed demo menu, treating missing inputs as silence.
+_MAX_ATTEMPTS = 3
 
-    Stop at routing, fallback, or hangup and consume at most three inputs.
-    Return only synthetic targets and decisions, never the supplied digits.
-    This is not an authenticated adapter or persistent call session. A route
-    ends the simulation at target selection; it does not resolve or dial it.
+
+def _simulate_collection(
+    digits: Iterable[str], *, prompt: str, action_path: str,
+    resolve: Callable[[str, int], GatherDecision],
+) -> list[dict]:
+    """Run either fixed demo policy with shared rendering and lazy consumption.
+
+    The internal resolver must use the same three-attempt budget. Never read
+    another input after routing, fallback, hangup, or budget exhaustion.
     """
-    prompt = "Press 1 for sales, 2 for support, or 9 to end the call."
-    collection = render_dtmf_gather(prompt, action_path="/voice/menu")
+    collection = render_dtmf_gather(prompt, action_path=action_path)
     steps = [{"action": "gather", "attempts": 0, "twiml": collection}]
     inputs = iter(digits)
     attempts = 0
-    while attempts < 3:
-        decision = resolve_gather(
-            next(inputs, ""), {"1": "demo-sales", "2": "demo-support"},
-            fallback_target="demo-reception", attempts=attempts,
-            max_attempts=3, hangup_digit="9",
-        )
+    while attempts < _MAX_ATTEMPTS:
+        decision = resolve(next(inputs, ""), attempts)
         attempts = decision.attempts
         step = {"action": decision.action, "attempts": attempts}
         if decision.target is not None:
@@ -41,6 +40,25 @@ def simulate_keypad(digits: Iterable[str]) -> list[dict]:
         if decision.action != "retry":
             break
     return steps
+
+
+def simulate_keypad(digits: Iterable[str]) -> list[dict]:
+    """Show a fixed demo menu, treating missing inputs as silence.
+
+    Stop at routing, fallback, or hangup and consume at most three inputs.
+    Return only synthetic targets and decisions, never the supplied digits.
+    This is not an authenticated adapter or persistent call session. A route
+    ends the simulation at target selection; it does not resolve or dial it.
+    """
+    return _simulate_collection(
+        digits, prompt="Press 1 for sales, 2 for support, or 9 to end the call.",
+        action_path="/voice/menu",
+        resolve=lambda digit, attempts: resolve_gather(
+            digit, {"1": "demo-sales", "2": "demo-support"},
+            fallback_target="demo-reception", attempts=attempts,
+            max_attempts=_MAX_ATTEMPTS, hangup_digit="9",
+        ),
+    )
 
 
 def simulate_confirmation(intent: str, digits: Iterable[str]) -> list[dict]:
@@ -53,28 +71,14 @@ def simulate_confirmation(intent: str, digits: Iterable[str]) -> list[dict]:
     if not isinstance(intent, str) or intent not in ("sales", "support"):
         raise ValueError("intent must be sales or support")
     prompt = f"Did you mean {intent}? Press 1 for yes, 2 for reception, or 9 to end."
-    collection = render_dtmf_gather(prompt, action_path="/voice/confirm")
-    steps = [{"action": "gather", "attempts": 0, "twiml": collection}]
-    inputs = iter(digits)
-    attempts = 0
-    while attempts < 3:
-        decision = resolve_intent_confirmation(
-            next(inputs, ""), intent, {"sales": "demo-sales", "support": "demo-support"},
+    return _simulate_collection(
+        digits, prompt=prompt, action_path="/voice/confirm",
+        resolve=lambda digit, attempts: resolve_intent_confirmation(
+            digit, intent, {"sales": "demo-sales", "support": "demo-support"},
             fallback_target="demo-reception", attempts=attempts,
-            max_attempts=3, hangup_digit="9",
-        )
-        attempts = decision.attempts
-        step = {"action": decision.action, "attempts": attempts}
-        if decision.target is not None:
-            step["target"] = decision.target
-        if decision.action == "retry":
-            step["twiml"] = collection
-        elif decision.action == "hangup":
-            step["twiml"] = render_hangup()
-        steps.append(step)
-        if decision.action != "retry":
-            break
-    return steps
+            max_attempts=_MAX_ATTEMPTS, hangup_digit="9",
+        ),
+    )
 
 
 def simulate_classification(response: str | None, digits: Iterable[str]) -> list[dict]:
