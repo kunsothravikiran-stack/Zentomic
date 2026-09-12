@@ -1328,6 +1328,38 @@ state. Do not accept a late confirmation for a changed intent or completed
 step. Route targets and the human fallback require workspace authorization.
 No new endpoint, session store, AI request, or telephony operation is added.
 
+#### Authenticated confirmation boundary
+
+`zentomic.confirmation_event.resolve_confirmation_event` composes form decoding,
+signature validation, trusted account/call identity binding, and the bounded
+confirmation policy above. Only authenticated `Digits` supplies the choice;
+missing input is silence. Callback intent labels, confirmation flags, targets,
+and attempt counts never replace trusted state. Routes are snapshotted before
+the validator runs, and its private field copy cannot rewrite the choice.
+
+```python
+# example: compile-only
+from zentomic.confirmation_event import resolve_confirmation_event
+
+decision = resolve_confirmation_event(
+    event, pending_intent=session.pending_intent, routes=workspace.intent_routes,
+    public_url=config.confirmation_url, validator=signature_validator,
+    expected_account_sid=workspace.account_sid, expected_call_sid=session.call_sid,
+    fallback_target=workspace.fallback_target, attempts=session.confirmation_attempts,
+    max_attempts=3, hangup_digit="9",
+)
+```
+
+This integration sketch requires trusted configuration and a real signature
+validator. Authentication does not prove that this is the current confirmation
+step. Atomically claim the unchanged step and pending intent, enforce deadlines
+and transition limits, and persist the result before acting. Reload and
+revalidate on conflicts; a late confirmation must not confirm a changed intent.
+Workspace destination authorization remains separate. The helper performs no
+persistence, classification, rendering, or dialing. Offline tests cover both
+proxy formats and body encodings, rejected authentication, policy-field
+spoofing, validator mutation, missing input, and bounded confirmation choices.
+
 ## Packaging and integration tests
 
 ### Optional local package installation
