@@ -55,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="read one UTF-8 JSON proxy event from stdin (at most 64 KiB)")
     source.add_argument("--event-file", metavar="PATH",
                         help="read one local UTF-8 JSON proxy event file (at most 64 KiB)")
+    parser.add_argument("--fail-on-http-error", action="store_true",
+                        help="exit 1 for handler HTTP errors while still printing the response")
     args = parser.parse_args(argv)
     event = {
         "version": "2.0",
@@ -82,9 +84,11 @@ def main(argv: list[str] | None = None) -> int:
             print("Invalid event: provide one UTF-8 JSON object of at most 65536 bytes.",
                   file=sys.stderr)
             return 2
-    print(json.dumps(lambda_handler(event, None), indent=2))
-    # A handler 4xx is a successfully replayed request, not a CLI input error.
-    return 0
+    response = lambda_handler(event, None)
+    print(json.dumps(response, indent=2))
+    # Default replay preserves HTTP errors as successful invocations. Opt-in
+    # smoke checks distinguish them from malformed local input (exit 2).
+    return 1 if args.fail_on_http_error and response["statusCode"] >= 400 else 0
 
 
 if __name__ == "__main__":

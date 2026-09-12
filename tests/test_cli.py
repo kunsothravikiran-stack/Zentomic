@@ -55,6 +55,48 @@ class EventCliTests(unittest.TestCase):
                 self.assertEqual(errors, "Invalid event: provide one UTF-8 JSON object of at most 65536 bytes.\n")
                 handler.assert_not_called()
 
+    def test_fail_on_http_error_preserves_response_for_both_formats_and_sources(self):
+        for version in ("1.0", "2.0", "unsupported"):
+            for method, path in (("GET", "/health"), ("HEAD", "/health"),
+                                 ("GET", "/missing"), ("HEAD", "/missing"),
+                                 ("POST", "/health")):
+                event = {"version": version, "httpMethod": method, "path": path,
+                         "rawPath": path, "requestContext": {"http": {"method": method}}}
+                raw = json.dumps(event).encode()
+                expected = self.invoke(raw)
+                status = json.loads(expected[1])["statusCode"]
+                for source in (["--stdin"], ["--event-file", "synthetic.json"]):
+                    with self.subTest(version=version, method=method, path=path, source=source), \
+                            patch("builtins.open", return_value=io.BytesIO(raw)):
+                        actual = self.invoke(raw, source + ["--fail-on-http-error"])
+                    self.assertEqual(actual[:3], (int(status >= 400), expected[1], ""))
+                    if source[0] == "--event-file":
+                        self.assertEqual(actual[3], 0)
+
+    def test_fail_on_http_error_keeps_invalid_input_exit_code(self):
+        with patch("zentomic.__main__.lambda_handler") as handler:
+            code, output, errors, _ = self.invoke(
+                b"synthetic-private", ["--stdin", "--fail-on-http-error"],
+            )
+        self.assertEqual((code, output), (2, ""))
+        self.assertEqual(errors, "Invalid event: provide one UTF-8 JSON object of at most 65536 bytes.\n")
+        handler.assert_not_called()
+
+    def test_fail_on_http_error_supports_default_health_smoke(self):
+        normal = self.invoke(b"invalid", [])
+        self.assertEqual(self.invoke(b"invalid", ["--fail-on-http-error"]), normal)
+
+    def test_fail_on_http_error_uses_status_threshold_and_invokes_handler_once(self):
+        for status in (200, 204, 301, 399, 400, 500, 503):
+            response = {"statusCode": status, "body": ""}
+            with self.subTest(status=status), patch(
+                "zentomic.__main__.lambda_handler", return_value=response,
+            ) as handler:
+                code, output, errors, _ = self.invoke(b"", ["--fail-on-http-error"])
+            self.assertEqual((code, errors), (int(status >= 400), ""))
+            self.assertEqual(json.loads(output), response)
+            handler.assert_called_once()
+
     def test_byte_limit_is_inclusive_and_read_is_bounded(self):
         exact = b"{}" + b" " * (MAX_EVENT_BYTES - 2)
         self.assertEqual(self.invoke(exact)[:1], (0,))

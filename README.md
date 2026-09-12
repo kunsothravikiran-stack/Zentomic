@@ -82,6 +82,19 @@ input diagnostic without printing the path. `--event-file` and `--stdin` cannot
 be combined. Use trusted local regular files, not device paths or named pipes;
 this reader has no I/O timeout. Neither option starts a server or contacts AWS.
 
+For a script that should fail on handler HTTP errors, add `--fail-on-http-error`
+to either replay source or the default smoke command. It exits 1 when the
+handler returns status 400 or higher, but still prints the same complete proxy
+response to standard output, without an extra standard-error diagnostic.
+Malformed or unreadable input still exits 2 before invoking the handler;
+successful HTTP responses exit 0. Without the flag, replay exit codes are
+unchanged. For example, this synthetic missing route prints a 404 response
+and exits 1:
+
+```sh
+printf '%s' '{"httpMethod":"GET","path":"/missing"}' | python -m zentomic --stdin --fail-on-http-error
+```
+
 The test directory is an importable package, so default discovery from the
 repository root (`python -m unittest` or `python -m unittest discover`) runs
 the full offline suite. Explicit discovery with `python -m unittest discover
