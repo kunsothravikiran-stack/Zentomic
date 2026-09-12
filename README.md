@@ -987,6 +987,33 @@ local state unchanged and signature failures never reach the transition policy.
 These are sequential in-memory checks, not database concurrency or real
 signature validation tests.
 
+For a reusable authenticated boundary, use
+`zentomic.call_status_event.advance_call_status_event(current_status, event, ...)`.
+It composes the existing transport, injected signature validator, account/call
+binding, and monotonic transition policy, returning only the proposed status:
+
+```python
+# example: compile-only
+from zentomic.call_status_event import advance_call_status_event
+
+proposed_status = advance_call_status_event(
+    current_status, event,
+    public_url=configured_status_url,
+    validator=trusted_request_validator.validate,
+    expected_account_sid=session_account_sid,
+    expected_call_sid=session_call_sid,
+)
+```
+
+All configuration and current state above must be loaded from trusted,
+workspace-scoped sources. Invalid stored state fails before signature validation.
+Even after a terminal observation, every callback must authenticate, match the
+expected leg, and contain a valid `CallStatus`; `DialCallStatus` is not a substitute.
+No request fields are returned or logged. The helper does not save state, send
+an HTTP acknowledgment, or authorize side effects. The conditional-write and
+idempotency requirements above still apply. Tests use synthetic events and an
+injected mock validator, not a live SDK or database.
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:
@@ -1288,6 +1315,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
 - `zentomic/call_status.py`: strict terminal versus active call-leg classification.
+- `zentomic/call_status_event.py`: authenticated call-leg lifecycle composition.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/twiml.py`: offline collection, forwarding, and terminal response rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
