@@ -96,6 +96,28 @@ class EventCliTests(unittest.TestCase):
         self.assertEqual(json.loads(output)["statusCode"], 200)
         self.assertNotIn("తెలుగు", output)
 
+    def test_escaped_lone_surrogates_never_reach_handler(self):
+        for raw in (b'{"body":"\\ud800"}', b'{"\\udfff":"value"}',
+                    b'{"nested":[{"value":["private-\\ud800-text"]}]}',
+                    b'{"body":"\\udc00\\ud800"}'):
+            for argv in (["--stdin"], ["--event-file", "synthetic.json"]):
+                with self.subTest(raw=raw, argv=argv), \
+                        patch("builtins.open", return_value=io.BytesIO(raw)), \
+                        patch("zentomic.__main__.lambda_handler", return_value={}) as handler:
+                    code, output, errors, _ = self.invoke(raw, argv)
+                    self.assertEqual((code, output), (2, ""))
+                    self.assertEqual(errors, "Invalid event: provide one UTF-8 JSON object of at most 65536 bytes.\n")
+                    handler.assert_not_called()
+
+    def test_escaped_unicode_pairs_and_literal_escape_text_are_preserved(self):
+        raw = (b'{"\\ud83d\\ude00":["\\ud83d\\ude00",'
+               b'"\\u0c24\\u0c46", "\\\\ud800", null, true, 42]}')
+        with patch("zentomic.__main__.lambda_handler", return_value={}) as handler:
+            code, output, errors, _ = self.invoke(raw)
+        self.assertEqual((code, output, errors), (0, "{}\n", ""))
+        self.assertEqual(handler.call_args.args[0],
+                         {"😀": ["😀", "తె", "\\ud800", None, True, 42]})
+
     def test_leading_utf8_bom_replays_the_same_event(self):
         for event in (
             {"httpMethod": "HEAD", "path": "/health"},

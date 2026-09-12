@@ -33,6 +33,21 @@ def _finite_float(value: str) -> float:
     return number
 
 
+def _validate_decoded_strings(event: dict) -> None:
+    # UTF-8 source bytes can still contain JSON escapes for lone surrogates.
+    # Check decoded keys and values without rewriting them or adding recursion.
+    pending = [event]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            value.encode("utf-8")
+        elif isinstance(value, dict):
+            pending.extend(value.keys())
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
@@ -62,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
                                parse_constant=_reject_constant, parse_float=_finite_float)
             if not isinstance(event, dict):
                 raise ValueError("event must be an object")
+            _validate_decoded_strings(event)
         except (ValueError, RecursionError, OSError):
             print("Invalid event: provide one UTF-8 JSON object of at most 65536 bytes.",
                   file=sys.stderr)

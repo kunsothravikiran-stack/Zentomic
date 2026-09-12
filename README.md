@@ -63,6 +63,9 @@ on standard error and exit 2 without invoking the handler. The size limit is in
 UTF-8 bytes and includes whitespace and an optional leading UTF-8 byte-order
 mark (BOM). UTF-8 files saved with a BOM replay identically to BOM-free input;
 UTF-16/UTF-32 files and repeated or misplaced BOMs before the object are rejected.
+Decoded object keys and string values, including nested arrays and objects, must
+also be UTF-8 encodable. Escaped lone surrogates are rejected before invocation;
+valid JSON surrogate pairs (such as emoji) and literal backslash text are preserved.
 Numbers otherwise use standard Python JSON integer/float decoding, including
 floating-point rounding and underflow; replay is not a lossless numeric decoder.
 Use synthetic events only, not exported
