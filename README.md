@@ -190,6 +190,37 @@ This mode takes synthetic fixtures, not live model output, and adds no model
 call, transcription, authenticated state, persistence, or dialing. Use synthetic
 arguments only because shell history and process listings can retain them.
 
+### Offline speech-to-confirmation demo
+
+Prepend speech-result admission to the classifier fixture with repeatable
+`--speech` arguments (Bash examples):
+
+```sh
+python -m zentomic.demo --speech 'synthetic sales request' --classifier-response '{"intent":"sales"}' 1
+python -m zentomic.demo --speech '' --speech 'synthetic support request' --classifier-response '{"intent":"support"}' 2
+python -m zentomic.demo --speech '' --classifier-response '{"intent":"sales"}' 1
+```
+
+These admit speech and confirm sales, retry silence then decline support,
+or exhaust speech collection without parsing the classifier fixture or
+consuming confirmation digits. Missing speech results become silence. The
+existing speech policy rejects blank, malformed, non-UTF-8-encodable, or
+over-2000-character results. Speech consumption stops at the first admitted
+result or three attempts. An admitted result on attempt three can still
+proceed to a separate three-attempt confirmation budget; missing confirmation
+digits never imply consent. `--speech` requires `--classifier-response` and
+cannot be used with `--intent`.
+
+This mode adds a `stage` field (`speech` or `confirmation`) so attempt counts
+are not confused across stages. A `classify` decision means speech was admitted,
+not that a model ran. The supplied fixture is parsed next and need not match
+the transcript's meaning. An invalid fixture falls back at confirmation stage
+with zero attempts. Raw transcripts, classifier responses, and digits are not
+returned. Existing modes retain their output format. This is still a synthetic
+offline demonstration, not speech recognition, a model, authenticated session
+state, persistence, or a whole-call budget. Use synthetic arguments only due
+to shell-history and process-list exposure; no real calls or messages occur.
+
 ## Routing and voice helpers
 
 Also implemented: a pure single-digit IVR menu resolver. It selects an opaque

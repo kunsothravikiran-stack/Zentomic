@@ -1,4 +1,4 @@
-"""Synthetic keypad and intent-confirmation demos with no provider calls."""
+"""Synthetic keypad, speech, and intent-confirmation demos without providers."""
 
 import argparse
 import json
@@ -7,7 +7,8 @@ from collections.abc import Callable, Iterable
 from zentomic.classification import parse_intent_response
 from zentomic.gather import GatherDecision, resolve_gather
 from zentomic.intent import resolve_intent_confirmation
-from zentomic.twiml import render_dtmf_gather, render_hangup
+from zentomic.speech import resolve_speech_gather
+from zentomic.twiml import render_dtmf_gather, render_hangup, render_speech_gather
 
 
 _MAX_ATTEMPTS = 3
@@ -93,6 +94,44 @@ def simulate_classification(response: str | None, digits: Iterable[str]) -> list
     return simulate_confirmation(intent, digits)
 
 
+def simulate_speech(
+    speeches: Iterable[str | None], response: str | None, digits: Iterable[str],
+) -> list[dict]:
+    """Admit synthetic speech, then a supplied classifier fixture and keypad input.
+
+    Each collection stage has its own three-attempt budget. Stop consuming
+    speech on admission or exhaustion; never parse the response or consume
+    digits if speech was not admitted. Transcript and raw response stay out
+    of the returned steps. This does not transcribe or run a classifier, and
+    the fixture need not represent the supplied speech's actual meaning.
+    """
+    collection = render_speech_gather(
+        "How can we help? Say sales or support.", action_path="/voice/speech",
+    )
+    steps = [{"stage": "speech", "action": "gather", "attempts": 0, "twiml": collection}]
+    inputs = iter(speeches)
+    attempts = 0
+    while attempts < _MAX_ATTEMPTS:
+        decision = resolve_speech_gather(
+            next(inputs, None), fallback_target="demo-reception",
+            attempts=attempts, max_attempts=_MAX_ATTEMPTS,
+        )
+        attempts = decision.attempts
+        step = {"stage": "speech", "action": decision.action, "attempts": attempts}
+        if decision.target is not None:
+            step["target"] = decision.target
+        if decision.action == "retry":
+            step["twiml"] = collection
+        steps.append(step)
+        if decision.action == "classify":
+            steps.extend(dict(item, stage="confirmation")
+                         for item in simulate_classification(response, digits))
+            break
+        if decision.action == "fallback":
+            break
+    return steps
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -108,9 +147,17 @@ def main(argv: list[str] | None = None) -> int:
         "--classifier-response", metavar="JSON",
         help="admit synthetic classifier JSON before confirmation; never calls a model",
     )
+    parser.add_argument(
+        "--speech", action="append", metavar="TEXT",
+        help="synthetic transcript in order; repeat for retries; requires --classifier-response",
+    )
     args = parser.parse_args(argv)
+    if args.speech is not None and args.classifier_response is None:
+        parser.error("--speech requires --classifier-response")
     # No arguments demonstrate a silent attempt followed by a valid selection.
-    if args.classifier_response is not None:
+    if args.speech is not None:
+        steps = simulate_speech(args.speech, args.classifier_response, args.digits)
+    elif args.classifier_response is not None:
         steps = simulate_classification(args.classifier_response, args.digits)
     elif args.intent is not None:
         steps = simulate_confirmation(args.intent, args.digits)
