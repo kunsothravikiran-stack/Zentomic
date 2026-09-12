@@ -1405,10 +1405,17 @@ workspace authorization, current-step binding, or replay prevention.
 
 `tests/test_speech_flow.py` extends that contract through speech admission,
 a mocked classifier, strict response parsing, and a separately authenticated
-confirmation before forwarding XML. It checks that rejected callbacks, silence,
+confirmation before forwarding XML. The flow uses `resolve_speech_event` and
+`resolve_confirmation_event`, checking the exact configured URL and decoded
+fields passed to the fake validator at each stage across both proxy versions
+and body encodings. It checks that rejected callbacks, silence,
 oversized speech, and exhausted budgets never invoke the classifier; malformed
 model output cannot become a confirmed route; and signed extra fields cannot
-supply confirmation or reset test-owned budgets. These tests use synthetic
+supply confirmation or reset test-owned budgets. A route removed from trusted
+configuration between classification and confirmation falls back to reception;
+the old pending label and signed target fields cannot restore that destination.
+This models a configuration reload, not an atomic configuration/step claim.
+These tests use synthetic
 transcripts and share the same fake-authentication and persistence limitations.
 
 `tests/test_budget_flow.py` demonstrates the deadline boundary around that
