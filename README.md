@@ -920,6 +920,56 @@ Do not apply this Number-only policy to conferences or child status callbacks.
 A `hangup` decision can use `render_hangup`; a `fallback` decision still needs
 authorized target resolution. No endpoint, persistence, or real call is added.
 
+### Authenticated forwarding outcome boundary
+
+`resolve_dial_result_event` composes POST/form decoding, the injected signature
+gate, parent call binding, and Number outcome policy. It also requires an exact
+match of `DialCallSid` to the already known child for the current dial step.
+Twilio identifies that child in its
+[Dial action parameters](https://www.twilio.com/docs/voice/twiml/dial#action).
+This strict helper rejects a missing or different child before policy; do not
+use it until the expected child has been obtained from trusted session state.
+Never initialize expected identifiers from the same request being validated.
+
+```python
+from urllib.parse import urlencode
+from zentomic.dial_event import resolve_dial_result_event
+
+# Synthetic fixture and fake validator only, not production authentication.
+event = {
+    "httpMethod": "POST",
+    "headers": {"Content-Type": "application/x-www-form-urlencoded",
+                "X-Twilio-Signature": "A" * 27 + "="},
+    "body": urlencode({"AccountSid": "demo-account", "CallSid": "demo-parent",
+                       "DialCallSid": "demo-child", "DialCallStatus": "busy",
+                       "CallStatus": "in-progress"}),
+}
+decision = resolve_dial_result_event(
+    event, public_url="https://example.com/voice/dial-result",
+    validator=lambda url, fields, signature: True,
+    expected_account_sid="demo-account", expected_call_sid="demo-parent",
+    expected_dial_call_sid="demo-child", fallback_target="demo-reception",
+    fallback_used=False,
+)
+assert (decision.action, decision.target) == ("fallback", "demo-reception")
+```
+
+All keyword arguments must come from trusted workspace configuration/session
+state. `expected_call_sid` binds the parent, not the dialed child. Invalid
+fallback configuration or expected child identifiers fail before authentication.
+Even with `fallback_used=True`, invalid identity or `DialCallStatus` is rejected;
+parent `CallStatus` cannot substitute for it. V1/v2 and plain/base64 forms use
+the same existing transport rules. Only an immutable `DialDecision` is returned,
+without raw fields, logging, target resolution, or provider calls.
+
+This proposes a decision, not permission to execute it. Repeated valid callbacks
+can return the same decision. Atomically claim the expected step and mark
+fallback used against the loaded session version before acting; reload and
+revalidate on conflict. Authentication does not supply replay protection or
+workspace authorization. No session lookup, persistence, endpoint, TwiML response,
+or actual forwarding is implemented. Conferences and child status callbacks
+remain unsupported.
+
 ### Call lifecycle status classification
 
 `is_terminal_call_status` distinguishes a call leg's terminal outcomes from
