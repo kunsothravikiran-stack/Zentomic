@@ -13,6 +13,46 @@ class CallStatusDemoTests(unittest.TestCase):
     def test_empty_history_does_not_invent_an_observation(self):
         self.assertEqual(simulate_call_status([]), [])
 
+    def test_initial_state_does_not_invent_an_observation(self):
+        for initial in ("ringing", "completed"):
+            with self.subTest(initial=initial):
+                self.assertEqual(simulate_call_status([], initial_status=initial), [])
+
+    def test_replay_can_resume_from_active_or_terminal_state(self):
+        for initial, expected, changes in (
+            ("in-progress", ["in-progress", "in-progress", "completed"], [False, False, True]),
+            ("busy", ["busy", "busy", "busy"], [False, False, False]),
+        ):
+            with self.subTest(initial=initial), offline_guard():
+                steps = simulate_call_status(
+                    iter(["queued", "ringing", "completed"]), initial_status=initial,
+                )
+                self.assertEqual([step["status"] for step in steps], expected)
+                self.assertEqual([step["changed"] for step in steps], changes)
+
+    def test_invalid_initial_state_is_rejected_before_consuming_input(self):
+        def unread():
+            self.fail("invalid initial state must not consume observations")
+            yield "completed"
+
+        for initial in ("", "private-marker", "COMPLETED", True, 1, [], {}, "\ud800"):
+            with self.subTest(initial=repr(initial)):
+                with self.assertRaisesRegex(ValueError, "^unsupported call status$"):
+                    simulate_call_status(unread(), initial_status=initial)
+
+    def test_terminal_initial_state_still_validates_incoming_status(self):
+        with self.assertRaisesRegex(ValueError, "^unsupported call status$"):
+            simulate_call_status(["private-marker"], initial_status="completed")
+
+    def test_cli_initial_state_matches_helper(self):
+        output = io.StringIO()
+        with offline_guard(), redirect_stdout(output):
+            self.assertEqual(main([
+                "--initial-call-status", "in-progress", "--call-status", "ringing",
+            ]), 0)
+        self.assertEqual(json.loads(output.getvalue())["steps"],
+                         simulate_call_status(["ringing"], initial_status="in-progress"))
+
     def test_replay_preserves_progress_and_first_terminal_outcome(self):
         statuses = ["ringing", "queued", "in-progress", "in-progress",
                     "completed", "ringing", "failed"]
@@ -53,6 +93,10 @@ class CallStatusDemoTests(unittest.TestCase):
 
     def test_cli_rejects_mixed_modes_and_invalid_status_without_partial_json(self):
         cases = (
+            ["--initial-call-status", "ringing"],
+            ["--initial-call-status", "ringing", "--intent", "sales"],
+            ["--initial-call-status", "ringing", "--dial-result", "busy"],
+            ["--initial-call-status", "private-marker", "--call-status", "ringing"],
             ["--call-status", "ringing", "1"],
             ["--call-status", "ringing", "--speech", "synthetic"],
             ["--call-status", "ringing", "--intent", "sales"],

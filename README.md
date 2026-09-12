@@ -218,6 +218,20 @@ unknown statuses, even later in the sequence, fail with exit 2 and no partial
 JSON. Use synthetic fixtures only. This mode cannot be combined with keypad,
 intent, classifier, speech, or forwarding-result inputs.
 
+To replay callbacks against an already observed synthetic state, supply
+`--initial-call-status` together with at least one `--call-status`:
+
+```sh
+python -m zentomic.demo --initial-call-status in-progress --call-status ringing --call-status completed
+```
+
+This retains `in-progress` with `changed: false`, then accepts `completed`
+with `changed: true`. An initial terminal state remains unchanged, even for
+conflicting terminal observations. The initial value adds no output step and
+is validated before observations are consumed; an invalid value exits 2 with
+no partial JSON. Omitting it still starts without a stored observation. This
+option supplies a fixture only, not a session lookup or checkpoint restore.
+
 This demonstrates application-state policy, not provider event ordering.
 It emits no TwiML, performs no cleanup, and does not authenticate callbacks,
 bind call legs, persist state atomically, or provide idempotency. Neither

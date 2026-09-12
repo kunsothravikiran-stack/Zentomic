@@ -16,14 +16,20 @@ from zentomic.twiml import render_dtmf_gather, render_hangup, render_speech_gath
 _MAX_ATTEMPTS = 3
 
 
-def simulate_call_status(statuses: Iterable[str]) -> list[dict]:
+def simulate_call_status(
+    statuses: Iterable[str], *, initial_status: str | None = None,
+) -> list[dict]:
     """Replay synthetic observations for one leg using monotonic local state.
 
     Continue after terminal observations to illustrate delayed callbacks and
     validate every supplied status. A changed state is not permission to run
     cleanup. This does not authenticate, persist, deduplicate, or end a call.
+    Optional initial_status simulates an already stored observation; validate
+    it before consuming input, without emitting an extra observation step.
     """
-    current = None
+    if initial_status is not None:
+        is_terminal_call_status(initial_status)
+    current = initial_status
     steps = []
     for incoming in statuses:
         updated = advance_call_status(current, incoming)
@@ -204,10 +210,16 @@ def main(argv: list[str] | None = None) -> int:
         help="replay synthetic single-leg lifecycle observations; never changes a real call",
     )
     parser.add_argument(
+        "--initial-call-status", metavar="STATUS",
+        help="synthetic stored lifecycle state; requires --call-status; never loads a session",
+    )
+    parser.add_argument(
         "--speech", action="append", metavar="TEXT",
         help="synthetic transcript in order; repeat for retries; requires --classifier-response",
     )
     args = parser.parse_args(argv)
+    if args.initial_call_status is not None and args.call_status is None:
+        parser.error("--initial-call-status requires --call-status")
     if args.call_status is not None and (args.digits or args.speech is not None):
         parser.error("--call-status cannot be combined with keypad or speech inputs")
     if args.dial_result is not None and (args.digits or args.speech is not None):
@@ -217,7 +229,9 @@ def main(argv: list[str] | None = None) -> int:
     # No arguments demonstrate a silent attempt followed by a valid selection.
     if args.call_status is not None:
         try:
-            steps = simulate_call_status(args.call_status)
+            steps = simulate_call_status(
+                args.call_status, initial_status=args.initial_call_status,
+            )
         except ValueError:
             parser.error("unsupported synthetic call status")
     elif args.dial_result is not None:
