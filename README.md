@@ -920,6 +920,29 @@ Do not apply this Number-only policy to conferences or child status callbacks.
 A `hangup` decision can use `render_hangup`; a `fallback` decision still needs
 authorized target resolution. No endpoint, persistence, or real call is added.
 
+### Authenticated keypad collection boundary
+
+`zentomic.gather_event.resolve_gather_event` combines the existing form,
+signature, account/call binding, and bounded keypad policies. Supply a trusted
+workspace route mapping and session attempt count. Only authenticated `Digits`
+is consumed; request fields cannot replace routes, attempt limits, fallback,
+or the hangup key. Missing digits use the existing silence/retry behavior.
+The route mapping is copied before invoking the injected validator, so changes
+to the original mapping during validation do not change this decision.
+
+The function returns a `GatherDecision`, not TwiML or persisted state.
+Authentication and identity failures never reach collection policy. The route
+container is checked before authentication; other collection configuration is
+validated by the existing policy after authentication, including on exhaustion.
+This does not bind a callback to a specific collection step or prevent replay:
+adapters must enforce the current step and shared deadline/transition budgets,
+atomically claim that step and persist the attempt count before acting, and
+reload/revalidate on conflicts. There is no endpoint, SDK cryptography, state
+store, target authorization, or telephony operation in this helper.
+
+Run the synthetic v1/v2, plain/base64, exhaustion, configuration-isolation, and
+authentication-order checks with `python -m tests tests.test_gather_event`.
+
 ### Authenticated forwarding outcome boundary
 
 `resolve_dial_result_event` composes POST/form decoding, the injected signature
@@ -1365,6 +1388,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
+- `zentomic/gather_event.py`: authenticated keypad decisions using trusted route snapshots.
 - `zentomic/budget.py`: individual and combined whole-call time/count admission and timeouts.
 - `zentomic/speech.py`: bounded speech result admission before classification.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
