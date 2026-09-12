@@ -1271,6 +1271,13 @@ The mock's `timeout_ms` keyword is not an SDK API, and these tests do not prove
 provider cancellation, enforce a live timeout, or implement a production
 adapter. A usable pending label still requires separate caller confirmation.
 
+`tests/test_operation_timeout_invariants.py` independently enumerates legal
+timeouts across 5,880 combinations of call time, invocation time, minimum,
+maximum, cleanup reserve, and granularity. It checks that admission returns
+the largest legal duration, or `None` when none fits. Another 220 cases check
+unit scaling and large clock-origin shifts without floating-point loss.
+These are deterministic offline policy checks, not runtime timeout enforcement.
+
 ## Layout
 
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
