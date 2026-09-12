@@ -1,9 +1,10 @@
-"""Synthetic collection and forwarding-result demos without providers."""
+"""Synthetic collection, forwarding, and call-status demos without providers."""
 
 import argparse
 import json
 from collections.abc import Callable, Iterable
 
+from zentomic.call_status import advance_call_status, is_terminal_call_status
 from zentomic.classification import parse_intent_response
 from zentomic.dial import resolve_dial_result
 from zentomic.gather import GatherDecision, resolve_gather
@@ -13,6 +14,26 @@ from zentomic.twiml import render_dtmf_gather, render_hangup, render_speech_gath
 
 
 _MAX_ATTEMPTS = 3
+
+
+def simulate_call_status(statuses: Iterable[str]) -> list[dict]:
+    """Replay synthetic observations for one leg using monotonic local state.
+
+    Continue after terminal observations to illustrate delayed callbacks and
+    validate every supplied status. A changed state is not permission to run
+    cleanup. This does not authenticate, persist, deduplicate, or end a call.
+    """
+    current = None
+    steps = []
+    for incoming in statuses:
+        updated = advance_call_status(current, incoming)
+        steps.append({
+            "action": "observe-call-status", "status": updated,
+            "changed": updated != current,
+            "terminal": is_terminal_call_status(updated),
+        })
+        current = updated
+    return steps
 
 
 def simulate_forwarding(statuses: Iterable[str]) -> list[dict]:
@@ -178,17 +199,28 @@ def main(argv: list[str] | None = None) -> int:
         "--dial-result", action="append", metavar="STATUS",
         help="synthetic Number dial result; repeat for one fallback; never dials",
     )
+    mode.add_argument(
+        "--call-status", action="append", metavar="STATUS",
+        help="replay synthetic single-leg lifecycle observations; never changes a real call",
+    )
     parser.add_argument(
         "--speech", action="append", metavar="TEXT",
         help="synthetic transcript in order; repeat for retries; requires --classifier-response",
     )
     args = parser.parse_args(argv)
+    if args.call_status is not None and (args.digits or args.speech is not None):
+        parser.error("--call-status cannot be combined with keypad or speech inputs")
     if args.dial_result is not None and (args.digits or args.speech is not None):
         parser.error("--dial-result cannot be combined with keypad or speech inputs")
     if args.speech is not None and args.classifier_response is None:
         parser.error("--speech requires --classifier-response")
     # No arguments demonstrate a silent attempt followed by a valid selection.
-    if args.dial_result is not None:
+    if args.call_status is not None:
+        try:
+            steps = simulate_call_status(args.call_status)
+        except ValueError:
+            parser.error("unsupported synthetic call status")
+    elif args.dial_result is not None:
         try:
             steps = simulate_forwarding(args.dial_result)
         except ValueError:

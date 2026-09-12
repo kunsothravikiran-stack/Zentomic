@@ -200,6 +200,30 @@ persist fallback state, deduplicate events, or enforce call-wide budgets.
 Use synthetic arguments only; shell history and process listings can retain
 them. The underlying `resolve_dial_result` policy is shared with adapter tests.
 
+### Offline call-status replay
+
+Replay synthetic lifecycle observations for one call leg, including duplicate
+and delayed callbacks, without a provider or persisted session:
+
+```bash
+python -m zentomic.demo --call-status in-progress --call-status ringing --call-status completed --call-status queued
+```
+
+Each `observe-call-status` step reports the retained `status`, whether it
+`changed`, and whether it is `terminal`. In this example the retained states
+are `in-progress`, `in-progress`, `completed`, `completed`. The shared
+`advance_call_status` policy prevents active-state regression and preserves
+the first terminal outcome. Replay continues after terminal observations;
+unknown statuses, even later in the sequence, fail with exit 2 and no partial
+JSON. Use synthetic fixtures only. This mode cannot be combined with keypad,
+intent, classifier, speech, or forwarding-result inputs.
+
+This demonstrates application-state policy, not provider event ordering.
+It emits no TwiML, performs no cleanup, and does not authenticate callbacks,
+bind call legs, persist state atomically, or provide idempotency. Neither
+`changed` nor `terminal` authorizes a side effect. A real adapter must enforce
+those boundaries separately.
+
 ### Offline intent confirmation demo
 
 Exercise a pending intent's separate confirmation step with the same local demo:
