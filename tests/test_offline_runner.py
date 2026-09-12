@@ -150,6 +150,52 @@ class OfflineRunnerTests(unittest.TestCase):
                 main(["tests.synthetic_empty"])
             runner.assert_not_called()
 
+    def test_failfast_stops_on_failure_or_error_in_discovered_and_named_suites(self):
+        for names in ([], ["tests.synthetic_selection"]):
+            for option in ([], ["-f"], ["--failfast"]):
+                for exception in (AssertionError, RuntimeError):
+                    visited = []
+
+                    def failing():
+                        self.assertEqual(dict(os.environ), {})
+                        with self.assertRaises(AssertionError):
+                            socket.socket()
+                        visited.append("first")
+                        raise exception("synthetic failure")
+
+                    suite = unittest.TestSuite([
+                        unittest.FunctionTestCase(failing),
+                        unittest.FunctionTestCase(lambda: visited.append("second")),
+                    ])
+                    with self.subTest(names=names, option=option, exception=exception), \
+                            patch("tests.__main__.unittest.TestLoader") as loader, \
+                            redirect_stderr(StringIO()), \
+                            patch.dict(os.environ, {"SYNTHETIC_RUNNER_SETTING": "test"}):
+                        before = dict(os.environ)
+                        original_socket = socket.socket
+                        loader.return_value.discover.return_value = suite
+                        loader.return_value.loadTestsFromNames.return_value = suite
+                        self.assertEqual(main(option + names), 1)
+                        self.assertEqual(dict(os.environ), before)
+                        self.assertIs(socket.socket, original_socket)
+                        self.assertEqual(visited, ["first"] if option else ["first", "second"])
+
+    def test_failfast_does_not_stop_on_skips_or_successes(self):
+        visited = []
+
+        def skipped():
+            raise unittest.SkipTest("synthetic skip")
+
+        suite = unittest.TestSuite([
+            unittest.FunctionTestCase(skipped),
+            unittest.FunctionTestCase(lambda: visited.append("success")),
+            unittest.FunctionTestCase(lambda: visited.append("last")),
+        ])
+        with patch("tests.__main__.unittest.TestLoader") as loader, redirect_stderr(StringIO()):
+            loader.return_value.discover.return_value = suite
+            self.assertEqual(main(["--failfast"]), 0)
+        self.assertEqual(visited, ["success", "last"])
+
 
 if __name__ == "__main__":
     unittest.main()

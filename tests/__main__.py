@@ -32,6 +32,10 @@ def main(argv: list[str] | None = None) -> int:
         "names", nargs="*",
         help="dotted unittest module, class, or method names; omit for the full suite",
     )
+    parser.add_argument(
+        "-f", "--failfast", action="store_true",
+        help="stop after the first test failure or error; keep the offline guard",
+    )
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parent.parent
     # Keep discovery and named loading inside the guard, including imports.
@@ -43,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
             suite = loader.discover(str(root / "tests"), top_level_dir=str(root))
         if suite.countTestCases() == 0:
             raise RuntimeError("Offline test discovery found no tests")
-        result = unittest.TextTestRunner(verbosity=2).run(suite)
+        result = unittest.TextTestRunner(verbosity=2, failfast=args.failfast).run(suite)
     return 0 if result.wasSuccessful() else 1
 
 

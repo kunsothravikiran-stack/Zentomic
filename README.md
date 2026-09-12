@@ -135,6 +135,15 @@ selection containing no tests. Names are trusted local test selectors, not file
 paths or shell patterns. A focused pass does not replace the full suite before
 committing. With no names, `python -m tests` still discovers the entire suite.
 
+For a shorter feedback loop while fixing a failure, add `-f` or `--failfast`,
+for example `python -m tests --failfast tests.test_handler tests.test_cli`.
+It stops after the first test failure or error and exits 1; skips and successes
+do not stop the run. The same option works with full discovery. Loading and
+execution remain guarded, and the environment/socket patches are restored on
+exit. Without the flag, the runner continues collecting failures as before.
+A stopped run has not checked the remaining tests; run the full suite before
+committing.
+
 ### Offline keypad demo
 
 Try a complete local menu walkthrough without credentials or a server:
