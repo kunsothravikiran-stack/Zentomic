@@ -86,12 +86,18 @@ def validate_call_event(
 
     Expected identifiers must come from trusted, workspace-scoped session
     state, never from this callback's fields or query parameters. Identifiers
-    are opaque, nonblank strings matched exactly, without normalization.
+    are opaque, nonblank UTF-8 encodable strings matched exactly, without
+    normalization. Reject invalid trusted identifiers before authentication;
+    a lone surrogate cannot match a successfully decoded UTF-8 form field.
     This does not load/authorize sessions or prevent callback replay.
     """
     for expected in (expected_account_sid, expected_call_sid):
         if not isinstance(expected, str) or not expected.strip():
             raise ValueError("expected call identifiers must be nonblank strings")
+        try:
+            expected.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError("expected call identifiers must be UTF-8 encodable strings") from None
 
     fields = validate_form_event(event, public_url=public_url, validator=validator)
     if (fields.get("AccountSid") != expected_account_sid

@@ -93,6 +93,39 @@ class CallAuthenticationTests(unittest.TestCase):
             validate(candidate, validator)
         validator.assert_not_called()
 
+    def test_unencodable_trusted_identifiers_fail_before_authentication(self):
+        for key in ("expected_account_sid", "expected_call_sid"):
+            for value in ("\ud800", "\udfff", "synthetic-private-marker\ud800"):
+                with self.subTest(key=key, value=repr(value)):
+                    validator = Mock(return_value=True)
+                    with patch("zentomic.authentication.validate_form_event") as gate:
+                        with self.assertRaisesRegex(ValueError, "UTF-8 encodable") as caught:
+                            validate(event(), validator, **{key: value})
+                    gate.assert_not_called()
+                    validator.assert_not_called()
+                    self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
+    def test_utf8_opaque_identifiers_round_trip_without_normalization(self):
+        # These test opaque-string behavior, not provider SID assignment.
+        for identifier in (" synthetic-id ", "caf\u00e9", "cafe\u0301", "call-\U0001f4de"):
+            for version in ("1.0", "2.0"):
+                for encoded in (False, True):
+                    fields = {"AccountSid": identifier, "CallSid": identifier}
+                    validator = Mock(return_value=True)
+                    with self.subTest(identifier=identifier, version=version, encoded=encoded):
+                        self.assertEqual(validate(
+                            event(fields, version=version, encoded=encoded), validator,
+                            expected_account_sid=identifier, expected_call_sid=identifier,
+                        ), fields)
+                        validator.assert_called_once_with(URL, fields, SIGNATURE)
+
+    def test_canonically_equivalent_identifiers_do_not_match(self):
+        fields = {"AccountSid": "caf\u00e9", "CallSid": CALL}
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(ValueError, "expected call session"):
+            validate(event(fields), validator, expected_account_sid="cafe\u0301")
+        validator.assert_called_once_with(URL, fields, SIGNATURE)
+
     def test_injected_validator_cannot_rewrite_session_identifiers(self):
         candidate = event({"AccountSid": ACCOUNT, "CallSid": "another-call"})
         original = copy.deepcopy(candidate)
