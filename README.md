@@ -943,6 +943,34 @@ store, target authorization, or telephony operation in this helper.
 Run the synthetic v1/v2, plain/base64, exhaustion, configuration-isolation, and
 authentication-order checks with `python -m tests tests.test_gather_event`.
 
+### Authenticated speech admission boundary
+
+`zentomic.speech_event.resolve_speech_event` combines form decoding, the
+injected signature gate, account/call binding, and existing bounded speech
+admission. Supply trusted session identifiers, attempts, maximum attempts,
+and fallback. Only authenticated `SpeechResult` enters speech policy; request
+fields cannot replace that configuration. Missing or blank speech retries
+within the budget, oversized input is not admitted, and exhausted collections
+fall back even when text is present. Accepted text is preserved unchanged.
+
+The result is a `SpeechDecision`, not a classifier call or routing decision.
+Authentication and identity failures never reach speech policy. As with the
+keypad boundary, policy configuration is validated after authentication.
+An injected validator cannot rewrite or invent the text consumed by policy.
+The existing decision representation omits transcripts, but explicit access
+and serialization still need privacy controls. Caller text remains untrusted.
+
+Account/call binding is not step binding or replay protection. Before acting,
+adapters must enforce the current speech step, deadline and transition budget,
+atomically claim the step and persist attempts, and reload/revalidate on
+conflicts. A `classify` result does not authorize spending: separately enforce
+model/token/cost limits and workspace access, then validate and confirm any
+proposed intent. No endpoint, SDK cryptography, model call, persistence, or
+telephony operation is added.
+
+Run synthetic v1/v2, plain/base64, silence, exhaustion, validator-isolation,
+and authentication-order checks with `python -m tests tests.test_speech_event`.
+
 ### Authenticated forwarding outcome boundary
 
 `resolve_dial_result_event` composes POST/form decoding, the injected signature
