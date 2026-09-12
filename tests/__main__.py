@@ -18,7 +18,7 @@ def offline_guard():
     with ExitStack() as stack:
         stack.enter_context(patch.dict(os.environ, {}, clear=True))
         for name in ("socket", "create_connection", "getaddrinfo", "gethostbyname",
-                     "gethostbyname_ex", "gethostbyaddr"):
+                     "gethostbyname_ex", "gethostbyaddr", "getnameinfo"):
             stack.enter_context(patch(
                 "socket." + name,
                 side_effect=AssertionError("Network forbidden in offline tests"),

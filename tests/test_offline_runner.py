@@ -42,6 +42,25 @@ class OfflineRunnerTests(unittest.TestCase):
             (socket.socket, socket.create_connection, socket.getaddrinfo), originals,
         )
 
+    def test_getnameinfo_is_blocked_and_restored_without_real_dns(self):
+        # The native reverse resolver need not call Python's gethostbyaddr.
+        # Install a sentinel outside the guard so a regression cannot use DNS.
+        for fail in (False, True):
+            with self.subTest(fail=fail), patch("socket.getnameinfo") as resolver:
+                try:
+                    with offline_guard():
+                        with self.assertRaisesRegex(
+                            AssertionError, "^Network forbidden in offline tests$",
+                        ):
+                            socket.getnameinfo(("192.0.2.1", 443), socket.NI_NAMEREQD)
+                        resolver.assert_not_called()
+                        if fail:
+                            raise RuntimeError("synthetic failure")
+                except RuntimeError as error:
+                    self.assertEqual(str(error), "synthetic failure")
+                self.assertIs(socket.getnameinfo, resolver)
+                resolver.assert_not_called()
+
     def test_runner_exit_status_and_guard_cover_discovery_and_execution(self):
         suite = Mock()
         suite.countTestCases.return_value = 1

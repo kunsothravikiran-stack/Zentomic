@@ -113,7 +113,8 @@ The future Lambda entry point is `zentomic.handler.lambda_handler`.
 
 For a guarded run of the entire suite, use `python -m tests`. This clears the
 inherited environment and blocks common Python socket creation, connection,
-and DNS entrypoints during both discovery and execution. It exits nonzero on
+and DNS entrypoints (including native reverse lookup via `socket.getnameinfo`)
+during both discovery and execution. It exits nonzero on
 test failures or empty discovery. Existing unittest commands remain supported.
 The guard catches accidental network use; it is not a security sandbox and
 does not isolate subprocesses, native libraries, or previously captured socket
