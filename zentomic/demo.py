@@ -26,6 +26,8 @@ def simulate_call_status(
     cleanup. This does not authenticate, persist, deduplicate, or end a call.
     Optional initial_status simulates an already stored observation; validate
     it before consuming input, without emitting an extra observation step.
+    Include validated incoming and previous statuses so an unchanged result
+    can be distinguished as a duplicate, delayed, or conflicting observation.
     """
     if initial_status is not None:
         is_terminal_call_status(initial_status)
@@ -35,6 +37,7 @@ def simulate_call_status(
         updated = advance_call_status(current, incoming)
         steps.append({
             "action": "observe-call-status", "status": updated,
+            "previous_status": current, "incoming_status": incoming,
             "changed": updated != current,
             "terminal": is_terminal_call_status(updated),
         })

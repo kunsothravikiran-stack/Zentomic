@@ -13,6 +13,30 @@ class CallStatusDemoTests(unittest.TestCase):
     def test_empty_history_does_not_invent_an_observation(self):
         self.assertEqual(simulate_call_status([]), [])
 
+    def test_replay_exposes_observation_and_previous_state(self):
+        observations = ["in-progress", "in-progress", "ringing", "completed", "busy"]
+        with offline_guard():
+            steps = simulate_call_status(iter(observations))
+        self.assertEqual([step["incoming_status"] for step in steps], observations)
+        self.assertEqual([step["previous_status"] for step in steps],
+                         [None, "in-progress", "in-progress", "in-progress", "completed"])
+        self.assertEqual([step["status"] for step in steps],
+                         ["in-progress", "in-progress", "in-progress", "completed", "completed"])
+        self.assertEqual(observations,
+                         ["in-progress", "in-progress", "ringing", "completed", "busy"])
+
+    def test_cli_exposes_resumed_transition_without_an_extra_step(self):
+        output = io.StringIO()
+        with offline_guard(), redirect_stdout(output):
+            self.assertEqual(main([
+                "--initial-call-status", "completed", "--call-status", "failed",
+            ]), 0)
+        self.assertEqual(json.loads(output.getvalue())["steps"], [{
+            "action": "observe-call-status", "previous_status": "completed",
+            "incoming_status": "failed", "status": "completed",
+            "changed": False, "terminal": True,
+        }])
+
     def test_initial_state_does_not_invent_an_observation(self):
         for initial in ("ringing", "completed"):
             with self.subTest(initial=initial):
@@ -73,6 +97,7 @@ class CallStatusDemoTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertEqual(simulate_call_status([status]), [{
                     "action": "observe-call-status", "status": status,
+                    "previous_status": None, "incoming_status": status,
                     "changed": True, "terminal": True,
                 }])
 

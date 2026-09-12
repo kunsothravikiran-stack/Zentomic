@@ -210,7 +210,14 @@ python -m zentomic.demo --call-status in-progress --call-status ringing --call-s
 ```
 
 Each `observe-call-status` step reports the retained `status`, whether it
-`changed`, and whether it is `terminal`. In this example the retained states
+`changed`, and whether it is `terminal`. It also includes `previous_status`
+(null before the first observation unless an initial state is supplied) and
+the validated `incoming_status`. These distinguish a duplicate from a delayed
+or conflicting observation even when all three have `changed: false`. For
+example, `previous_status: "in-progress"`, `incoming_status: "ringing"`, and
+`status: "in-progress"` show a delayed observation that did not regress state.
+Only allowlisted lifecycle values are returned, never arbitrary callback data.
+In this example the retained states
 are `in-progress`, `in-progress`, `completed`, `completed`. The shared
 `advance_call_status` policy prevents active-state regression and preserves
 the first terminal outcome. Replay continues after terminal observations;
