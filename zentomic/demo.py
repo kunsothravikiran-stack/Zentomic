@@ -4,6 +4,7 @@ import argparse
 import json
 from collections.abc import Iterable
 
+from zentomic.classification import parse_intent_response
 from zentomic.gather import resolve_gather
 from zentomic.intent import resolve_intent_confirmation
 from zentomic.twiml import render_dtmf_gather, render_hangup
@@ -76,20 +77,41 @@ def simulate_confirmation(intent: str, digits: Iterable[str]) -> list[dict]:
     return steps
 
 
+def simulate_classification(response: str | None, digits: Iterable[str]) -> list[dict]:
+    """Admit synthetic model output, then require separate keypad confirmation.
+
+    Unusable output falls back without collecting input or reflecting the
+    response. This only parses a supplied fixture; it never invokes a model.
+    """
+    intent = parse_intent_response(response, allowed_intents=("sales", "support"))
+    if intent is None:
+        return [{"action": "fallback", "attempts": 0, "target": "demo-reception"}]
+    return simulate_confirmation(intent, digits)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "digits", nargs="*",
         help="synthetic inputs; menu: 1 sales, 2 support, 9 hangup; use '' for silence",
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--intent", choices=("sales", "support"),
         help="confirm a synthetic pending intent: 1 yes, 2 reception, 9 hangup",
     )
+    mode.add_argument(
+        "--classifier-response", metavar="JSON",
+        help="admit synthetic classifier JSON before confirmation; never calls a model",
+    )
     args = parser.parse_args(argv)
     # No arguments demonstrate a silent attempt followed by a valid selection.
-    steps = (simulate_confirmation(args.intent, args.digits) if args.intent is not None
-             else simulate_keypad(args.digits or ["", "1"]))
+    if args.classifier_response is not None:
+        steps = simulate_classification(args.classifier_response, args.digits)
+    elif args.intent is not None:
+        steps = simulate_confirmation(args.intent, args.digits)
+    else:
+        steps = simulate_keypad(args.digits or ["", "1"])
     print(json.dumps({"mode": "offline-demo", "steps": steps}, indent=2))
     return 0
 

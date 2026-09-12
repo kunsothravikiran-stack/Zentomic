@@ -169,6 +169,27 @@ not a caller's choice of label. Use synthetic command arguments only; the same
 shell-history and process-list privacy caveats apply. Existing keypad demo
 commands are unchanged.
 
+To include admission of synthetic classifier output before confirmation, use
+the mutually exclusive `--classifier-response` mode (Bash examples):
+
+```sh
+python -m zentomic.demo --classifier-response '{"intent":"sales"}' 1
+python -m zentomic.demo --classifier-response '{"intent":"support"}'
+python -m zentomic.demo --classifier-response '{"intent":"unknown"}' 1
+```
+
+These confirm sales, fall back after three silent confirmation attempts, and
+immediately fall back on an unknown label. The existing strict classifier
+parser admits only an exact, allowlisted `intent` object within its 4096-byte
+limit. Malformed responses, duplicate fields, extra fields (including a claimed
+`confirmed` value), and unknown labels fall back without consuming any keypad
+input. Such fallback has zero confirmation attempts and no collection prompt.
+Accepted labels use the same bounded confirmation policy above; model output
+alone never authorizes routing. Raw responses are not included in output.
+This mode takes synthetic fixtures, not live model output, and adds no model
+call, transcription, authenticated state, persistence, or dialing. Use synthetic
+arguments only because shell history and process listings can retain them.
+
 ## Routing and voice helpers
 
 Also implemented: a pure single-digit IVR menu resolver. It selects an opaque

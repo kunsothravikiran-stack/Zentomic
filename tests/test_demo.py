@@ -3,11 +3,11 @@
 import io
 import json
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from xml.etree.ElementTree import fromstring
 
 from tests.__main__ import offline_guard
-from zentomic.demo import main, simulate_confirmation, simulate_keypad
+from zentomic.demo import main, simulate_classification, simulate_confirmation, simulate_keypad
 
 
 class KeypadDemoTests(unittest.TestCase):
@@ -134,6 +134,50 @@ class ConfirmationDemoTests(unittest.TestCase):
             for digit in ("synthetic-private", " 1", "１", "12"):
                 with self.subTest(digit=digit):
                     self.assertEqual(simulate_confirmation("sales", [digit, "1"]), expected)
+
+
+class ClassificationDemoTests(unittest.TestCase):
+    def test_admitted_label_uses_existing_confirmation_policy(self):
+        for label in ("sales", "support"):
+            for digits in ([], ["1"], ["2"], ["9"], ["8", "", "1"], ["8"] * 4):
+                with self.subTest(label=label, digits=digits), offline_guard():
+                    self.assertEqual(
+                        simulate_classification(json.dumps({"intent": label}), digits),
+                        simulate_confirmation(label, digits),
+                    )
+
+    def test_rejected_response_falls_back_without_consuming_or_reflecting_input(self):
+        def inputs():
+            raise AssertionError("consumed confirmation input without a pending intent")
+            yield
+
+        for response in (None, "", "synthetic-private", "{}", "null", "[]",
+                         '{"intent":"unknown"}', '{"intent":"Sales"}',
+                         '{"intent":"sales","confirmed":true}',
+                         '{"intent":"sales","intent":"support"}',
+                         '{"intent":"sales"}' + " " * 4096):
+            with self.subTest(response=response), offline_guard():
+                self.assertEqual(simulate_classification(response, inputs()), [
+                    {"action": "fallback", "attempts": 0, "target": "demo-reception"},
+                ])
+
+    def test_cli_routes_only_after_confirmation_and_rejects_mixed_modes(self):
+        for response, digits, expected in (
+            ('{"intent":"support"}', ["1"], "route"),
+            ('{"intent":"support"}', [], "fallback"),
+            ("synthetic-private", ["1"], "fallback"),
+        ):
+            output = io.StringIO()
+            with self.subTest(response=response, digits=digits), offline_guard(), \
+                    redirect_stdout(output):
+                self.assertEqual(main(["--classifier-response", response, *digits]), 0)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["mode"], "offline-demo")
+            self.assertEqual(result["steps"][-1]["action"], expected)
+            self.assertNotIn(response, output.getvalue())
+        with offline_guard(), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+            main(["--intent", "sales", "--classifier-response", "{}"])
+        self.assertEqual(error.exception.code, 2)
 
 
 if __name__ == "__main__":
