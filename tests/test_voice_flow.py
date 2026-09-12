@@ -11,13 +11,15 @@ from urllib.parse import urlencode
 from xml.etree.ElementTree import fromstring
 
 from zentomic.authentication import validate_call_event
-from zentomic.dial import resolve_dial_result
+from zentomic.dial_event import resolve_dial_result_event
 from zentomic.intent import resolve_intent_confirmation
 from zentomic.twiml import render_dial, render_dtmf_gather, render_hangup
 
 
 ACCOUNT = "synthetic-account"
 CALL = "synthetic-call"
+SUPPORT_CHILD = "synthetic-support-child"
+RECEPTION_CHILD = "synthetic-reception-child"
 SIGNATURE = "A" * 27 + "="  # Shape only, not a real signature.
 ROUTES = {"support": "team/Support"}
 DESTINATIONS = {
@@ -64,10 +66,14 @@ class VoiceFlowTests(unittest.TestCase):
             fallback_target=FALLBACK, attempts=attempts,
         )
 
-    def dial_result(self, fields, version, encoded, fallback_used=False):
-        fields = self.authenticated(fields, version, encoded, "/voice/dial-result")
-        return resolve_dial_result(
-            fields.get("DialCallStatus"), fallback_target=FALLBACK,
+    def dial_result(self, fields, version, encoded, fallback_used=False,
+                    expected_child=SUPPORT_CHILD):
+        return resolve_dial_result_event(
+            callback(fields, version, encoded),
+            public_url="https://example.invalid/voice/dial-result",
+            validator=self.validator,
+            expected_account_sid=ACCOUNT, expected_call_sid=CALL,
+            expected_dial_call_sid=expected_child, fallback_target=FALLBACK,
             fallback_used=fallback_used,
         )
 
@@ -89,20 +95,27 @@ class VoiceFlowTests(unittest.TestCase):
                     self.assertEqual([node.text for node in dial.findall("Dial/Number")],
                                      list(DESTINATIONS["team/Support"]))
                     self.assertEqual(dial.find("Dial").attrib["timeLimit"], "600")
-                    terminal = self.dial_result({"DialCallStatus": "completed"}, version, encoded)
+                    terminal = self.dial_result(
+                        {"DialCallStatus": "completed", "DialCallSid": SUPPORT_CHILD}, version, encoded,
+                    )
                     self.assertEqual((terminal.action, terminal.target), ("hangup", None))
                     self.assertEqual([child.tag for child in fromstring(render_hangup())], ["Hangup"])
 
     def test_failed_forwarding_cannot_repeat_the_fallback(self):
         for status in ("busy", "no-answer", "failed"):
             with self.subTest(status=status):
-                result = self.dial_result({"DialCallStatus": status}, "2.0", True)
+                result = self.dial_result(
+                    {"DialCallStatus": status, "DialCallSid": SUPPORT_CHILD}, "2.0", True,
+                )
                 self.assertEqual((result.action, result.target), ("fallback", FALLBACK))
                 xml = fromstring(render_dial(DESTINATIONS[result.target], action_path="/voice/dial-result"))
                 self.assertEqual([node.text for node in xml.findall("Dial/Number")],
                                  list(DESTINATIONS[FALLBACK]))
                 # The adapter must persist this flag before executing the fallback.
-                terminal = self.dial_result({"DialCallStatus": status}, "2.0", True, fallback_used=True)
+                terminal = self.dial_result(
+                    {"DialCallStatus": status, "DialCallSid": RECEPTION_CHILD}, "2.0", True,
+                    fallback_used=True, expected_child=RECEPTION_CHILD,
+                )
                 self.assertEqual((terminal.action, terminal.target), ("hangup", None))
 
     def test_signed_extra_fields_do_not_replace_trusted_state(self):
@@ -111,7 +124,9 @@ class VoiceFlowTests(unittest.TestCase):
         result = self.confirmation(forged, "1.0", False, attempts=3)
         self.assertEqual((result.action, result.target, result.attempts), ("fallback", FALLBACK, 3))
         terminal = self.dial_result(
-            {"DialCallStatus": "failed", "fallback_used": "false"}, "2.0", False, fallback_used=True,
+            {"DialCallStatus": "failed", "DialCallSid": RECEPTION_CHILD,
+             "fallback_used": "false"}, "2.0", False,
+            fallback_used=True, expected_child=RECEPTION_CHILD,
         )
         self.assertEqual((terminal.action, terminal.target), ("hangup", None))
 
@@ -128,11 +143,45 @@ class VoiceFlowTests(unittest.TestCase):
 
     def test_parent_call_status_cannot_substitute_for_dial_outcome(self):
         with self.assertRaises(ValueError):
-            self.dial_result({"CallStatus": "completed"}, "1.0", False)
+            self.dial_result({"CallStatus": "completed", "DialCallSid": SUPPORT_CHILD}, "1.0", False)
         result = self.dial_result(
-            {"CallStatus": "in-progress", "DialCallStatus": "no-answer"}, "1.0", False,
+            {"CallStatus": "in-progress", "DialCallStatus": "no-answer",
+             "DialCallSid": SUPPORT_CHILD}, "1.0", False,
         )
         self.assertEqual((result.action, result.target), ("fallback", FALLBACK))
+
+    def test_previous_dial_leg_cannot_finish_the_active_fallback(self):
+        for version in ("1.0", "2.0"):
+            for encoded in (False, True):
+                with self.subTest(version=version, encoded=encoded):
+                    first = self.dial_result(
+                        {"DialCallStatus": "busy", "DialCallSid": SUPPORT_CHILD}, version, encoded,
+                    )
+                    self.assertEqual((first.action, first.target), ("fallback", FALLBACK))
+                    # Test-owned state simulates a separately established child
+                    # after fallback admission, not one learned from its callback.
+                    state = {"fallback_used": True, "expected_child": RECEPTION_CHILD}
+                    for child in (None, SUPPORT_CHILD, "synthetic-other-child"):
+                        for status in ("completed", "busy"):
+                            fields = {"DialCallStatus": status, "fallback_used": "false",
+                                      "expected_dial_call_sid": SUPPORT_CHILD}
+                            if child is not None:
+                                fields["DialCallSid"] = child
+                            with self.subTest(child=child, status=status), patch(
+                                "zentomic.dial_event.resolve_dial_result",
+                            ) as policy:
+                                with self.assertRaises(ValueError):
+                                    self.dial_result(fields, version, encoded, **state)
+                                policy.assert_not_called()
+                            self.assertEqual(state, {"fallback_used": True,
+                                                     "expected_child": RECEPTION_CHILD})
+                    for status in ("completed", "busy", "no-answer", "failed", "canceled"):
+                        terminal = self.dial_result(
+                            {"DialCallStatus": status, "DialCallSid": RECEPTION_CHILD},
+                            version, encoded, **state,
+                        )
+                        self.assertEqual((terminal.action, terminal.target), ("hangup", None))
+                        self.assertEqual([node.tag for node in fromstring(render_hangup())], ["Hangup"])
 
 
 if __name__ == "__main__":

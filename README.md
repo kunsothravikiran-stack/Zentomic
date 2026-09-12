@@ -1311,6 +1311,11 @@ synthetic authenticated callback, bounded confirmation, forwarding XML, and a
 terminal outcome, including the one-fallback limit. It covers both proxy
 formats and body encodings, rejected account/call bindings, and preservation
 of test-owned attempt/fallback state despite conflicting signed form fields.
+Forwarding callbacks use `resolve_dial_result_event`, including a transition
+from a synthetic support child to a separately established reception child.
+Missing, unrelated, or delayed support-child results cannot finish the active
+fallback or reach outcome policy; valid reception results respect the consumed
+fallback flag. This checks child identity binding, not atomic step claims.
 The test harness is not an application adapter: its fake validator does not
 verify cryptography, and its local state does not implement persistence,
 workspace authorization, current-step binding, or replay prevention.
