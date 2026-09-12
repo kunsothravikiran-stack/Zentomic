@@ -1,10 +1,11 @@
-"""Synthetic keypad, speech, and intent-confirmation demos without providers."""
+"""Synthetic collection and forwarding-result demos without providers."""
 
 import argparse
 import json
 from collections.abc import Callable, Iterable
 
 from zentomic.classification import parse_intent_response
+from zentomic.dial import resolve_dial_result
 from zentomic.gather import GatherDecision, resolve_gather
 from zentomic.intent import resolve_intent_confirmation
 from zentomic.speech import resolve_speech_gather
@@ -12,6 +13,32 @@ from zentomic.twiml import render_dtmf_gather, render_hangup, render_speech_gath
 
 
 _MAX_ATTEMPTS = 3
+
+
+def simulate_forwarding(statuses: Iterable[str]) -> list[dict]:
+    """Apply at most two synthetic Number dial results to a fixed demo route.
+
+    Start after target selection. Missing results leave the current attempt
+    pending, never inventing a failure or success. Stop consuming on hangup;
+    a failed fallback cannot recurse. Local fallback state only illustrates
+    the policy, not atomic persistence, authenticated callbacks, or dialing.
+    """
+    steps = [{"action": "await-dial-result", "target": "demo-sales"}]
+    inputs = iter(statuses)
+    for fallback_used in (False, True):
+        try:
+            status = next(inputs)
+        except StopIteration:
+            break
+        decision = resolve_dial_result(
+            status, fallback_target="demo-reception", fallback_used=fallback_used,
+        )
+        if decision.action == "hangup":
+            steps.append({"action": "hangup", "twiml": render_hangup()})
+            break
+        steps.append({"action": "fallback", "target": decision.target})
+        steps.append({"action": "await-dial-result", "target": decision.target})
+    return steps
 
 
 def _simulate_collection(
@@ -147,15 +174,26 @@ def main(argv: list[str] | None = None) -> int:
         "--classifier-response", metavar="JSON",
         help="admit synthetic classifier JSON before confirmation; never calls a model",
     )
+    mode.add_argument(
+        "--dial-result", action="append", metavar="STATUS",
+        help="synthetic Number dial result; repeat for one fallback; never dials",
+    )
     parser.add_argument(
         "--speech", action="append", metavar="TEXT",
         help="synthetic transcript in order; repeat for retries; requires --classifier-response",
     )
     args = parser.parse_args(argv)
+    if args.dial_result is not None and (args.digits or args.speech is not None):
+        parser.error("--dial-result cannot be combined with keypad or speech inputs")
     if args.speech is not None and args.classifier_response is None:
         parser.error("--speech requires --classifier-response")
     # No arguments demonstrate a silent attempt followed by a valid selection.
-    if args.speech is not None:
+    if args.dial_result is not None:
+        try:
+            steps = simulate_forwarding(args.dial_result)
+        except ValueError:
+            parser.error("unsupported synthetic Number dial result status")
+    elif args.speech is not None:
         steps = simulate_speech(args.speech, args.classifier_response, args.digits)
     elif args.classifier_response is not None:
         steps = simulate_classification(args.classifier_response, args.digits)

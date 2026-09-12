@@ -160,6 +160,37 @@ lookup, dialing, speech recognition, AI call, HTTP server, or network access.
 The demo does not authenticate callbacks, persist state, or model concurrency
 and is not a production adapter. The existing health smoke command is unchanged.
 
+### Offline forwarding-result demo
+
+Walk through the existing Number forwarding outcome policy after selecting
+the fixed `demo-sales` target:
+
+```sh
+python -m zentomic.demo --dial-result completed
+python -m zentomic.demo --dial-result busy --dial-result completed
+python -m zentomic.demo --dial-result no-answer --dial-result failed
+```
+
+These end the first attempt, allow one reception fallback and then end, or
+end after the fallback also fails. Each consumed synthetic `DialCallStatus`
+must be exactly `busy`, `no-answer`, `failed`, `completed`, or `canceled`.
+The first three allow one `demo-reception` fallback; `completed` and `canceled`
+hang up immediately. No result proves that a human answered or a task succeeded.
+
+JSON shows `await-dial-result` with an opaque target, any fallback decision,
+and locally rendered hangup TwiML. With only `--dial-result busy`, the fallback
+remains pending: missing results never become an assumed failure or success.
+At most two results are consumed, stopping on hangup and ignoring later inputs.
+An invalid consumed result exits 2 with a generic diagnostic and no partial
+JSON. This mode cannot be mixed with digits, `--intent`, `--classifier-response`,
+or `--speech`. Existing collection demos remain unchanged.
+
+This is a separate synthetic walkthrough, not a continuation of a real call or
+an authenticated callback replay. It does not resolve phone numbers, dial,
+persist fallback state, deduplicate events, or enforce call-wide budgets.
+Use synthetic arguments only; shell history and process listings can retain
+them. The underlying `resolve_dial_result` policy is shared with adapter tests.
+
 ### Offline intent confirmation demo
 
 Exercise a pending intent's separate confirmation step with the same local demo:
