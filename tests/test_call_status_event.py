@@ -55,6 +55,41 @@ class CallStatusEventTests(unittest.TestCase):
                 self.advance(current, self.event(), validator)
             validator.assert_not_called()
 
+    def test_validator_cannot_change_the_status_consumed_by_policy(self):
+        def mutate_fields(url, fields, signature):
+            fields["CallStatus"] = "completed"
+            return True
+
+        for version in ("1.0", "2.0"):
+            for encoded in (False, True):
+                with self.subTest(version=version, encoded=encoded):
+                    event = self.event(version, encoded, CallStatus="ringing")
+                    original = copy.deepcopy(event)
+                    validator = Mock(side_effect=mutate_fields)
+                    self.assertEqual(self.advance(None, event, validator), "ringing")
+                    self.assertEqual(event, original)
+                    validator.assert_called_once()
+
+    def test_validator_cannot_repair_another_accounts_or_legs_identity(self):
+        def repair_fields(url, fields, signature):
+            fields.update(AccountSid="synthetic-account", CallSid="synthetic-leg")
+            return True
+
+        for version in ("1.0", "2.0"):
+            for encoded in (False, True):
+                for fields in ({"AccountSid": "other-account"}, {"CallSid": "other-leg"}):
+                    with self.subTest(version=version, encoded=encoded, fields=fields), patch(
+                        "zentomic.call_status_event.advance_call_status",
+                    ) as policy:
+                        event = self.event(version, encoded, **fields)
+                        original = copy.deepcopy(event)
+                        validator = Mock(side_effect=repair_fields)
+                        with self.assertRaisesRegex(ValueError, "expected call session"):
+                            self.advance("in-progress", event, validator)
+                        self.assertEqual(event, original)
+                        validator.assert_called_once()
+                        policy.assert_not_called()
+
     def test_signature_and_identity_failures_never_reach_transition_policy(self):
         cases = (({}, Mock(return_value=False)), ({}, Mock(side_effect=RuntimeError)),
                  ({"AccountSid": "other-account"}, Mock(return_value=True)),

@@ -6,8 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 
-from zentomic.authentication import validate_call_event
-from zentomic.call_status import advance_call_status
+from zentomic.call_status_event import advance_call_status_event
 
 
 class CallStatusFlowTests(unittest.TestCase):
@@ -36,14 +35,13 @@ class CallStatusFlowTests(unittest.TestCase):
         return event
 
     def advance(self, current, event, validator):
-        # Example ordering only. This local assignment is not atomic storage,
-        # replay prevention, cleanup authorization, or a production endpoint.
-        fields = validate_call_event(
-            event, public_url="https://example.com/voice/status",
+        # Exercise the reusable boundary, not a parallel test implementation.
+        # This local assignment is not atomic storage or cleanup authorization.
+        return advance_call_status_event(
+            current, event, public_url="https://example.com/voice/status",
             validator=validator, expected_account_sid="synthetic-account",
             expected_call_sid="synthetic-parent",
         )
-        return advance_call_status(current, fields.get("CallStatus"))
 
     def test_authenticated_delays_and_replays_preserve_terminal_outcome(self):
         for version in ("1.0", "2.0"):
@@ -92,7 +90,7 @@ class CallStatusFlowTests(unittest.TestCase):
             for encoded in (False, True):
                 for validator in (Mock(return_value=False), Mock(side_effect=RuntimeError)):
                     with self.subTest(version=version, encoded=encoded), patch(
-                        __name__ + ".advance_call_status",
+                        "zentomic.call_status_event.advance_call_status",
                     ) as policy:
                         with self.assertRaisesRegex(ValueError, "signature validation failed"):
                             self.advance("in-progress", self.event(version, encoded), validator)
