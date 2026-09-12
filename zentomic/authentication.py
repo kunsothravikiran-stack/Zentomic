@@ -10,6 +10,7 @@ from zentomic.webhook_event import parse_form_event
 
 SignatureValidator = Callable[[str, dict[str, str], str], bool]
 _SIGNATURE = re.compile(r"[A-Za-z0-9+/]{27}=")
+_INVALID_URL_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
 def _signature_header(event: Mapping[str, Any]) -> str:
@@ -44,10 +45,12 @@ def validate_form_event(
     the expected account's auth token, never a callback supplied by the caller.
     public_url must be the exact externally configured HTTPS callback URL,
     including its original query string, not a URL built from request headers.
+    Reject malformed percent escapes; never decode or repair the signed URL.
     No cryptography, SDK setup, token lookup, or routing is implemented here.
     This gate does not prevent replay or authorize workspace/session access.
     """
-    if not isinstance(public_url, str) or any(char.isspace() for char in public_url):
+    if (not isinstance(public_url, str) or any(char.isspace() for char in public_url)
+            or _INVALID_URL_ESCAPE.search(public_url)):
         raise ValueError("public_url must be a configured HTTPS callback URL")
     try:
         # urlsplit accepts lone surrogates, but SDK signature encoding cannot.

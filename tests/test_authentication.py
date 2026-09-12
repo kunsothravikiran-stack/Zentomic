@@ -134,6 +134,29 @@ class AuthenticationTests(unittest.TestCase):
                 validate_form_event(event(), public_url=url, validator=validator)
                 self.assertEqual(validator.call_args.args[0], url)
 
+    def test_malformed_callback_url_escapes_fail_before_transport_or_validator(self):
+        for escape in ("%", "%2", "%GG", "%2G", "%G2", "%２Ｆ"):
+            for url in (f"https://example.invalid/voice/{escape}",
+                        f"https://example.invalid/voice?value={escape}"):
+                with self.subTest(url=url):
+                    validator = Mock(return_value=True)
+                    with patch("zentomic.authentication.parse_form_event") as parse:
+                        with self.assertRaisesRegex(
+                            ValueError, "^public_url must be a configured HTTPS callback URL$",
+                        ):
+                            validate_form_event(event(), public_url=url, validator=validator)
+                    parse.assert_not_called()
+                    validator.assert_not_called()
+
+    def test_valid_callback_url_escapes_are_not_decoded_or_normalized(self):
+        for suffix in ("/path%2fpart", "/path%2Fpart", "/literal%25",
+                       "/literal%252G", "/voice?x=%26%3D&x=%2b&blank="):
+            url = "https://example.invalid" + suffix
+            with self.subTest(url=url):
+                validator = Mock(return_value=True)
+                validate_form_event(event(), public_url=url, validator=validator)
+                self.assertEqual(validator.call_args.args[0], url)
+
     def test_validator_cannot_mutate_returned_fields_or_event(self):
         candidate = event()
         original = copy.deepcopy(candidate)

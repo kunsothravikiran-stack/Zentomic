@@ -1061,7 +1061,11 @@ original query string; never derive the URL or expected account from untrusted
 Host/forwarded headers or caller fields. Credentials and fragments in the URL
 are rejected. The configured URL must also be UTF-8 encodable: lone surrogate
 code points fail before the validator is called. Valid Unicode and percent
-escapes are passed unchanged, with no normalization or silent repair. This is
+escapes are passed unchanged, with no normalization or silent repair. Every `%`
+must be followed by two ASCII hexadecimal digits; malformed escapes fail as
+configuration errors before transport parsing or signature validation. Use
+`%25` for a literal percent sign. Escape case, encoded separators, and original
+query ordering are preserved exactly, not decoded and re-encoded. This is
 not DNS, reachability, or live SDK compatibility validation. Account selection
 and secret loading remain adapter responsibilities.
 
