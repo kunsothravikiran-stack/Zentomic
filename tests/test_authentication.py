@@ -7,7 +7,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from unittest.mock import Mock, patch
 
-from zentomic.authentication import MAX_PUBLIC_URL_BYTES, validate_form_event
+from zentomic.authentication import (
+    MAX_PUBLIC_URL_BYTES,
+    MAX_SIGNATURE_CHARACTERS,
+    validate_form_event,
+)
 
 
 URL = "https://example.invalid/voice/menu?first=%2F&second=2"
@@ -66,6 +70,18 @@ class AuthenticationTests(unittest.TestCase):
         candidate = event()
         del candidate["headers"]["X-Twilio-Signature"]
         self.assert_rejected_before_validator(candidate)
+
+    def test_signature_length_limit_precedes_pattern_matching(self):
+        self.assertEqual(len(SIGNATURE), MAX_SIGNATURE_CHARACTERS)
+        validate_form_event(event(), public_url=URL, validator=Mock(return_value=True))
+
+        oversized = "A" * (MAX_SIGNATURE_CHARACTERS + 1)
+        candidate = event()
+        candidate["headers"]["X-Twilio-Signature"] = oversized
+        pattern = Mock(side_effect=AssertionError("oversized signature must not be matched"))
+        with patch("zentomic.authentication._SIGNATURE", pattern):
+            self.assert_rejected_before_validator(candidate)
+        pattern.fullmatch.assert_not_called()
 
     def test_duplicate_conflicting_and_v2_multivalue_signatures_fail(self):
         candidate = event()

@@ -11,6 +11,7 @@ from zentomic.webhook_event import parse_form_event
 SignatureValidator = Callable[[str, dict[str, str], str], bool]
 MAX_CALL_IDENTIFIER_BYTES = 256
 MAX_PUBLIC_URL_BYTES = 4096
+MAX_SIGNATURE_CHARACTERS = 28
 _SIGNATURE = re.compile(r"[A-Za-z0-9+/]{27}=")
 _INVALID_URL_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
@@ -30,7 +31,12 @@ def _signature_header(event: Mapping[str, Any]) -> str:
             if event.get("version") == "2.0" or not isinstance(value, list) or len(value) != 1:
                 raise ValueError("webhook signature must have exactly one value")
             value = value[0]
-        if not isinstance(value, str) or not _SIGNATURE.fullmatch(value):
+        # A Twilio HMAC-SHA1 signature is exactly 28 base64 characters. Bound
+        # an untrusted header before regular-expression matching so callers of
+        # this helper cannot make validation scan an arbitrarily large value.
+        if (not isinstance(value, str)
+                or len(value) > MAX_SIGNATURE_CHARACTERS
+                or not _SIGNATURE.fullmatch(value)):
             raise ValueError("invalid webhook signature header")
         values.append(value)
     if not values or any(value != values[0] for value in values):

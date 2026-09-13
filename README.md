@@ -1250,8 +1250,10 @@ query ordering are preserved exactly, not decoded and re-encoded. This is
 not DNS, reachability, or live SDK compatibility validation. Account selection
 and secret loading remain adapter responsibilities.
 
-Missing, malformed, duplicate, or conflicting signatures fail closed. Header
-names are case-insensitive; an exact v1 single/multivalue mirror is accepted.
+Missing, malformed, duplicate, or conflicting signatures fail closed. Signature
+values are limited to their exact 28-character HMAC-SHA1 base64 shape before
+pattern matching, bounding work on untrusted headers. Header names are
+case-insensitive; an exact v1 single/multivalue mirror is accepted.
 Only a validator result of boolean `True` releases the fields. False, truthy
 non-booleans, and validator exceptions raise `ValueError` without exposing
 dependency error details. Invalid transport never reaches the validator.
