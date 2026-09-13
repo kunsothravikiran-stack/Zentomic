@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 from xml.etree.ElementTree import fromstring
 
-from zentomic.response import twiml_response
+from zentomic.response import MAX_TWIML_BYTES, twiml_response
 from zentomic.twiml import (
     render_dial, render_dtmf_gather, render_hangup, render_speech_gather,
 )
@@ -47,7 +47,42 @@ class TwimlResponseTests(unittest.TestCase):
             with self.subTest(body=repr(body)), self.assertRaises(ValueError) as caught:
                 twiml_response(body)
             self.assertEqual(str(caught.exception),
-                             "xml must be a nonblank UTF-8 encodable string")
+                             "xml must be a nonblank UTF-8 encodable string "
+                             "of at most 65536 bytes")
+
+    def test_body_size_limit_uses_utf8_bytes_and_is_inclusive(self):
+        bodies = (
+            "x" * MAX_TWIML_BYTES,
+            "\u00e9" * (MAX_TWIML_BYTES // 2),
+        )
+        for body in bodies:
+            with self.subTest(bytes=len(body.encode("utf-8"))):
+                self.assertIs(twiml_response(body)["body"], body)
+
+        for body in ("x" * (MAX_TWIML_BYTES + 1),
+                     "\u00e9" * (MAX_TWIML_BYTES // 2 + 1)):
+            with self.subTest(bytes=len(body.encode("utf-8"))), self.assertRaises(
+                ValueError,
+            ) as caught:
+                twiml_response(body)
+            self.assertEqual(str(caught.exception),
+                             "xml must be a nonblank UTF-8 encodable string "
+                             "of at most 65536 bytes")
+
+    def test_clearly_oversized_body_is_rejected_before_scanning_or_encoding(self):
+        class OversizedText(str):
+            def strip(self, *args, **kwargs):
+                raise AssertionError("oversized output must not be scanned")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("oversized output must not be encoded")
+
+        body = OversizedText("x" * (MAX_TWIML_BYTES + 1))
+        with self.assertRaises(ValueError) as caught:
+            twiml_response(body)
+        self.assertEqual(str(caught.exception),
+                         "xml must be a nonblank UTF-8 encodable string "
+                         "of at most 65536 bytes")
 
     def test_response_and_headers_are_fresh_for_each_invocation(self):
         first = twiml_response(render_hangup())

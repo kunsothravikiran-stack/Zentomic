@@ -852,6 +852,11 @@ It returns status 200, `Content-Type: application/xml; charset=utf-8`,
 in `body`, not JSON-quoted or base64-encoded. Return the dictionary from a future
 Lambda adapter; let the runtime serialize the outer envelope.
 
+The helper accepts at most 64 KiB of UTF-8 XML and rejects oversized output
+before building the proxy envelope. The limit is inclusive and counts encoded
+bytes, so accepted Unicode remains unchanged. This is a conservative local
+application boundary, not a claim about API Gateway or Twilio response limits.
+
 ```python
 from zentomic.response import twiml_response
 from zentomic.twiml import render_hangup
@@ -864,12 +869,14 @@ assert response["isBase64Encoded"] is False
 
 Supply only application-generated TwiML after authenticating the callback,
 authorizing the decision, and persisting required call state. This helper checks
-only that the input is a nonblank UTF-8 encodable string, not XML validity,
-allowed verbs, or destination safety. It does not sanitize caller/model XML.
+only that the input is nonblank, UTF-8 encodable, and within the size limit, not
+XML validity, allowed verbs, or destination safety. It does not sanitize
+caller/model XML.
 Authentication failures require a separate non-success response, not this
 success-only wrapper. Headers are newly allocated per invocation; no request
 headers are reflected. Offline tests cover all four renderers, Unicode and XML
-escaping, JSON envelope round trips, invalid text, and independent headers.
+escaping, exact byte boundaries, early oversized rejection, JSON envelope round
+trips, invalid text, and independent headers.
 This adds no voice endpoint or live API Gateway/provider verification; the
 existing `/health` handler remains unchanged.
 
