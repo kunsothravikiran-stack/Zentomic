@@ -44,6 +44,27 @@ class DialTests(unittest.TestCase):
             with self.subTest(numbers=repr(numbers)), self.assertRaises(ValueError):
                 render_dial(numbers, action_path="/voice/dial-result")
 
+    def test_destination_snapshot_is_bounded_before_validation(self):
+        class ChangingList(list):
+            consumed = 0
+
+            def __iter__(self):
+                while True:
+                    self.consumed += 1
+                    if self.consumed > 11:
+                        raise AssertionError("destination snapshot must be bounded")
+                    yield "+12025550100"
+
+        numbers = ChangingList(["+12025550100"])
+        with patch("zentomic.twiml._serialize") as serialize:
+            with self.assertRaisesRegex(
+                ValueError,
+                "^numbers must be a list or tuple of 1 to 10 destinations$",
+            ):
+                self.render(numbers)
+        self.assertEqual(numbers.consumed, 11)
+        serialize.assert_not_called()
+
     def test_duplicates_are_rejected_without_silently_dropping_a_member(self):
         with self.assertRaises(ValueError):
             self.render(["+12025550100", "+12025550100"])

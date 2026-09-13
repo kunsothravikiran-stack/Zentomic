@@ -1,10 +1,12 @@
 """Offline TwiML for collection, forwarding, transitions, and call endings."""
 
 import re
+from itertools import islice
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 
 MAX_ACTION_PATH_CHARACTERS = 2048
+MAX_DIAL_DESTINATIONS = 10
 
 
 def _serialize(response: Element) -> str:
@@ -105,9 +107,14 @@ def render_dial(
     timeout bounds ringing; time_limit bounds this Dial's connected duration.
     Neither setting is a whole-session budget or a provider billing cap.
     """
-    if not isinstance(numbers, (list, tuple)) or not 1 <= len(numbers) <= 10:
+    if not isinstance(numbers, (list, tuple)):
         raise ValueError("numbers must be a list or tuple of 1 to 10 destinations")
-    destinations = tuple(numbers)
+    # Snapshot at most one entry beyond the supported fan-out. A mutable list
+    # or collection subtype must not bypass the limit between validation and
+    # serialization or make this renderer allocate an unbounded tuple.
+    destinations = tuple(islice(numbers, MAX_DIAL_DESTINATIONS + 1))
+    if not 1 <= len(destinations) <= MAX_DIAL_DESTINATIONS:
+        raise ValueError("numbers must be a list or tuple of 1 to 10 destinations")
     for number in destinations:
         if not isinstance(number, str) or not re.fullmatch(r"\+[1-9][0-9]{1,14}", number):
             raise ValueError("destinations must use E.164-style phone number syntax")

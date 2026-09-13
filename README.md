@@ -893,6 +893,9 @@ the routing helpers. Values must have E.164-style syntax: `+`, a nonzero first
 digit, and 2-15 ASCII digits total. No trimming or normalization is performed;
 extensions, SIP addresses, duplicates, and malformed values raise `ValueError`.
 Syntax validation does not establish number assignment, ownership, or permission.
+The renderer snapshots no more than 11 entries before rejecting an oversized
+or changing collection, so validation cannot allocate an unbounded destination
+tuple or serialize more than the configured ten-number fan-out.
 
 The renderer explicitly selects simultaneous ringing and disables Dial recording.
 The first connected destination wins, which can include voicemail, as explained
