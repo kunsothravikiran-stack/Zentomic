@@ -9,6 +9,7 @@ from zentomic.webhook_event import parse_form_event
 
 
 SignatureValidator = Callable[[str, dict[str, str], str], bool]
+MAX_CALL_IDENTIFIER_BYTES = 256
 _SIGNATURE = re.compile(r"[A-Za-z0-9+/]{27}=")
 _INVALID_URL_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
@@ -95,12 +96,25 @@ def validate_call_event(
     This does not load/authorize sessions or prevent callback replay.
     """
     for expected in (expected_account_sid, expected_call_sid):
-        if not isinstance(expected, str) or not expected.strip():
+        # UTF-8 uses at least one byte per character. Reject clearly oversized
+        # trusted state before scanning or encoding it.
+        if (not isinstance(expected, str)
+                or len(expected) > MAX_CALL_IDENTIFIER_BYTES):
+            raise ValueError(
+                "expected call identifiers must be nonblank UTF-8 strings "
+                "of at most 256 bytes"
+            )
+        if not expected.strip():
             raise ValueError("expected call identifiers must be nonblank strings")
         try:
-            expected.encode("utf-8")
+            encoded = expected.encode("utf-8")
         except UnicodeEncodeError:
             raise ValueError("expected call identifiers must be UTF-8 encodable strings") from None
+        if len(encoded) > MAX_CALL_IDENTIFIER_BYTES:
+            raise ValueError(
+                "expected call identifiers must be nonblank UTF-8 strings "
+                "of at most 256 bytes"
+            )
 
     fields = validate_form_event(event, public_url=public_url, validator=validator)
     if (fields.get("AccountSid") != expected_account_sid

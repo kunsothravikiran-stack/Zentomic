@@ -8,7 +8,7 @@ from io import StringIO
 from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 
-from zentomic.authentication import validate_call_event
+from zentomic.authentication import MAX_CALL_IDENTIFIER_BYTES, validate_call_event
 from zentomic.gather import resolve_gather
 
 
@@ -118,6 +118,54 @@ class CallAuthenticationTests(unittest.TestCase):
                             expected_account_sid=identifier, expected_call_sid=identifier,
                         ), fields)
                         validator.assert_called_once_with(URL, fields, SIGNATURE)
+
+    def test_expected_identifier_byte_limit_accepts_exact_boundaries(self):
+        for identifier in (
+            "a" * MAX_CALL_IDENTIFIER_BYTES,
+            "é" * (MAX_CALL_IDENTIFIER_BYTES // 2),
+            "😀" * (MAX_CALL_IDENTIFIER_BYTES // 4),
+        ):
+            fields = {"AccountSid": identifier, "CallSid": identifier}
+            validator = Mock(return_value=True)
+            with self.subTest(identifier=identifier[:4]):
+                self.assertEqual(validate(
+                    event(fields), validator,
+                    expected_account_sid=identifier, expected_call_sid=identifier,
+                ), fields)
+            validator.assert_called_once_with(URL, fields, SIGNATURE)
+
+    def test_oversized_expected_identifiers_fail_before_authentication(self):
+        for identifier in (
+            "a" * (MAX_CALL_IDENTIFIER_BYTES + 1),
+            "é" * (MAX_CALL_IDENTIFIER_BYTES // 2) + "a",
+            "😀" * (MAX_CALL_IDENTIFIER_BYTES // 4) + "a",
+            "synthetic-private-marker-" + "x" * 10000,
+        ):
+            for key in ("expected_account_sid", "expected_call_sid"):
+                validator = Mock(return_value=True)
+                with self.subTest(key=key, identifier=identifier[:4]), \
+                        patch("zentomic.authentication.validate_form_event") as gate, \
+                        self.assertRaisesRegex(ValueError, "at most 256 bytes") as caught:
+                    validate(event(), validator, **{key: identifier})
+                gate.assert_not_called()
+                validator.assert_not_called()
+                self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
+    def test_clearly_oversized_identifier_is_rejected_before_content_scanning(self):
+        class OversizedIdentifier(str):
+            def strip(self, *args, **kwargs):
+                raise AssertionError("oversized identifier must not be stripped")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("oversized identifier must not be encoded")
+
+        identifier = OversizedIdentifier("x" * (MAX_CALL_IDENTIFIER_BYTES + 1))
+        validator = Mock(return_value=True)
+        with patch("zentomic.authentication.validate_form_event") as gate, \
+                self.assertRaisesRegex(ValueError, "at most 256 bytes"):
+            validate(event(), validator, expected_call_sid=identifier)
+        gate.assert_not_called()
+        validator.assert_not_called()
 
     def test_canonically_equivalent_identifiers_do_not_match(self):
         fields = {"AccountSid": "caf\u00e9", "CallSid": CALL}

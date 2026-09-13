@@ -1266,14 +1266,17 @@ fields = validate_call_event(
 ```
 
 This integration sketch is not a configured endpoint. The helper first validates
-the expected identifiers as nonblank UTF-8 encodable strings, then authenticates
-the complete form, and only returns it when `AccountSid` and `CallSid` exactly match the
-expected session. Missing, blank, or mismatched fields fail with a generic
+the expected identifiers as nonblank UTF-8 strings of at most 256 bytes, then
+authenticates the complete form, and only returns it when `AccountSid` and
+`CallSid` exactly match the expected session. Missing, blank, oversized, or
+mismatched fields fail with a generic
 `ValueError` that does not include identifiers. No trimming, case conversion,
-or provider identifier-format validation is performed. Lone surrogates in trusted
-identifiers fail before body decoding or signature validation, rather than being
-misreported as a callback/session mismatch. Valid Unicode is preserved exactly,
-including distinct composed and decomposed spellings. Unknown and blank
+or provider identifier-format validation is performed. Clearly oversized trusted
+values are rejected before whitespace scanning or encoding; multibyte identifiers
+are checked by encoded length. Lone surrogates in trusted identifiers fail before
+body decoding or signature validation, rather than being misreported as a
+callback/session mismatch. Valid Unicode within the application limit is preserved
+exactly, including distinct composed and decomposed spellings. Unknown and blank
 optional fields remain available after successful validation.
 
 Select and authorize the session within the intended workspace before supplying
