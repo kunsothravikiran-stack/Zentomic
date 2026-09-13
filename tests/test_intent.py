@@ -1,5 +1,6 @@
 """Offline confirmed-intent routing tests using synthetic targets only."""
 
+from collections.abc import Mapping
 import copy
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -7,7 +8,21 @@ from io import StringIO
 from types import MappingProxyType
 from unittest.mock import patch
 
-from zentomic.intent import resolve_intent
+from zentomic.intent import MAX_INTENT_ROUTES, resolve_intent
+
+
+class OversizedIntentRoutes(Mapping):
+    """Expose an invalid menu whose values must never be copied."""
+
+    def __iter__(self):
+        yield from (f"intent-{index}" for index in range(MAX_INTENT_ROUTES + 1))
+        raise AssertionError("oversized intent routes must not be read further")
+
+    def __len__(self):
+        return MAX_INTENT_ROUTES + 1
+
+    def __getitem__(self, key):
+        raise AssertionError("oversized intent route values must not be read")
 
 
 class IntentRoutingTests(unittest.TestCase):
@@ -51,6 +66,20 @@ class IntentRoutingTests(unittest.TestCase):
 
     def test_empty_menu_falls_back(self):
         self.assertEqual(self.resolve("sales", routes={}), "team/Reception")
+
+    def test_route_limit_is_inclusive(self):
+        routes = {
+            f"intent-{index}": f"team-{index}"
+            for index in range(MAX_INTENT_ROUTES)
+        }
+        self.assertEqual(self.resolve(f"intent-{MAX_INTENT_ROUTES - 1}", routes=routes),
+                         f"team-{MAX_INTENT_ROUTES - 1}")
+
+    def test_rejects_oversized_menu_before_copying_values(self):
+        with self.assertRaisesRegex(
+            ValueError, "^routes must contain at most 128 entries$",
+        ):
+            self.resolve("intent-0", routes=OversizedIntentRoutes())
 
     def test_invalid_mappings_are_rejected(self):
         for routes in (None, [], "sales", 1):

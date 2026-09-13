@@ -1,10 +1,25 @@
 """Pure routing of confirmed intent labels, without AI or telephony calls."""
 
 from collections.abc import Mapping
+from itertools import islice
 
 from zentomic.gather import GatherDecision, resolve_gather
 from zentomic.labels import _valid_intent_label
 from zentomic.routing import _valid_target
+
+
+MAX_INTENT_ROUTES = 128
+
+
+def _snapshot_intent_routes(routes: Mapping[str, str]) -> dict[str, str]:
+    if not isinstance(routes, Mapping):
+        raise ValueError("routes must be a mapping")
+    # Read one extra key before copying values so malformed workspace
+    # configuration cannot cause an unbounded snapshot or validation pass.
+    keys = tuple(islice(routes, MAX_INTENT_ROUTES + 1))
+    if len(keys) > MAX_INTENT_ROUTES:
+        raise ValueError("routes must contain at most 128 entries")
+    return {key: routes[key] for key in keys}
 
 
 def resolve_intent(
@@ -27,12 +42,10 @@ def resolve_intent(
     Integrators must obtain confirmation from trusted call-session state and
     authorize every target, including fallback, within the current workspace.
     """
-    if not isinstance(routes, Mapping):
-        raise ValueError("routes must be a mapping")
     if not _valid_target(fallback_target):
         raise ValueError("fallback_target must be a nonblank UTF-8 string of at most 256 bytes")
 
-    menu = dict(routes)
+    menu = _snapshot_intent_routes(routes)
     for label, target in menu.items():
         if not _valid_intent_label(label):
             raise ValueError(
@@ -69,9 +82,7 @@ def resolve_intent_confirmation(
     workspace-scoped state for this exact confirmation step, not the webhook
     or classifier's claim of confirmation. This does not persist or deduplicate.
     """
-    if not isinstance(routes, Mapping):
-        raise ValueError("routes must be a mapping")
-    menu = dict(routes)
+    menu = _snapshot_intent_routes(routes)
     target = resolve_intent(intent, menu, fallback_target=fallback_target, confirmed=True)
     known = _valid_intent_label(intent) and intent in menu
     decision = resolve_gather(

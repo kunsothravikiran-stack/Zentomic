@@ -1330,8 +1330,10 @@ assert target == "team/Support"
 Confirmation defaults to `False`. Only boolean `True` permits routing; truthy
 values such as `"true"` or `1` do not. Unconfirmed, missing, malformed, and unknown
 intents use the fallback. Labels match exactly, with no trimming or case
-conversion. Menus may be empty; labels must be nonblank UTF-8 strings of at most
-256 bytes. Clearly oversized labels are rejected before whitespace scanning,
+conversion. Menus may be empty or contain up to 128 routes. The resolver reads
+at most 129 keys and rejects an oversized mapping before copying its values.
+Labels must be nonblank UTF-8 strings of at most 256 bytes. Clearly oversized
+labels are rejected before whitespace scanning,
 encoding, or incoming-label lookup; multibyte labels use their encoded length.
 Targets and the required fallback must also be no more than 256 UTF-8 bytes.
 Invalid configuration raises `ValueError`, including
@@ -1422,7 +1424,9 @@ validator. Authentication does not prove that this is the current confirmation
 step. Atomically claim the unchanged step and pending intent, enforce deadlines
 and transition limits, and persist the result before acting. Reload and
 revalidate on conflicts; a late confirmation must not confirm a changed intent.
-Workspace destination authorization remains separate. The helper performs no
+Workspace destination authorization remains separate. Intent route maps are
+limited to 128 entries and oversized maps are rejected before authentication
+or value copying. The helper performs no
 persistence, classification, rendering, or dialing. Offline tests cover both
 proxy formats and body encodings, rejected authentication, policy-field
 spoofing, validator mutation, missing input, and bounded confirmation choices.

@@ -5,7 +5,7 @@ from typing import Any
 
 from zentomic.authentication import SignatureValidator, validate_call_event
 from zentomic.gather import GatherDecision
-from zentomic.intent import resolve_intent_confirmation
+from zentomic.intent import _snapshot_intent_routes, resolve_intent_confirmation
 
 
 def resolve_confirmation_event(
@@ -31,9 +31,7 @@ def resolve_confirmation_event(
     This helper does not load state, classify, render TwiML, persist, acknowledge
     callbacks, or place calls. A route decision alone does not authorize dialing.
     """
-    if not isinstance(routes, Mapping):
-        raise ValueError("routes must be a mapping")
-    menu = dict(routes)
+    menu = _snapshot_intent_routes(routes)
     fields = validate_call_event(
         event, public_url=public_url, validator=validator,
         expected_account_sid=expected_account_sid, expected_call_sid=expected_call_sid,

@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from tests.test_voice_flow import ACCOUNT, CALL, callback
 from zentomic.confirmation_event import resolve_confirmation_event
 from zentomic.gather import GatherDecision
+from tests.test_intent import OversizedIntentRoutes
 
 
 class ConfirmationEventTests(unittest.TestCase):
@@ -105,6 +106,15 @@ class ConfirmationEventTests(unittest.TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 self.resolve(callback({"Digits": "1"}, "2.0", False),
                              Mock(return_value=True), **overrides)
+
+    def test_oversized_routes_are_rejected_before_authentication(self):
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(
+            ValueError, "^routes must contain at most 128 entries$",
+        ):
+            self.resolve(callback({"Digits": "1"}, "2.0", False), validator,
+                         routes=OversizedIntentRoutes())
+        validator.assert_not_called()
 
 
 if __name__ == "__main__":
