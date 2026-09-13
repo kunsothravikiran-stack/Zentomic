@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from zentomic.routing import resolve_dtmf
+from zentomic.routing import _snapshot_dtmf_routes, resolve_dtmf
 
 
 @dataclass(frozen=True)
@@ -42,10 +42,7 @@ def resolve_gather(
         raise ValueError("attempts must be a nonnegative integer")
     if type(max_attempts) is not int or max_attempts < 1:
         raise ValueError("max_attempts must be a positive integer")
-    if not isinstance(routes, Mapping):
-        raise ValueError("routes must be a mapping")
-
-    menu = dict(routes)
+    menu = _snapshot_dtmf_routes(routes)
     target = resolve_dtmf(digits, menu, fallback_target=fallback_target)
     if hangup_digit is not None:
         if (not isinstance(hangup_digit, str) or len(hangup_digit) != 1

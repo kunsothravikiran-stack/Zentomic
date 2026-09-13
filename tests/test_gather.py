@@ -5,6 +5,7 @@ from dataclasses import FrozenInstanceError
 from unittest.mock import patch
 from xml.etree.ElementTree import fromstring
 
+from tests.test_routing import OversizedMenu
 from zentomic.gather import GatherDecision, resolve_gather
 from zentomic.twiml import render_hangup
 
@@ -74,6 +75,10 @@ class GatherTests(unittest.TestCase):
         ):
             with self.subTest(config=config), self.assertRaises(ValueError):
                 self.decide("1", attempts=3, **config)
+
+    def test_oversized_menu_is_rejected_before_copying_values(self):
+        with self.assertRaisesRegex(ValueError, "^routes must contain at most 10 entries$"):
+            self.decide("1", routes=OversizedMenu())
 
     def test_empty_menu_obeys_same_budget(self):
         self.assertEqual(self.decide("1", routes={}), GatherDecision("retry", None, 1))

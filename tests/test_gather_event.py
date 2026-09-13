@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from tests.test_voice_flow import ACCOUNT, CALL, callback
 from zentomic.gather import GatherDecision
 from zentomic.gather_event import resolve_gather_event
+from tests.test_routing import OversizedMenu
 
 
 class GatherEventTests(unittest.TestCase):
@@ -87,6 +88,12 @@ class GatherEventTests(unittest.TestCase):
             with self.subTest(event=event, routes=routes), self.assertRaises(ValueError):
                 self.resolve(event, validator, routes)
             validator.assert_not_called()
+
+    def test_oversized_route_container_fails_before_validator_or_value_copy(self):
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(ValueError, "^routes must contain at most 10 entries$"):
+            self.resolve(callback({}, "2.0", False), validator, OversizedMenu())
+        validator.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 """Offline IVR routing tests with synthetic, opaque target identifiers."""
 
+from collections.abc import Mapping
 import copy
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -7,7 +8,20 @@ from io import StringIO
 from types import MappingProxyType
 from unittest.mock import patch
 
-from zentomic.routing import resolve_dtmf
+from zentomic.routing import MAX_DTMF_ROUTES, resolve_dtmf
+
+
+class OversizedMenu(Mapping):
+    """Expose an invalid menu whose values must never be copied."""
+
+    def __iter__(self):
+        return iter(str(index) for index in range(MAX_DTMF_ROUTES + 1))
+
+    def __len__(self):
+        return MAX_DTMF_ROUTES + 1
+
+    def __getitem__(self, key):
+        raise AssertionError("oversized menu values must not be read")
 
 
 class RoutingTests(unittest.TestCase):
@@ -30,6 +44,10 @@ class RoutingTests(unittest.TestCase):
         for digit, target in routes.items():
             with self.subTest(digit=digit):
                 self.assertEqual(self.resolve(digit, routes), target)
+
+    def test_rejects_more_than_ten_routes_before_copying_values(self):
+        with self.assertRaisesRegex(ValueError, "^routes must contain at most 10 entries$"):
+            self.resolve("1", OversizedMenu())
 
     def test_unmapped_digit_and_empty_menu_use_fallback(self):
         self.assertEqual(self.resolve("9"), "reception")

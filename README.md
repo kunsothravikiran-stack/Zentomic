@@ -340,8 +340,10 @@ target = resolve_dtmf(
 assert target == "support"
 ```
 
-Menus may be empty or contain up to ten single ASCII digit keys. Targets and
-the required fallback must be nonblank UTF-8 strings of at most 256 bytes;
+Menus may be empty or contain up to ten single ASCII digit keys. The resolver
+examines at most eleven keys and rejects an oversized mapping before copying
+its values. Targets and the required fallback must be nonblank UTF-8 strings
+of at most 256 bytes;
 invalid configuration raises `ValueError` before selecting a route. Input is
 not trimmed or coerced, so
 multi-digit values, whitespace, Unicode digits, `*`, and `#` use the fallback.
@@ -973,13 +975,16 @@ signature, account/call binding, and bounded keypad policies. Supply a trusted
 workspace route mapping and session attempt count. Only authenticated `Digits`
 is consumed; request fields cannot replace routes, attempt limits, fallback,
 or the hangup key. Missing digits use the existing silence/retry behavior.
-The route mapping is copied before invoking the injected validator, so changes
-to the original mapping during validation do not change this decision.
+The route mapping is bounded to ten entries and copied before invoking the
+injected validator, so oversized configuration cannot trigger an unbounded
+copy and changes to the original mapping during validation do not change this
+decision.
 
 The function returns a `GatherDecision`, not TwiML or persisted state.
 Authentication and identity failures never reach collection policy. The route
-container is checked before authentication; other collection configuration is
-validated by the existing policy after authentication, including on exhaustion.
+container type and entry limit are checked before authentication; other
+collection configuration is validated by the existing policy after
+authentication, including on exhaustion.
 This does not bind a callback to a specific collection step or prevent replay:
 adapters must enforce the current step and shared deadline/transition budgets,
 atomically claim that step and persist the attempt count before acting, and

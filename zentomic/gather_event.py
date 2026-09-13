@@ -5,6 +5,7 @@ from typing import Any
 
 from zentomic.authentication import SignatureValidator, validate_call_event
 from zentomic.gather import GatherDecision, resolve_gather
+from zentomic.routing import _snapshot_dtmf_routes
 
 
 def resolve_gather_event(
@@ -27,9 +28,7 @@ def resolve_gather_event(
     and revalidate on conflicts. This helper does not load state, authorize
     destinations, render TwiML, persist, acknowledge callbacks, or place calls.
     """
-    if not isinstance(routes, Mapping):
-        raise ValueError("routes must be a mapping")
-    menu = dict(routes)
+    menu = _snapshot_dtmf_routes(routes)
     fields = validate_call_event(
         event, public_url=public_url, validator=validator,
         expected_account_sid=expected_account_sid, expected_call_sid=expected_call_sid,

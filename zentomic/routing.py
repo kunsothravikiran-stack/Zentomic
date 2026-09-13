@@ -1,8 +1,10 @@
 """Pure single-digit IVR menu routing, without telephony or persistence."""
 
 from collections.abc import Mapping
+from itertools import islice
 
 
+MAX_DTMF_ROUTES = 10
 MAX_TARGET_IDENTIFIER_BYTES = 256
 
 
@@ -20,6 +22,19 @@ def _valid_target(value: object) -> bool:
     return len(encoded) <= MAX_TARGET_IDENTIFIER_BYTES
 
 
+def _snapshot_dtmf_routes(routes: Mapping[str, str]) -> dict[str, str]:
+    """Copy at most one single-digit menu without unbounded iteration."""
+    if not isinstance(routes, Mapping):
+        raise ValueError("routes must be a mapping")
+    # There are only ten valid ASCII digit keys. Read one extra key before
+    # copying values so an invalid, unexpectedly large mapping is rejected
+    # without allocating or iterating over all of it.
+    keys = tuple(islice(routes, MAX_DTMF_ROUTES + 1))
+    if len(keys) > MAX_DTMF_ROUTES:
+        raise ValueError("routes must contain at most 10 entries")
+    return {key: routes[key] for key in keys}
+
+
 def resolve_dtmf(
     digits: str | None,
     routes: Mapping[str, str],
@@ -35,13 +50,11 @@ def resolve_dtmf(
     dial. Callers must authorize and resolve them within the current workspace.
     This function never mutates the menu, logs inputs, or contacts services.
     """
-    if not isinstance(routes, Mapping):
-        raise ValueError("routes must be a mapping")
     if not _valid_target(fallback_target):
         raise ValueError("fallback_target must be a nonblank UTF-8 string of at most 256 bytes")
 
     # Snapshot the caller's menu and validate every entry before routing.
-    menu = dict(routes)
+    menu = _snapshot_dtmf_routes(routes)
     for digit, target in menu.items():
         if not isinstance(digit, str) or len(digit) != 1 or digit not in "0123456789":
             raise ValueError("route keys must be single ASCII digits")
