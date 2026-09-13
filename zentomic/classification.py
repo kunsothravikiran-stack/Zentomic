@@ -2,11 +2,13 @@
 
 import json
 from collections.abc import Collection
+from itertools import islice
 
 from zentomic.labels import _valid_intent_label
 
 
 MAX_RESPONSE_BYTES = 4096
+MAX_ALLOWED_INTENTS = 128
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -23,8 +25,8 @@ def parse_intent_response(
 ) -> str | None:
     """Accept exactly {\"intent\": <allowlisted string>} or return None.
 
-    Labels must be nonblank UTF-8 strings of at most 256 bytes and match
-    exactly, without normalization.
+    The allowlist may contain at most 128 labels. Labels must be nonblank UTF-8
+    strings of at most 256 bytes and match exactly, without normalization.
     Invalid trusted configuration raises ValueError;
     malformed, oversized, ambiguous, or unknown model output returns None.
     An empty allowlist admits nothing. This neither invokes a model nor
@@ -33,7 +35,11 @@ def parse_intent_response(
     if (not isinstance(allowed_intents, Collection)
             or isinstance(allowed_intents, (str, bytes))):
         raise ValueError("allowed_intents must be a collection of nonblank strings")
-    labels = tuple(allowed_intents)
+    # Read one extra item so an invalid, unexpectedly large allowlist is
+    # rejected without copying or validating the entire collection.
+    labels = tuple(islice(allowed_intents, MAX_ALLOWED_INTENTS + 1))
+    if len(labels) > MAX_ALLOWED_INTENTS:
+        raise ValueError("allowed_intents must contain at most 128 entries")
     if any(not _valid_intent_label(label) for label in labels):
         # JSON escapes can decode to lone surrogates even in an ASCII response.
         # Reject unusable trusted labels before they can become pending state.

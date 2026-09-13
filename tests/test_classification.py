@@ -1,11 +1,37 @@
 """Synthetic model-output checks; no SDK, credentials, or external calls."""
 
 import json
+from collections.abc import Collection
 import unittest
 from unittest.mock import patch
 
-from zentomic.classification import MAX_RESPONSE_BYTES, parse_intent_response
+from zentomic.classification import (
+    MAX_ALLOWED_INTENTS,
+    MAX_RESPONSE_BYTES,
+    parse_intent_response,
+)
 from zentomic.intent import resolve_intent, resolve_intent_confirmation
+
+
+class OversizedAllowlist(Collection):
+    """Stop if admission reads beyond the one-item oversize probe."""
+
+    def __contains__(self, value):
+        return False
+
+    def __len__(self):
+        return MAX_ALLOWED_INTENTS + 1
+
+    def __iter__(self):
+        yield from (f"intent-{index}" for index in range(MAX_ALLOWED_INTENTS + 1))
+        raise AssertionError("oversized allowlist must not be read further")
+
+
+class UnreadableResponse(str):
+    """Fail if trusted configuration rejection starts parsing model output."""
+
+    def __len__(self):
+        raise AssertionError("model response must not be inspected")
 
 
 class ClassifierResponseTests(unittest.TestCase):
@@ -57,6 +83,18 @@ class ClassifierResponseTests(unittest.TestCase):
             for response in (None, '{"intent":"sales"}'):
                 with self.subTest(labels=labels), self.assertRaises(ValueError):
                     self.parse(response, labels)
+
+    def test_rejects_oversized_allowlist_with_bounded_iteration(self):
+        with self.assertRaisesRegex(
+            ValueError, "^allowed_intents must contain at most 128 entries$",
+        ):
+            self.parse(UnreadableResponse("{}"), OversizedAllowlist())
+
+    def test_allowlist_limit_is_inclusive(self):
+        labels = tuple(f"intent-{index}" for index in range(MAX_ALLOWED_INTENTS))
+        self.assertEqual(
+            self.parse(json.dumps({"intent": labels[-1]}), labels), labels[-1],
+        )
 
     def test_non_utf8_allowlist_labels_are_rejected_before_parsing(self):
         for label in ("synthetic-private-\ud800", "\udfff", "\ud83d\ude00"):
