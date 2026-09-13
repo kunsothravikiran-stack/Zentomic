@@ -557,6 +557,9 @@ so `*` and `#` can reach the resolver as invalid input. These attributes follow
 the [Twilio Gather reference](https://www.twilio.com/docs/voice/twiml/gather).
 Prompt markup is escaped as text, and invalid XML characters are rejected.
 Project limits are 1000 prompt characters and a 1–60 second timeout (default 5).
+All Say prompt renderers reject oversized text before whitespace or XML-character
+scanning. The limit counts input characters, not UTF-8 bytes or trimmed text;
+accepted prompts retain their whitespace unchanged.
 Collection and farewell prompts preserve their original text through XML
 parsing, including CR and CRLF line endings. Carriage returns are serialized as
 character references to avoid [XML end-of-line normalization](https://www.w3.org/TR/xml/#sec-line-ends).

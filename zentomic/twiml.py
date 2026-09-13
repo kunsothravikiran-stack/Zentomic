@@ -13,7 +13,9 @@ def _serialize(response: Element) -> str:
 
 def _validate_prompt(prompt: str) -> None:
     """Apply shared text limits before serializing a Say element."""
-    if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 1000:
+    # Bound work before stripping: oversized padded text could otherwise
+    # require a full scan and an unnecessary copy before being rejected.
+    if not isinstance(prompt, str) or len(prompt) > 1000 or not prompt.strip():
         raise ValueError("prompt must be a nonblank string of at most 1000 characters")
     # ElementTree escapes markup, but does not reject XML 1.0-invalid characters.
     if any(
