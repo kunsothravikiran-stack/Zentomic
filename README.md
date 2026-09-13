@@ -1516,6 +1516,24 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 
 ## Development boundaries
 
+For offline conditional-write experiments, `InMemoryCallStatusStore` in
+`zentomic.call_status_store` keeps immutable status/revision snapshots under
+exact `(workspace_id, call_sid)` keys. `load` returns revision 0 and status
+`None` for an unseen key. After authenticating and binding a lifecycle callback,
+pass its status to `observe` with the loaded `expected_revision`. A changed
+monotonic status increments the revision; duplicate or delayed observations do
+not. `StatusConflictError` requires reloading and recomputing, even when the
+attempted observation would be a no-op. The first stored terminal outcome still
+wins. Neither success nor an unchanged terminal value authorizes cleanup.
+
+This is a synthetic local test double, **not production session persistence**.
+Its lock coordinates only threads sharing one instance. It does not coordinate
+Lambda invocations, authenticate or authorize callers, deduplicate callbacks,
+store budgets/step claims, expire records, or provide durable storage. Use
+short-lived instances and synthetic identifiers only. Conditional lifecycle
+write tests include two competing local threads and workspace/call isolation;
+they do not establish distributed database concurrency guarantees.
+
 Keep this public repository free of credentials, account identifiers, real phone
 numbers, call transcripts, and customer data. Use synthetic fixtures only.
 Local `.env` files are ignored and are not loaded by the scaffold.
@@ -1523,7 +1541,7 @@ Local `.env` files are ignored and are not loaded by the scaffold.
 Future increments can add mocked service adapters, call-session state, and
 webhook validation. The signature gate has no configured production validator;
 end-to-end authentication, workspace isolation, cryptographic signature
-verification, persistence, and deployment are not implemented. Do not connect
+verification, durable persistence, and deployment are not implemented. Do not connect
 this scaffold to real call traffic until those boundaries are designed and
 tested. Do not add automatic deployments or paid service calls as part of
 routine development.

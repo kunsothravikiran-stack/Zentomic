@@ -1,0 +1,101 @@
+"""Local conditional lifecycle writes, using synthetic identities only."""
+
+import unittest
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import FrozenInstanceError
+from threading import Barrier
+
+from zentomic.call_status_store import InMemoryCallStatusStore, StatusConflictError
+
+
+class CallStatusStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.store = InMemoryCallStatusStore()
+
+    def observe(self, status, revision=0, workspace="workspace-a", call="call-a"):
+        return self.store.observe(workspace, call, status, expected_revision=revision)
+
+    def test_new_state_is_immutable_and_stores_are_independent(self):
+        initial = self.store.load("workspace-a", "call-a")
+        self.assertEqual((initial.status, initial.revision), (None, 0))
+        with self.assertRaises(FrozenInstanceError):
+            initial.revision = 9
+        saved = self.observe("ringing")
+        self.assertEqual((saved.status, saved.revision), ("ringing", 1))
+        self.assertEqual(initial.status, None)
+        self.assertEqual(InMemoryCallStatusStore().load("workspace-a", "call-a"), initial)
+
+    def test_workspace_and_call_keys_do_not_collide(self):
+        self.observe("completed")
+        self.observe("ringing", workspace="workspace-b")
+        self.observe("queued", call="call-b")
+        self.observe("busy", workspace="a/b", call="c")
+        self.observe("failed", workspace="a", call="b/c")
+        for workspace, call, expected in (
+            ("workspace-a", "call-a", "completed"),
+            ("workspace-b", "call-a", "ringing"),
+            ("workspace-a", "call-b", "queued"),
+            ("a/b", "c", "busy"), ("a", "b/c", "failed"),
+        ):
+            self.assertEqual(self.store.load(workspace, call).status, expected)
+
+    def test_stale_write_conflicts_then_reload_preserves_terminal_state(self):
+        stale = self.store.load("workspace-a", "call-a")
+        ended = self.observe("completed", stale.revision)
+        with self.assertRaisesRegex(StatusConflictError, "^call status revision conflict$"):
+            self.observe("ringing", stale.revision)
+        latest = self.store.load("workspace-a", "call-a")
+        self.assertEqual(self.observe("ringing", latest.revision), ended)
+
+    def test_noop_observations_do_not_spend_revisions(self):
+        active = self.observe("in-progress")
+        for status in ("queued", "ringing", "in-progress"):
+            self.assertEqual(self.observe(status, active.revision), active)
+        ended = self.observe("busy", active.revision)
+        self.assertEqual(ended.revision, 2)
+        for status in ("completed", "busy", "failed", "no-answer", "canceled", "queued"):
+            self.assertEqual(self.observe(status, ended.revision), ended)
+        # Even a no-op requires the current revision.
+        with self.assertRaises(StatusConflictError):
+            self.observe("busy", active.revision)
+
+    def test_two_writers_using_one_revision_cannot_both_succeed(self):
+        barrier = Barrier(2)
+
+        def write(status):
+            snapshot = self.store.load("workspace-a", "call-a")
+            barrier.wait(timeout=5)
+            try:
+                return self.observe(status, snapshot.revision)
+            except StatusConflictError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(write, ("ringing", "completed")))
+        saved = [result for result in results if result is not None]
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(self.store.load("workspace-a", "call-a"), saved[0])
+        self.assertEqual(saved[0].revision, 1)
+
+    def test_invalid_input_never_changes_state_or_reflects_identifiers(self):
+        saved = self.observe("completed")
+        for revision in (-1, True, 1.0, "1", None):
+            with self.subTest(revision=revision), self.assertRaises(ValueError):
+                self.observe("ringing", revision)
+        for status in (None, "private-invalid-status", [], True):
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                self.observe(status, saved.revision)
+        for identity in (None, [], "", " ", "private-\ud800"):
+            for workspace, call in ((identity, "call-a"), ("workspace-a", identity)):
+                for operation in (
+                    lambda: self.store.load(workspace, call),
+                    lambda: self.observe("ringing", workspace=workspace, call=call),
+                ):
+                    with self.assertRaises(ValueError) as caught:
+                        operation()
+                    self.assertNotIn("private-", str(caught.exception))
+        self.assertEqual(self.store.load("workspace-a", "call-a"), saved)
+
+
+if __name__ == "__main__":
+    unittest.main()
