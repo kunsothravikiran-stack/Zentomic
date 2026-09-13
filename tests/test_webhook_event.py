@@ -7,7 +7,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from unittest.mock import patch
 
-from zentomic.webhook_event import parse_form_event
+from zentomic.webhook_event import MAX_CONTENT_TYPE_CHARACTERS, parse_form_event
 
 
 FORM = "application/x-www-form-urlencoded"
@@ -51,6 +51,33 @@ class FormEventTests(unittest.TestCase):
                       FORM + ";charset=utf-8;charset=utf-8", FORM + "\r\n", FORM + ";boundary=x"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 parse_form_event({**event(), "headers": {"Content-Type": value}})
+
+    def test_content_type_length_limit_is_inclusive(self):
+        boundary = FORM + " " * (MAX_CONTENT_TYPE_CHARACTERS - len(FORM))
+        self.assertEqual(
+            parse_form_event({**event(), "headers": {"Content-Type": boundary}}),
+            {"Digits": "1"},
+        )
+        for value in (
+            FORM + " " * (MAX_CONTENT_TYPE_CHARACTERS - len(FORM) + 1),
+            "x" * (MAX_CONTENT_TYPE_CHARACTERS + 1),
+        ):
+            with self.subTest(length=len(value)), self.assertRaises(ValueError):
+                parse_form_event({**event(), "headers": {"Content-Type": value}})
+
+    def test_oversized_content_type_fails_before_trimming_or_matching(self):
+        class OversizedContentType(str):
+            def strip(self, *args, **kwargs):
+                raise AssertionError("oversized content type must not be trimmed")
+
+        value = OversizedContentType("x" * (MAX_CONTENT_TYPE_CHARACTERS + 1))
+        for headers in (
+            {"headers": {"Content-Type": value}},
+            {"headers": None, "multiValueHeaders": {"Content-Type": [value]}},
+        ):
+            with self.subTest(headers=headers), self.assertRaises(ValueError) as caught:
+                parse_form_event({**event(), **headers})
+            self.assertNotIn("x", str(caught.exception))
 
     def test_missing_malformed_and_ambiguous_headers(self):
         cases = [

@@ -11,6 +11,7 @@ _FORM_CONTENT_TYPE = re.compile(
     r'application/x-www-form-urlencoded(?:[ \t]*;[ \t]*charset=(?:utf-8|"utf-8"))?',
     re.IGNORECASE | re.ASCII,
 )
+MAX_CONTENT_TYPE_CHARACTERS = 128
 
 
 def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
@@ -29,7 +30,10 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
         if not isinstance(value, list) or len(value) != 1:
             raise ValueError("content type must have exactly one value")
         value = value[0]
-    if not isinstance(value, str) or not _FORM_CONTENT_TYPE.fullmatch(value.strip(" \t")):
+    # Bound work before trimming or matching an untrusted header value. Every
+    # accepted media type is ASCII, so a character limit also bounds its bytes.
+    if (not isinstance(value, str) or len(value) > MAX_CONTENT_TYPE_CHARACTERS
+            or not _FORM_CONTENT_TYPE.fullmatch(value.strip(" \t"))):
         raise ValueError("content type must be a UTF-8 URL-encoded form")
     return value
 

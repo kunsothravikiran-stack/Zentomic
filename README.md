@@ -1211,6 +1211,8 @@ assert fields == {"Digits": "1"}
 
 It accepts REST v1 (including an omitted version) and HTTP v2 proxy events,
 requires POST, and accepts only form content with an optional UTF-8 charset.
+Content-Type values are limited to 128 characters before trimming or media-type
+matching, bounding work on untrusted headers without changing accepted syntax.
 Header names are case-insensitive. Duplicate or conflicting content types are
 rejected, including v2 comma-joined duplicates; an exact single-value v1 mirror
 in `headers` and `multiValueHeaders` is accepted. These formats follow the
