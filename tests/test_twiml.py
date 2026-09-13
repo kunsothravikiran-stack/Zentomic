@@ -4,7 +4,43 @@ import unittest
 from unittest.mock import patch
 from xml.etree.ElementTree import fromstring
 
-from zentomic.twiml import render_dtmf_gather, render_hangup
+from zentomic.twiml import (
+    render_dial, render_dtmf_gather, render_hangup, render_redirect,
+    render_speech_gather,
+)
+
+
+class ActionPathLimitTests(unittest.TestCase):
+    def renderers(self):
+        return (
+            lambda path: render_dtmf_gather("Choose a department.", action_path=path),
+            lambda path: render_speech_gather("Name a department.", action_path=path),
+            lambda path: render_dial(["+12025550101"], action_path=path),
+            lambda path: render_redirect(action_path=path),
+        )
+
+    def test_exact_path_limit_round_trips_across_all_renderers(self):
+        for path in ("/" + "a" * 2047, "/a" * 1024, "/" + "a" * 2046 + "/"):
+            for index, render in enumerate(self.renderers()):
+                with self.subTest(renderer=index, trailing_slash=path.endswith("/")):
+                    element = fromstring(render(path))[0]
+                    actual = element.text if element.tag == "Redirect" else element.get("action")
+                    self.assertEqual(actual, path)
+
+    def test_oversized_paths_are_rejected_before_serialization(self):
+        for path in ("/" + "a" * 2048, "/a" * 1024 + "/", "/private-" + "a" * 100000):
+            for index, render in enumerate(self.renderers()):
+                with self.subTest(renderer=index, length=len(path)), \
+                        patch("zentomic.twiml._serialize") as serialize:
+                    with self.assertRaisesRegex(ValueError, "^action_path exceeds 2048 characters$"):
+                        render(path)
+                    serialize.assert_not_called()
+
+    def test_oversized_path_does_not_enter_regex_validation(self):
+        with patch("zentomic.twiml.re.fullmatch") as match:
+            with self.assertRaisesRegex(ValueError, "^action_path exceeds 2048 characters$"):
+                render_redirect(action_path="/" + "a" * 2048)
+            match.assert_not_called()
 
 
 class TwimlTests(unittest.TestCase):

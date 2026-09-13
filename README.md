@@ -822,7 +822,15 @@ assert response["body"] == (
 
 Paths use the existing root-relative named-segment policy: no external hosts,
 queries, fragments, traversal, or encoded separators. Use trusted application
-configuration, never caller/model input. Persist the authorized next step before
+configuration, never caller/model input. All four path-bearing renderers
+(keypad Gather, speech Gather, Dial, and Redirect) enforce a 2048-character
+inclusive limit (`MAX_ACTION_PATH_CHARACTERS` in `zentomic.twiml`) before path
+matching or serialization. Accepted paths are ASCII, so this also caps their
+UTF-8 byte length. Oversized paths raise a generic `ValueError`, without
+echoing or truncating the path. This is a local application bound, not a
+provider URL limit or a check that the callback route exists.
+
+Persist the authorized next step before
 responding; authenticate and bind the next callback to that stored step. Carry
 forward the original deadline and bounded transition/retry counters. Rendering
 does not prevent loops, reset counters, fetch a URL, or add an endpoint. These

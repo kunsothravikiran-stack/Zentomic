@@ -4,6 +4,9 @@ import re
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 
+MAX_ACTION_PATH_CHARACTERS = 2048
+
+
 def _serialize(response: Element) -> str:
     """Preserve prompt carriage returns through XML end-of-line handling."""
     # Escape markup first so literal caller-like text such as "&#13;" stays
@@ -27,6 +30,10 @@ def _validate_prompt(prompt: str) -> None:
 
 
 def _validate_action_path(action_path: str) -> None:
+    # Bound regex work and serialized callback size before inspecting segments.
+    # Accepted paths are ASCII, so the character limit also bounds UTF-8 bytes.
+    if isinstance(action_path, str) and len(action_path) > MAX_ACTION_PATH_CHARACTERS:
+        raise ValueError("action_path exceeds 2048 characters")
     if not isinstance(action_path, str) or not re.fullmatch(
         r"/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*/?", action_path
     ):
