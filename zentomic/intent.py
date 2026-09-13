@@ -28,7 +28,7 @@ def resolve_intent(
     if not isinstance(routes, Mapping):
         raise ValueError("routes must be a mapping")
     if not _valid_target(fallback_target):
-        raise ValueError("fallback_target must be a nonblank UTF-8 encodable string")
+        raise ValueError("fallback_target must be a nonblank UTF-8 string of at most 256 bytes")
 
     menu = dict(routes)
     for label, target in menu.items():
@@ -39,7 +39,7 @@ def resolve_intent(
         except UnicodeEncodeError:
             raise ValueError("intent labels must be UTF-8 encodable strings") from None
         if not _valid_target(target):
-            raise ValueError("route targets must be nonblank UTF-8 encodable strings")
+            raise ValueError("route targets must be nonblank UTF-8 strings of at most 256 bytes")
 
     if confirmed is not True or not isinstance(intent, str):
         return fallback_target

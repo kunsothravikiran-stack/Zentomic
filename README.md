@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 21535)
+Total output lines: 1582
+
 # Zentomic
 
 Modern business IVR and AI call routing, intended for Python AWS Lambda,
@@ -341,8 +344,9 @@ assert target == "support"
 ```
 
 Menus may be empty or contain up to ten single ASCII digit keys. Targets and
-the required fallback must be nonblank UTF-8 encodable strings; invalid configuration raises
-`ValueError` before selecting a route. Input is not trimmed or coerced, so
+the required fallback must be nonblank UTF-8 strings of at most 256 bytes;
+invalid configuration raises `ValueError` before selecting a route. Input is
+not trimmed or coerced, so
 multi-digit values, whitespace, Unicode digits, `*`, and `#` use the fallback.
 The resolver does not log input, mutate the menu, or access the environment or
 network. Identifiers are returned unchanged. A future integration must load an
@@ -351,11 +355,13 @@ this helper does not perform authentication or workspace authorization.
 
 Target validation is shared by keypad, confirmed-intent, and dial-result
 policies, including their collection and speech helpers. Surrogate code points
-are rejected before a decision, even in an unused route or a fallback that
-would not be selected. This avoids carrying an identifier that cannot be
-encoded for future session persistence. Valid Unicode identifiers, including
-their whitespace and normalization form, are preserved exactly. This is not
-database-key validation, persistence, or workspace authorization.
+and values over 256 UTF-8 bytes are rejected before a decision, even in an
+unused route or a fallback that would not be selected. Oversized values are
+rejected before whitespace scanning or encoding. This avoids carrying an
+unbounded or unusable identifier into future session persistence. Valid Unicode
+identifiers within the byte limit, including their whitespace and normalization
+form, are preserved exactly. This is an application-level bound, not database
+key validation, persistence, or workspace authorization.
 
 ### Bounded input retries
 
@@ -776,115 +782,7 @@ Never use a caller-supplied field or child-leg result as the session status.
 ```python
 from zentomic.budget import resolve_voice_step_budget
 
-decision = resolve_voice_step_budget(
-    deadline_ms=100, now_ms=0, transitions=1, max_transitions=3,
-    call_status="completed",
-)
-assert (decision.action, decision.remaining_ms, decision.transitions) == ("hangup", 100, 1)
-```
-
-This is a pure composition, not a session controller. Authenticate, bind to the
-expected step, reject replays, and check persisted terminal state first. Save
-the returned count atomically with the next step and a condition on the stored
-session status before work; on a conflict, reload state and recompute with a
-fresh clock. A budget denial on an active call still needs a durable terminal
-decision. An already terminal call must not repeat cleanup or emit another
-call operation merely because this helper returns `hangup`.
-Per-step retries, operation/invocation timeouts, and active
-cancellation remain separate. Offline tests cover both denial paths, exact
-boundaries, all known call statuses, counter preservation, strict configuration,
-and repeated decisions;
-they do not test database concurrency or live calls.
-
-`tests/test_voice_admission_flow.py` composes authentication, terminal-state
-checks, combined admission, and proxy-wrapped redirects across synthetic v1/v2
-callbacks. It verifies a shared counter across different voice steps, fresh
-clock checks, caller-field isolation, and no admission after authentication
-failure or a terminal decision. Its state is sequential and test-owned, not a
-durable session implementation or a test of replay protection, atomic writes,
-provider signature cryptography, or operation timeout enforcement.
-
-`render_redirect` serializes a server-selected transition, for example from an
-accepted pending intent to its confirmation step. It emits only a top-level
-[`Redirect` with explicit POST](https://www.twilio.com/docs/voice/twiml/redirect),
-not an HTTP 3xx response or a phone transfer:
-
-```python
-from zentomic.twiml import render_redirect
-from zentomic.response import twiml_response
-
-response = twiml_response(render_redirect(action_path="/voice/confirm-intent"))
-assert response["statusCode"] == 200
-assert response["body"] == (
-    '<Response><Redirect method="POST">/voice/confirm-intent</Redirect></Response>'
-)
-```
-
-Paths use the existing root-relative named-segment policy: no external hosts,
-queries, fragments, traversal, or encoded separators. Use trusted application
-configuration, never caller/model input. All four path-bearing renderers
-(keypad Gather, speech Gather, Dial, and Redirect) enforce a 2048-character
-inclusive limit (`MAX_ACTION_PATH_CHARACTERS` in `zentomic.twiml`) before path
-matching or serialization. Accepted paths are ASCII, so this also caps their
-UTF-8 byte length. Oversized paths raise a generic `ValueError`, without
-echoing or truncating the path. This is a local application bound, not a
-provider URL limit or a check that the callback route exists.
-
-Persist the authorized next step before
-responding; authenticate and bind the next callback to that stored step. Carry
-forward the original deadline and bounded transition/retry counters. Rendering
-does not prevent loops, reset counters, fetch a URL, or add an endpoint. These
-paths require hosted TwiML with a base URL, not inline Calls API TwiML.
-
-### TwiML proxy responses
-
-`twiml_response` wraps an existing renderer's output in a success envelope for
-API Gateway [REST v1 proxy integrations](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html)
-and [HTTP v2 proxy integrations](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html).
-It returns status 200, `Content-Type: application/xml; charset=utf-8`,
-`Cache-Control: no-store`, and `isBase64Encoded: false`. The XML stays unchanged
-in `body`, not JSON-quoted or base64-encoded. Return the dictionary from a future
-Lambda adapter; let the runtime serialize the outer envelope.
-
-```python
-from zentomic.response import twiml_response
-from zentomic.twiml import render_hangup
-
-response = twiml_response(render_hangup("Goodbye."))
-assert response["statusCode"] == 200
-assert response["body"] == "<Response><Say>Goodbye.</Say><Hangup /></Response>"
-assert response["isBase64Encoded"] is False
-```
-
-Supply only application-generated TwiML after authenticating the callback,
-authorizing the decision, and persisting required call state. This helper checks
-only that the input is a nonblank UTF-8 encodable string, not XML validity,
-allowed verbs, or destination safety. It does not sanitize caller/model XML.
-Authentication failures require a separate non-success response, not this
-success-only wrapper. Headers are newly allocated per invocation; no request
-headers are reflected. Offline tests cover all four renderers, Unicode and XML
-escaping, JSON envelope round trips, invalid text, and independent headers.
-This adds no voice endpoint or live API Gateway/provider verification; the
-existing `/health` handler remains unchanged.
-
-### Offline forwarding renderer
-
-`render_dial(numbers, action_path=..., timeout=20, time_limit=14400)` serializes one `Dial` with
-1-10 unique `Number` children. Supply a list or tuple of already authorized,
-workspace-resolved phone destinations, not the opaque identifiers returned by
-the routing helpers. Values must have E.164-style syntax: `+`, a nonzero first
-digit, and 2-15 ASCII digits total. No trimming or normalization is performed;
-extensions, SIP addresses, duplicates, and malformed values raise `ValueError`.
-Syntax validation does not establish number assignment, ownership, or permission.
-
-The renderer explicitly selects simultaneous ringing and disables Dial recording.
-The first connected destination wins, which can include voicemail, as explained
-in the [Twilio Number reference](https://www.twilio.com/docs/voice/twiml/number).
-The required action uses POST and the same root-relative path restrictions as
-the Gather renderer. A future action handler must authenticate and handle the
-Dial outcome, including no-answer/busy/failure, before deciding what happens next.
-The project accepts integer ringing timeouts of 5-60 seconds (default 20).
-This is not a conversation-duration or billing cap; Twilio also adds a ringing
+deci…1535 tokens truncated…versation-duration or billing cap; Twilio also adds a ringing
 buffer. See the [Dial reference](https://www.twilio.com/docs/voice/twiml/dial).
 
 Use `time_limit` to bound the connected duration of each Dial separately from
@@ -1040,7 +938,8 @@ assert (decision.action, decision.target) == ("fallback", "demo-reception")
 
 All keyword arguments must come from trusted workspace configuration/session
 state. `expected_call_sid` binds the parent, not the dialed child. Invalid
-fallback configuration or expected child identifiers fail before authentication.
+fallback configuration or expected child identifiers fail before authentication;
+both are limited to 256 UTF-8 bytes by the shared target/identifier boundary.
 Even with `fallback_used=True`, invalid identity or `DialCallStatus` is rejected;
 parent `CallStatus` cannot substitute for it. V1/v2 and plain/base64 forms use
 the same existing transport rules. Only an immutable `DialDecision` is returned,
@@ -1300,8 +1199,8 @@ assert target == "team/Support"
 Confirmation defaults to `False`. Only boolean `True` permits routing; truthy
 values such as `"true"` or `1` do not. Unconfirmed, missing, malformed, and unknown
 intents use the fallback. Labels match exactly, with no trimming or case
-conversion. Menus may be empty; all labels, targets, and the required fallback
-must be nonblank UTF-8 encodable strings.
+conversion. Menus may be empty; labels must be nonblank UTF-8 encodable strings.
+Targets and the required fallback must also be no more than 256 UTF-8 bytes.
 Invalid configuration raises `ValueError`, including
 unused routes. Target identifiers are preserved, and the menu is not mutated.
 Routing labels use the same encoding requirement as classifier allowlists:

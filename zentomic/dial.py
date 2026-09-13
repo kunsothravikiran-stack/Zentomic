@@ -30,7 +30,7 @@ def resolve_dial_result(
     This helper does not authenticate, deduplicate, persist, render, or dial.
     """
     if not _valid_target(fallback_target):
-        raise ValueError("fallback_target must be a nonblank UTF-8 encodable string")
+        raise ValueError("fallback_target must be a nonblank UTF-8 string of at most 256 bytes")
     if type(fallback_used) is not bool:
         raise ValueError("fallback_used must be a boolean")
     if not isinstance(status, str) or status not in _FAILED_STATUSES | _TERMINAL_STATUSES:

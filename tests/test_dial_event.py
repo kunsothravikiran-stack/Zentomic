@@ -56,7 +56,7 @@ class DialEventTests(unittest.TestCase):
 
     def test_invalid_trusted_state_fails_before_authentication(self):
         for key in ("fallback_target", "expected_dial_call_sid"):
-            for value in (None, "", " \t", [], True, "\ud800"):
+            for value in (None, "", " \t", [], True, "\ud800", "private-" + "x" * 10000):
                 validator = Mock(return_value=True)
                 with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                     self.resolve(self.event(), validator, **{key: value})

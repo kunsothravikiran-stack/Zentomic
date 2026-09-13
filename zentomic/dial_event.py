@@ -28,9 +28,11 @@ def resolve_dial_result_event(
     used before acting; reload and revalidate on a concurrent state change.
     """
     if not _valid_target(expected_dial_call_sid):
-        raise ValueError("expected_dial_call_sid must be a nonblank UTF-8 encodable string")
+        raise ValueError(
+            "expected_dial_call_sid must be a nonblank UTF-8 string of at most 256 bytes"
+        )
     if not _valid_target(fallback_target):
-        raise ValueError("fallback_target must be a nonblank UTF-8 encodable string")
+        raise ValueError("fallback_target must be a nonblank UTF-8 string of at most 256 bytes")
     if type(fallback_used) is not bool:
         raise ValueError("fallback_used must be a boolean")
     fields = validate_call_event(

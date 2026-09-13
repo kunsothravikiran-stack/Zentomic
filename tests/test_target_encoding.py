@@ -5,7 +5,7 @@ import unittest
 from zentomic.dial import resolve_dial_result
 from zentomic.gather import resolve_gather
 from zentomic.intent import resolve_intent, resolve_intent_confirmation
-from zentomic.routing import resolve_dtmf
+from zentomic.routing import MAX_TARGET_IDENTIFIER_BYTES, resolve_dtmf
 from zentomic.speech import resolve_speech_gather
 
 
@@ -60,6 +60,59 @@ class TargetEncodingTests(unittest.TestCase):
                 self.assertEqual(resolve_dial_result("busy", fallback_target=target).target, target)
                 self.assertEqual(resolve_speech_gather(None, fallback_target=target,
                                                       attempts=3).target, target)
+
+    def test_target_byte_limit_accepts_exact_boundaries(self):
+        for target in ("a" * MAX_TARGET_IDENTIFIER_BYTES,
+                       "é" * (MAX_TARGET_IDENTIFIER_BYTES // 2),
+                       "😀" * (MAX_TARGET_IDENTIFIER_BYTES // 4)):
+            with self.subTest(target=target[:4]):
+                self.assertEqual(resolve_dtmf("1", {"1": target},
+                                             fallback_target="reception"), target)
+                self.assertEqual(resolve_intent("sales", {"sales": target},
+                                               fallback_target="reception",
+                                               confirmed=True), target)
+                self.assertEqual(resolve_dial_result("busy", fallback_target=target).target,
+                                 target)
+
+    def test_oversized_targets_fail_across_shared_policies(self):
+        for target in ("a" * (MAX_TARGET_IDENTIFIER_BYTES + 1),
+                       "é" * (MAX_TARGET_IDENTIFIER_BYTES // 2) + "a",
+                       "😀" * (MAX_TARGET_IDENTIFIER_BYTES // 4) + "a",
+                       "private-" + "x" * 10000):
+            for index, resolve in enumerate(self.fallback_cases(target)):
+                with self.subTest(target=target[:8], case=index), \
+                        self.assertRaises(ValueError) as caught:
+                    resolve()
+                self.assertNotIn("private-", str(caught.exception))
+
+            for index, resolve in enumerate((
+                lambda: resolve_dtmf(None, {"1": target}, fallback_target="reception"),
+                lambda: resolve_intent(None, {"sales": target},
+                                       fallback_target="reception"),
+                lambda: resolve_gather(None, {"1": target},
+                                       fallback_target="reception", attempts=3),
+                lambda: resolve_intent_confirmation(
+                    None, None, {"sales": target},
+                    fallback_target="reception", attempts=3,
+                ),
+            )):
+                with self.subTest(target=target[:8], unused_case=index), \
+                        self.assertRaises(ValueError):
+                    resolve()
+
+    def test_oversized_target_is_rejected_before_content_scanning(self):
+        class OversizedTarget(str):
+            def strip(self, *args, **kwargs):
+                raise AssertionError("oversized target must not be stripped")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("oversized target must not be encoded")
+
+        target = OversizedTarget("x" * (MAX_TARGET_IDENTIFIER_BYTES + 1))
+        with self.assertRaisesRegex(
+            ValueError, "^fallback_target must be a nonblank UTF-8 string of at most 256 bytes$",
+        ):
+            resolve_dtmf(None, {}, fallback_target=target)
 
 
 if __name__ == "__main__":
