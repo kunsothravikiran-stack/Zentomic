@@ -12,6 +12,8 @@ _FORM_CONTENT_TYPE = re.compile(
     re.IGNORECASE | re.ASCII,
 )
 MAX_CONTENT_TYPE_CHARACTERS = 128
+MAX_HEADER_FIELDS = 128
+MAX_HEADER_NAME_CHARACTERS = 128
 
 
 def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
@@ -19,8 +21,19 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
         return None
     if not isinstance(headers, Mapping):
         raise ValueError("headers must be a mapping")
-    values = [value for name, value in headers.items()
-              if isinstance(name, str) and name.lower() == "content-type"]
+    # API Gateway bounds the wire request, but callers can invoke this offline
+    # helper with arbitrary mappings. Bound both collection size and each name
+    # before scanning or allocating a lowercase copy.
+    if len(headers) > MAX_HEADER_FIELDS:
+        raise ValueError("header collection exceeds size limit")
+    values = []
+    for name, value in headers.items():
+        if not isinstance(name, str):
+            continue
+        if len(name) > MAX_HEADER_NAME_CHARACTERS:
+            raise ValueError("header name exceeds size limit")
+        if name.lower() == "content-type":
+            values.append(value)
     if not values:
         return None
     if len(values) != 1:

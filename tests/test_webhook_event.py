@@ -7,7 +7,12 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from unittest.mock import patch
 
-from zentomic.webhook_event import MAX_CONTENT_TYPE_CHARACTERS, parse_form_event
+from zentomic.webhook_event import (
+    MAX_CONTENT_TYPE_CHARACTERS,
+    MAX_HEADER_FIELDS,
+    MAX_HEADER_NAME_CHARACTERS,
+    parse_form_event,
+)
 
 
 FORM = "application/x-www-form-urlencoded"
@@ -78,6 +83,35 @@ class FormEventTests(unittest.TestCase):
             with self.subTest(headers=headers), self.assertRaises(ValueError) as caught:
                 parse_form_event({**event(), **headers})
             self.assertNotIn("x", str(caught.exception))
+
+    def test_header_collection_limit_is_inclusive(self):
+        candidate = event()
+        candidate["headers"].update(
+            {f"X-Synthetic-{index}": "value"
+             for index in range(MAX_HEADER_FIELDS - 1)}
+        )
+        self.assertEqual(len(candidate["headers"]), MAX_HEADER_FIELDS)
+        self.assertEqual(parse_form_event(candidate), {"Digits": "1"})
+
+        candidate["headers"]["X-One-Too-Many"] = "value"
+        with patch("zentomic.webhook_event.parse_form_body") as decoder:
+            with self.assertRaisesRegex(ValueError, "^header collection exceeds size limit$"):
+                parse_form_event(candidate)
+        decoder.assert_not_called()
+
+    def test_oversized_header_name_fails_before_case_folding(self):
+        class OversizedHeaderName(str):
+            def lower(self):
+                raise AssertionError("oversized header name must not be case folded")
+
+        name = OversizedHeaderName("X" * (MAX_HEADER_NAME_CHARACTERS + 1))
+        candidate = event()
+        candidate["headers"][name] = "synthetic-private-marker"
+        with patch("zentomic.webhook_event.parse_form_body") as decoder:
+            with self.assertRaisesRegex(ValueError, "^header name exceeds size limit$") as caught:
+                parse_form_event(candidate)
+        decoder.assert_not_called()
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
 
     def test_missing_malformed_and_ambiguous_headers(self):
         cases = [
