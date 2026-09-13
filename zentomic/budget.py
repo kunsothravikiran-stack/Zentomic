@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from zentomic.call_status import is_terminal_call_status
+
 
 @dataclass(frozen=True)
 class TransitionBudget:
@@ -83,7 +85,7 @@ class VoiceStepBudget:
 
 def resolve_voice_step_budget(
     *, deadline_ms: int, now_ms: int, transitions: int, max_transitions: int,
-    minimum_remaining_ms: int = 1,
+    minimum_remaining_ms: int = 1, call_status: str | None = None,
 ) -> VoiceStepBudget:
     """Admit one voice step only when both whole-call budgets permit it.
 
@@ -91,11 +93,21 @@ def resolve_voice_step_budget(
     for a combined admission; denial preserves it and reports actual time left.
     Inputs must come from trusted call state/configuration and a fresh clock.
 
+    An optional stored call_status denies work for a terminal call without
+    spending a transition, even with time/count headroom. None means no stored
+    observation and preserves budget-only behavior, not proof of an active
+    call. Unknown statuses raise ValueError, even when a budget denies work.
+    All budget configuration is still validated for terminal calls.
+
     Use after authentication, call/step binding, replay and terminal-state
-    checks. Atomically persist the returned count with the next step before
-    emitting work; on a conflict reload and recompute. This pure composition
+    checks. Use the stored parent/session status, not a child Dial result or
+    caller-supplied field. Atomically check that status with the returned count
+    and next step before emitting work; on a conflict reload and recompute.
+    A hangup decision is denial of new work, not permission to repeat cleanup
+    or send another operation to an ended call. This pure composition
     does not persist, read a clock, cancel work, or enforce operation timeouts.
     """
+    terminal = False if call_status is None else is_terminal_call_status(call_status)
     time_budget = resolve_call_budget(
         deadline_ms=deadline_ms, now_ms=now_ms,
         minimum_remaining_ms=minimum_remaining_ms,
@@ -103,7 +115,7 @@ def resolve_voice_step_budget(
     count_budget = resolve_transition_budget(
         transitions=transitions, max_transitions=max_transitions,
     )
-    if time_budget.action == "hangup" or count_budget.action == "hangup":
+    if terminal or time_budget.action == "hangup" or count_budget.action == "hangup":
         return VoiceStepBudget("hangup", time_budget.remaining_ms, transitions)
     return VoiceStepBudget("continue", time_budget.remaining_ms, count_budget.transitions)
 

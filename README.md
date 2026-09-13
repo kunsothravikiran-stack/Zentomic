@@ -762,13 +762,35 @@ reservation or permission to continue. Both policies validate their inputs even
 if one denies work. The minimum time defaults to 1 ms. Existing individual
 helpers remain available and unchanged.
 
+Pass optional `call_status` from trusted stored parent/session state to also
+deny new work after the call ends. All terminal statuses recognized by
+`is_terminal_call_status` return `hangup` without spending a transition, while
+still reporting actual time left and validating both budgets. Active statuses
+do not bypass either budget. Unknown statuses raise `ValueError`; omitted or
+`None` preserves budget-only behavior and is not proof that the call is active.
+Never use a caller-supplied field or child-leg result as the session status.
+
+```python
+from zentomic.budget import resolve_voice_step_budget
+
+decision = resolve_voice_step_budget(
+    deadline_ms=100, now_ms=0, transitions=1, max_transitions=3,
+    call_status="completed",
+)
+assert (decision.action, decision.remaining_ms, decision.transitions) == ("hangup", 100, 1)
+```
+
 This is a pure composition, not a session controller. Authenticate, bind to the
 expected step, reject replays, and check persisted terminal state first. Save
-the returned count atomically with the next step before work; on a conflict,
-reload state and recompute with a fresh clock. A denial still needs a durable
-terminal decision. Per-step retries, operation/invocation timeouts, and active
+the returned count atomically with the next step and a condition on the stored
+session status before work; on a conflict, reload state and recompute with a
+fresh clock. A budget denial on an active call still needs a durable terminal
+decision. An already terminal call must not repeat cleanup or emit another
+call operation merely because this helper returns `hangup`.
+Per-step retries, operation/invocation timeouts, and active
 cancellation remain separate. Offline tests cover both denial paths, exact
-boundaries, counter preservation, strict configuration, and repeated decisions;
+boundaries, all known call statuses, counter preservation, strict configuration,
+and repeated decisions;
 they do not test database concurrency or live calls.
 
 `tests/test_voice_admission_flow.py` composes authentication, terminal-state

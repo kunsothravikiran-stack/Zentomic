@@ -8,6 +8,50 @@ from zentomic.budget import resolve_voice_step_budget
 
 
 class VoiceStepBudgetTests(unittest.TestCase):
+    def test_terminal_call_status_denies_without_spending_a_transition(self):
+        for status in ("completed", "busy", "failed", "no-answer", "canceled"):
+            for now, count in ((0, 0), (95, 1), (100, 2), (101, 3)):
+                with self.subTest(status=status, now=now, count=count):
+                    result = resolve_voice_step_budget(
+                        deadline_ms=100, now_ms=now, minimum_remaining_ms=10,
+                        transitions=count, max_transitions=2, call_status=status,
+                    )
+                    self.assertEqual(
+                        (result.action, result.remaining_ms, result.transitions),
+                        ("hangup", max(0, 100 - now), count),
+                    )
+
+    def test_active_or_unobserved_status_preserves_both_budget_checks(self):
+        for status in (None, "queued", "ringing", "in-progress"):
+            for now, count in ((0, 0), (90, 1), (91, 1), (0, 2)):
+                with self.subTest(status=status, now=now, count=count):
+                    args = dict(deadline_ms=100, now_ms=now,
+                                minimum_remaining_ms=10, transitions=count,
+                                max_transitions=2)
+                    self.assertEqual(resolve_voice_step_budget(**args, call_status=status),
+                                     resolve_voice_step_budget(**args))
+
+    def test_invalid_status_is_rejected_even_when_budgets_deny(self):
+        for status in ("", "Completed", "completed ", "initiated", "private-input",
+                       True, 0, [], {}):
+            with self.subTest(status=status):
+                with self.assertRaises(ValueError) as caught:
+                    resolve_voice_step_budget(
+                        deadline_ms=0, now_ms=0, transitions=0,
+                        max_transitions=0, call_status=status,
+                    )
+                self.assertNotIn("private-input", str(caught.exception))
+
+    def test_terminal_status_does_not_hide_invalid_budget_configuration(self):
+        for name in ("deadline_ms", "now_ms", "minimum_remaining_ms",
+                     "transitions", "max_transitions"):
+            with self.subTest(name=name):
+                args = dict(deadline_ms=100, now_ms=0, minimum_remaining_ms=1,
+                            transitions=0, max_transitions=2, call_status="completed")
+                args[name] = -1
+                with self.assertRaises(ValueError):
+                    resolve_voice_step_budget(**args)
+
     def test_both_budgets_must_admit_and_only_admission_increments(self):
         for now, count, action, remaining, next_count in (
             (0, 0, "continue", 100, 1),
