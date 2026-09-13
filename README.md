@@ -1229,8 +1229,10 @@ The gate passes the exact configured HTTPS public URL, every decoded form field,
 and the `X-Twilio-Signature` value to the validator. Preserve the public path and
 original query string; never derive the URL or expected account from untrusted
 Host/forwarded headers or caller fields. Credentials and fragments in the URL
-are rejected. The configured URL must also be UTF-8 encodable: lone surrogate
-code points fail before the validator is called. Valid Unicode and percent
+are rejected. The configured URL must also be UTF-8 encodable and no more than
+4096 encoded bytes: clearly oversized values fail before content scanning, and
+lone surrogate code points fail before the validator is called. This is an
+application bound, not a provider URL limit. Valid Unicode and percent
 escapes are passed unchanged, with no normalization or silent repair. Every `%`
 must be followed by two ASCII hexadecimal digits; malformed escapes fail as
 configuration errors before transport parsing or signature validation. Use

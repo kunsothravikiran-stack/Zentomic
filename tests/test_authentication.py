@@ -7,7 +7,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from unittest.mock import Mock, patch
 
-from zentomic.authentication import validate_form_event
+from zentomic.authentication import MAX_PUBLIC_URL_BYTES, validate_form_event
 
 
 URL = "https://example.invalid/voice/menu?first=%2F&second=2"
@@ -133,6 +133,36 @@ class AuthenticationTests(unittest.TestCase):
                 validator = Mock(return_value=True)
                 validate_form_event(event(), public_url=url, validator=validator)
                 self.assertEqual(validator.call_args.args[0], url)
+
+    def test_callback_url_byte_limit(self):
+        prefix = "https://example.invalid/"
+        exact_ascii = prefix + "a" * (MAX_PUBLIC_URL_BYTES - len(prefix))
+        remaining = MAX_PUBLIC_URL_BYTES - len(prefix)
+        exact_unicode = prefix + "é" * (remaining // 2) + "a" * (remaining % 2)
+        for url in (exact_ascii, exact_unicode):
+            with self.subTest(kind="boundary", size=len(url.encode("utf-8"))):
+                validator = Mock(return_value=True)
+                validate_form_event(event(), public_url=url, validator=validator)
+                validator.assert_called_once()
+                self.assertEqual(validator.call_args.args[0], url)
+                self.assertEqual(validator.call_args.args[2], SIGNATURE)
+
+        for url in (exact_ascii + "a", exact_unicode + "é"):
+            with self.subTest(kind="oversized", size=len(url.encode("utf-8"))):
+                self.assert_rejected_before_validator(event(), public_url=url)
+
+    def test_clearly_oversized_callback_url_fails_before_content_work(self):
+        class OversizedUrl(str):
+            def __iter__(self):
+                raise AssertionError("oversized URL must not be scanned")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("oversized URL must not be encoded")
+
+        url = OversizedUrl("x" * (MAX_PUBLIC_URL_BYTES + 1))
+        with patch("zentomic.authentication.parse_form_event") as parse:
+            self.assert_rejected_before_validator(event(), public_url=url)
+        parse.assert_not_called()
 
     def test_malformed_callback_url_escapes_fail_before_transport_or_validator(self):
         for escape in ("%", "%2", "%GG", "%2G", "%G2", "%２Ｆ"):
