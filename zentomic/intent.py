@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 
 from zentomic.gather import GatherDecision, resolve_gather
+from zentomic.labels import _valid_intent_label
 from zentomic.routing import _valid_target
 
 
@@ -15,8 +16,9 @@ def resolve_intent(
 ) -> str:
     """Select an allowlisted target only after explicit caller confirmation.
 
-    Intent labels must be UTF-8 encodable and match exactly, without trimming,
-    case folding, or coercion, consistent with classifier allowlist validation.
+    Intent labels must be nonblank UTF-8 strings of at most 256 bytes and match
+    exactly, without trimming, case folding, or coercion, consistent with
+    classifier allowlist validation.
     Missing, malformed, unknown, or unconfirmed intents use the fallback.
     Only the boolean True counts as confirmation, not truthy strings/numbers.
     Invalid configuration raises ValueError before any route is selected.
@@ -32,16 +34,14 @@ def resolve_intent(
 
     menu = dict(routes)
     for label, target in menu.items():
-        if not isinstance(label, str) or not label.strip():
-            raise ValueError("intent labels must be nonblank strings")
-        try:
-            label.encode("utf-8")
-        except UnicodeEncodeError:
-            raise ValueError("intent labels must be UTF-8 encodable strings") from None
+        if not _valid_intent_label(label):
+            raise ValueError(
+                "intent labels must be nonblank UTF-8 strings of at most 256 bytes"
+            )
         if not _valid_target(target):
             raise ValueError("route targets must be nonblank UTF-8 strings of at most 256 bytes")
 
-    if confirmed is not True or not isinstance(intent, str):
+    if confirmed is not True or not _valid_intent_label(intent):
         return fallback_target
     return menu.get(intent, fallback_target)
 
@@ -73,7 +73,7 @@ def resolve_intent_confirmation(
         raise ValueError("routes must be a mapping")
     menu = dict(routes)
     target = resolve_intent(intent, menu, fallback_target=fallback_target, confirmed=True)
-    known = isinstance(intent, str) and intent in menu
+    known = _valid_intent_label(intent) and intent in menu
     decision = resolve_gather(
         digits, {"1": target, "2": fallback_target},
         fallback_target=fallback_target, attempts=attempts, max_attempts=max_attempts,

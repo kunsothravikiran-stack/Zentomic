@@ -706,13 +706,16 @@ JSON keys (including escaped duplicates), extra fields, Markdown wrappers,
 malformed JSON, and responses over 4096 UTF-8 bytes including whitespace.
 Model-supplied destinations, confirmation flags, and retry counts are never
 accepted. Invalid allowlist configuration raises `ValueError`; an empty
-allowlist admits nothing. Allowlist labels must be UTF-8 encodable, even when
-the response is missing or invalid. Surrogate code points in configuration are
-rejected with a generic error before parsing, so an escaped JSON string cannot
-admit a non-encodable pending label. Valid Unicode labels and JSON surrogate
-pairs representing real Unicode characters remain supported; labels are never
-normalized, repaired, or case-folded. This check applies to classifier admission,
-not to all identifiers in the routing helpers.
+allowlist admits nothing. Allowlist labels must be nonblank UTF-8 strings of at
+most 256 bytes, even when the response is missing or invalid. Clearly oversized
+labels are rejected before whitespace scanning or encoding; multibyte labels are
+checked by encoded length. Surrogate code points in configuration are rejected
+with a generic error before parsing, so an escaped JSON string cannot admit a
+non-encodable pending label. Valid Unicode labels and JSON surrogate pairs
+representing real Unicode characters remain supported; labels are never
+normalized, repaired, or case-folded. Oversized or otherwise invalid output
+labels fall back without allowlist lookup. This check applies to classifier
+admission and confirmed-intent routing labels, not all routing identifiers.
 The parser does not log output or call a provider.
 
 A future adapter must handle `None` with a bounded retry or human fallback,
@@ -1307,7 +1310,9 @@ assert target == "team/Support"
 Confirmation defaults to `False`. Only boolean `True` permits routing; truthy
 values such as `"true"` or `1` do not. Unconfirmed, missing, malformed, and unknown
 intents use the fallback. Labels match exactly, with no trimming or case
-conversion. Menus may be empty; labels must be nonblank UTF-8 encodable strings.
+conversion. Menus may be empty; labels must be nonblank UTF-8 strings of at most
+256 bytes. Clearly oversized labels are rejected before whitespace scanning,
+encoding, or incoming-label lookup; multibyte labels use their encoded length.
 Targets and the required fallback must also be no more than 256 UTF-8 bytes.
 Invalid configuration raises `ValueError`, including
 unused routes. Target identifiers are preserved, and the menu is not mutated.

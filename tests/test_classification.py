@@ -46,7 +46,7 @@ class ClassifierResponseTests(unittest.TestCase):
         label = "😀" * 1100
         response = json.dumps({"intent": label}, ensure_ascii=False)
         self.assertLess(len(response), MAX_RESPONSE_BYTES)
-        self.assertIsNone(self.parse(response, [label]))
+        self.assertIsNone(self.parse(response))
 
     def test_malformed_unicode_and_excessive_nesting_fail_closed(self):
         self.assertIsNone(self.parse('{"intent":"\ud800"}'))
@@ -64,9 +64,11 @@ class ClassifierResponseTests(unittest.TestCase):
                 with self.subTest(label=repr(label), response=repr(response)):
                     with self.assertRaises(ValueError) as caught:
                         self.parse(response, ["sales", label])
-                    self.assertEqual(str(caught.exception),
-                                     "allowed_intents must contain only UTF-8 encodable strings")
-                    self.assertTrue(caught.exception.__suppress_context__)
+                    self.assertEqual(
+                        str(caught.exception),
+                        "allowed_intents must contain only nonblank UTF-8 strings "
+                        "of at most 256 bytes",
+                    )
 
     def test_unicode_labels_preserve_literal_and_escaped_json_equivalence(self):
         for label in ("తెలుగు", "Café", "Cafe\u0301", "😀"):

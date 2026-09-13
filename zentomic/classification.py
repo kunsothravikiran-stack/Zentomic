@@ -3,6 +3,8 @@
 import json
 from collections.abc import Collection
 
+from zentomic.labels import _valid_intent_label
+
 
 MAX_RESPONSE_BYTES = 4096
 
@@ -21,7 +23,8 @@ def parse_intent_response(
 ) -> str | None:
     """Accept exactly {\"intent\": <allowlisted string>} or return None.
 
-    Labels must be UTF-8 encodable and match exactly, without normalization.
+    Labels must be nonblank UTF-8 strings of at most 256 bytes and match
+    exactly, without normalization.
     Invalid trusted configuration raises ValueError;
     malformed, oversized, ambiguous, or unknown model output returns None.
     An empty allowlist admits nothing. This neither invokes a model nor
@@ -31,15 +34,13 @@ def parse_intent_response(
             or isinstance(allowed_intents, (str, bytes))):
         raise ValueError("allowed_intents must be a collection of nonblank strings")
     labels = tuple(allowed_intents)
-    if any(not isinstance(label, str) or not label.strip() for label in labels):
-        raise ValueError("allowed_intents must contain only nonblank strings")
-    try:
-        for label in labels:
-            label.encode("utf-8")
-    except UnicodeEncodeError:
+    if any(not _valid_intent_label(label) for label in labels):
         # JSON escapes can decode to lone surrogates even in an ASCII response.
         # Reject unusable trusted labels before they can become pending state.
-        raise ValueError("allowed_intents must contain only UTF-8 encodable strings") from None
+        raise ValueError(
+            "allowed_intents must contain only nonblank UTF-8 strings "
+            "of at most 256 bytes"
+        )
     if not isinstance(response, str) or len(response) > MAX_RESPONSE_BYTES:
         return None
     try:
@@ -51,4 +52,4 @@ def parse_intent_response(
     if not isinstance(payload, dict) or set(payload) != {"intent"}:
         return None
     intent = payload["intent"]
-    return intent if isinstance(intent, str) and intent in labels else None
+    return intent if _valid_intent_label(intent) and intent in labels else None
