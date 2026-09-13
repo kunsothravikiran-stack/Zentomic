@@ -36,6 +36,7 @@ def twiml_response(xml: str) -> dict[str, Any]:
         "headers": {
             "Content-Type": "application/xml; charset=utf-8",
             "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
         },
         "body": xml,
         "isBase64Encoded": False,

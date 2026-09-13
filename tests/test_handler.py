@@ -36,6 +36,7 @@ class HandlerTests(unittest.TestCase):
                 result = lambda_handler(event, None)
                 self.assertEqual(result["headers"]["Content-Type"], "application/json")
                 self.assertEqual(result["headers"]["Cache-Control"], "no-store")
+                self.assertEqual(result["headers"]["X-Content-Type-Options"], "nosniff")
                 self.assertIs(result["isBase64Encoded"], False)
                 self.assertIsInstance(json.loads(result["body"]), dict)
 

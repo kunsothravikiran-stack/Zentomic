@@ -26,7 +26,8 @@ Its proxy `body` is an empty string, including for unknown or invalid paths in
 supported proxy formats. Other paths return 404; other methods on `/health`
 return 405 with `Allow: GET, HEAD`. Method names are case-sensitive.
 Unsupported event versions return 400. Request contents are not logged or
-reflected in responses.
+reflected in responses. Every JSON response includes
+`X-Content-Type-Options: nosniff` alongside its explicit content type.
 
 ## Local development
 
@@ -850,9 +851,10 @@ paths require hosted TwiML with a base URL, not inline Calls API TwiML.
 API Gateway [REST v1 proxy integrations](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html)
 and [HTTP v2 proxy integrations](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html).
 It returns status 200, `Content-Type: application/xml; charset=utf-8`,
-`Cache-Control: no-store`, and `isBase64Encoded: false`. The XML stays unchanged
-in `body`, not JSON-quoted or base64-encoded. Return the dictionary from a future
-Lambda adapter; let the runtime serialize the outer envelope.
+`Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and
+`isBase64Encoded: false`. The XML stays unchanged in `body`, not JSON-quoted or
+base64-encoded. Return the dictionary from a future Lambda adapter; let the
+runtime serialize the outer envelope.
 
 The helper accepts at most 64 KiB of UTF-8 XML and rejects oversized output
 before building the proxy envelope. The limit is inclusive and counts encoded

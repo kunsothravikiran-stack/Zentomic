@@ -11,6 +11,7 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
         "headers": {
             "Content-Type": "application/json",
             "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
             **headers,
         },
         "body": "" if head else json.dumps(payload, separators=(",", ":")),

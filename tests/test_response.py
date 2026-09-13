@@ -25,7 +25,8 @@ class TwimlResponseTests(unittest.TestCase):
                 self.assertEqual(result, {
                     "statusCode": 200,
                     "headers": {"Content-Type": "application/xml; charset=utf-8",
-                                "Cache-Control": "no-store"},
+                                "Cache-Control": "no-store",
+                                "X-Content-Type-Options": "nosniff"},
                     "body": xml,
                     "isBase64Encoded": False,
                 })
@@ -94,6 +95,7 @@ class TwimlResponseTests(unittest.TestCase):
         self.assertEqual(second["headers"], {
             "Content-Type": "application/xml; charset=utf-8",
             "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
         })
 
     def test_builder_is_offline_and_does_not_log_body(self):
