@@ -6,6 +6,12 @@ from threading import Lock
 from zentomic.call_status import advance_call_status, is_terminal_call_status
 
 
+MAX_STATUS_IDENTIFIER_BYTES = 256
+_IDENTIFIER_ERROR = (
+    "status identifiers must be nonblank UTF-8 strings of at most 256 bytes"
+)
+
+
 @dataclass(frozen=True)
 class CallStatusSnapshot:
     """Immutable observation and revision; zero means no stored observation."""
@@ -24,12 +30,17 @@ class StatusCapacityError(ValueError):
 
 def _key(workspace_id: str, call_sid: str) -> tuple[str, str]:
     for value in (workspace_id, call_sid):
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("status identifiers must be nonblank UTF-8 strings")
+        # UTF-8 needs at least one byte per character. Reject long inputs before
+        # stripping or encoding to avoid an allocation proportional to input size.
+        if (not isinstance(value, str) or len(value) > MAX_STATUS_IDENTIFIER_BYTES
+                or not value.strip()):
+            raise ValueError(_IDENTIFIER_ERROR)
         try:
-            value.encode("utf-8")
+            encoded = value.encode("utf-8")
         except UnicodeEncodeError:
-            raise ValueError("status identifiers must be nonblank UTF-8 strings") from None
+            raise ValueError(_IDENTIFIER_ERROR) from None
+        if len(encoded) > MAX_STATUS_IDENTIFIER_BYTES:
+            raise ValueError(_IDENTIFIER_ERROR)
     # Preserve exact opaque identifiers; concatenating could alias distinct keys.
     return workspace_id, call_sid
 
@@ -44,7 +55,8 @@ class InMemoryCallStatusStore:
     The lock coordinates threads sharing this instance, not separate processes
     or Lambda invocations. State is not durable or TTL bounded; max_entries
     limits stored workspace/call pairs without eviction. Create short-lived
-    instances for synthetic local tests only. No network,
+    instances for synthetic local tests only. Each identifier is limited to
+    256 UTF-8 bytes; this is not a total Python memory bound. No network,
     files, credentials, SDKs, callback deduplication or side effects are used.
     """
 

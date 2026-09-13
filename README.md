@@ -1536,6 +1536,14 @@ allow a delayed callback to revive a call. This is an entry-count limit, not a
 byte-memory bound or a TTL/retry policy. Use a fresh store only for a separate
 synthetic test scenario, not to bypass a failure in an ongoing session.
 
+Both `load` and `observe` require each identifier to be a nonblank UTF-8 string
+of at most 256 encoded bytes (`MAX_STATUS_IDENTIFIER_BYTES`). This bounds
+retained key size in addition to entry count. Oversized or invalid identifiers
+raise a generic `ValueError` without reflecting their contents or consuming
+capacity. Valid identifiers are kept exactly, without trimming, truncation or
+Unicode normalization; this limit is not provider SID validation or workspace
+authorization, and does not bound total Python object memory.
+
 This is a synthetic local test double, **not production session persistence**.
 Its lock coordinates only threads sharing one instance. It does not coordinate
 Lambda invocations, authenticate or authorize callers, deduplicate callbacks,
