@@ -46,7 +46,8 @@ class CallStatusTransitionTests(unittest.TestCase):
                         advance_call_status(current, incoming)
 
     def test_invalid_stored_state_is_not_silently_repaired(self):
-        for current in ("", "private-unknown", " completed", True, 1, [], {}):
+        for current in ("", "private-unknown", " completed", "x" * 10_000,
+                        True, 1, [], {}):
             with self.subTest(current=repr(current)):
                 with self.assertRaisesRegex(ValueError, "^unsupported call status$"):
                     advance_call_status(current, "completed")

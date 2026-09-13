@@ -34,6 +34,15 @@ class CallStatusTests(unittest.TestCase):
             with self.subTest(status=repr(status)), self.assertRaises(ValueError):
                 is_terminal_call_status(status)
 
+    def test_oversized_status_is_rejected_before_set_lookup(self):
+        class HashTrap(str):
+            def __hash__(self):
+                raise AssertionError("oversized status was hashed")
+
+        status = HashTrap("x" * 12)  # Longest known status has 11 characters.
+        with self.assertRaisesRegex(ValueError, "^unsupported call status$"):
+            is_terminal_call_status(status)
+
     def test_authenticated_composition_uses_call_status_not_dial_status(self):
         fields = {"AccountSid": "synthetic-account", "CallSid": "synthetic-call",
                   "CallStatus": "in-progress", "DialCallStatus": "completed"}

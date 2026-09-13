@@ -1070,7 +1070,9 @@ assert is_terminal_call_status("in-progress") is False
 Terminal values are `completed`, `busy`, `failed`, `no-answer`, and `canceled`;
 `queued`, `ringing`, and `in-progress` return `False`. Missing, unknown, or
 non-string values raise a generic `ValueError`. Matching is exact, without
-normalization. These are
+normalization. Inputs longer than the longest supported value are rejected
+before set lookup, bounding work for direct callers as well as webhook paths.
+This is an application input limit, not a provider body-size policy. These are
 [Twilio Call Status values](https://www.twilio.com/docs/voice/api/call-resource#call-status-values),
 not subscription event names such as `initiated` or `answered`. `completed`
 does not prove a human answered or a business task succeeded.

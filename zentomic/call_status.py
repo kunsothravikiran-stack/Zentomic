@@ -5,6 +5,7 @@ _ACTIVE_STATUSES = frozenset({"queued", "ringing", "in-progress"})
 _TERMINAL_STATUSES = frozenset({"completed", "busy", "failed", "no-answer", "canceled"})
 _KNOWN_STATUSES = _ACTIVE_STATUSES | _TERMINAL_STATUSES
 _ACTIVE_PROGRESS = {"queued": 0, "ringing": 1, "in-progress": 2}
+_MAX_STATUS_CHARACTERS = max(map(len, _KNOWN_STATUSES))
 
 
 def is_terminal_call_status(status: str) -> bool:
@@ -20,7 +21,10 @@ def is_terminal_call_status(status: str) -> bool:
     terminal state against delayed active events and keep parent/child legs
     separate. Unknown input is neither assumed active nor assumed terminal.
     """
-    if not isinstance(status, str) or status not in _KNOWN_STATUSES:
+    # Reject oversized input before hashing it for set membership. Provider
+    # callback bodies are bounded elsewhere, but this helper is also public.
+    if (not isinstance(status, str) or len(status) > _MAX_STATUS_CHARACTERS
+            or status not in _KNOWN_STATUSES):
         raise ValueError("unsupported call status")
     return status in _TERMINAL_STATUSES
 
