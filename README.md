@@ -1526,6 +1526,16 @@ not. `StatusConflictError` requires reloading and recomputing, even when the
 attempted observation would be a no-op. The first stored terminal outcome still
 wins. Neither success nor an unchanged terminal value authorizes cleanup.
 
+The constructor accepts a positive integer `max_entries` (default 1000), limiting
+stored workspace/call pairs per instance. At capacity, a new key raises
+`StatusCapacityError` without changing any state. Missing-key reads do not use
+capacity, and existing keys can still advance or report revision conflicts.
+The check and insertion share the same lock, including across different keys.
+Records are never evicted to make room: forgetting a terminal observation could
+allow a delayed callback to revive a call. This is an entry-count limit, not a
+byte-memory bound or a TTL/retry policy. Use a fresh store only for a separate
+synthetic test scenario, not to bypass a failure in an ongoing session.
+
 This is a synthetic local test double, **not production session persistence**.
 Its lock coordinates only threads sharing one instance. It does not coordinate
 Lambda invocations, authenticate or authorize callers, deduplicate callbacks,

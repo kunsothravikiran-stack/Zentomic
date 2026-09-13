@@ -5,7 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
 from threading import Barrier
 
-from zentomic.call_status_store import InMemoryCallStatusStore, StatusConflictError
+from zentomic.call_status_store import (
+    InMemoryCallStatusStore, StatusCapacityError, StatusConflictError,
+)
 
 
 class CallStatusStoreTests(unittest.TestCase):
@@ -76,6 +78,50 @@ class CallStatusStoreTests(unittest.TestCase):
         self.assertEqual(len(saved), 1)
         self.assertEqual(self.store.load("workspace-a", "call-a"), saved[0])
         self.assertEqual(saved[0].revision, 1)
+
+    def test_capacity_rejects_new_keys_without_evicting_terminal_state(self):
+        store = InMemoryCallStatusStore(max_entries=1)
+        saved = store.observe("workspace-a", "call-a", "completed", expected_revision=0)
+        with self.assertRaisesRegex(StatusCapacityError, "^call status capacity reached$"):
+            store.observe("private-workspace", "private-call", "ringing", expected_revision=0)
+        self.assertEqual(store.load("workspace-a", "call-a"), saved)
+        self.assertEqual(store.load("private-workspace", "private-call").revision, 0)
+        self.assertEqual(store.observe("workspace-a", "call-a", "ringing",
+                                      expected_revision=1), saved)
+
+    def test_reads_do_not_spend_capacity_and_existing_keys_can_advance(self):
+        store = InMemoryCallStatusStore(max_entries=1)
+        for index in range(3):
+            self.assertEqual(store.load("workspace", str(index)).revision, 0)
+        active = store.observe("workspace", "call", "ringing", expected_revision=0)
+        ended = store.observe("workspace", "call", "completed",
+                              expected_revision=active.revision)
+        self.assertEqual((ended.status, ended.revision), ("completed", 2))
+        with self.assertRaises(StatusConflictError):
+            store.observe("workspace", "call", "completed", expected_revision=0)
+
+    def test_capacity_must_be_a_positive_integer(self):
+        for limit in (None, True, False, 0, -1, 1.0, "1", []):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                InMemoryCallStatusStore(max_entries=limit)
+
+    def test_two_new_keys_cannot_exceed_capacity(self):
+        store = InMemoryCallStatusStore(max_entries=1)
+        barrier = Barrier(2)
+
+        def write(call):
+            barrier.wait(timeout=5)
+            try:
+                store.observe("workspace", call, "ringing", expected_revision=0)
+                return call
+            except StatusCapacityError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(write, ("call-a", "call-b")))
+        self.assertEqual(sum(result is not None for result in results), 1)
+        self.assertEqual(sum(store.load("workspace", call).revision
+                             for call in ("call-a", "call-b")), 1)
 
     def test_invalid_input_never_changes_state_or_reflects_identifiers(self):
         saved = self.observe("completed")
