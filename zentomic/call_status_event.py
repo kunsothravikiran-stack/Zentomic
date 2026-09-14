@@ -70,14 +70,15 @@ def jittered_status_conflict_retry_delay_ms(
 def budgeted_status_conflict_retry_delay_ms(
     retry_number: int, *, invocation_remaining_ms: int, reserve_ms: int,
     randbelow: Callable[[int], int], base_delay_ms: int = 25,
-    max_delay_ms: int = 400,
+    max_delay_ms: int = 400, minimum_retry_attempt_ms: int = 1,
 ) -> int | None:
-    """Sample full jitter without spending the invocation cleanup reserve.
+    """Sample full jitter while reserving cleanup and the next retry attempt.
 
-    Return ``None`` when the trusted runtime's fresh remaining duration has no
-    time beyond ``reserve_ms``. Otherwise, sample from zero through the smaller
-    of the exponential ceiling and the available duration. This pure helper
-    neither reads the runtime clock nor sleeps.
+    Return ``None`` when the trusted runtime's fresh remaining duration cannot
+    preserve both ``reserve_ms`` and ``minimum_retry_attempt_ms``. Otherwise,
+    sample from zero through the smaller of the exponential ceiling and the
+    duration left after both reservations. This pure helper neither reads the
+    runtime clock nor sleeps.
     """
     if not callable(randbelow):
         raise ValueError("randbelow must be callable")
@@ -90,8 +91,10 @@ def budgeted_status_conflict_retry_delay_ms(
         raise ValueError("invocation_remaining_ms must be a nonnegative integer")
     if type(reserve_ms) is not int or reserve_ms < 0:
         raise ValueError("reserve_ms must be a nonnegative integer")
-    available_ms = invocation_remaining_ms - reserve_ms
-    if available_ms <= 0:
+    if type(minimum_retry_attempt_ms) is not int or minimum_retry_attempt_ms < 1:
+        raise ValueError("minimum_retry_attempt_ms must be a positive integer")
+    available_ms = invocation_remaining_ms - reserve_ms - minimum_retry_attempt_ms
+    if available_ms < 0:
         return None
     upper_bound = min(ceiling_ms, available_ms) + 1
     delay_ms = randbelow(upper_bound)

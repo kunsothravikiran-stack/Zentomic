@@ -1239,9 +1239,11 @@ callback/storage data.
 
 `budgeted_status_conflict_retry_delay_ms(...)` additionally caps that sampling
 range using a fresh trusted invocation remaining-time reading and a cleanup
-reserve. It returns `None` without sampling when no time remains beyond the
-reserve, so the hook can abort before another authentication/load attempt.
-Neither timing value may come from callback fields.
+reserve. `minimum_retry_attempt_ms` also retains time for the next complete
+authentication/load/write attempt instead of allowing the backoff itself to
+consume all non-cleanup time. It returns `None` without sampling when both
+reservations cannot be preserved, so the hook can abort before another attempt.
+None of these timing values may come from callback fields.
 
 ```python
 # example: compile-only
@@ -1254,6 +1256,7 @@ def before_status_retry(retry_number):
         retry_number,
         invocation_remaining_ms=trusted_runtime_remaining_ms(),
         reserve_ms=500,
+        minimum_retry_attempt_ms=100,
         randbelow=randbelow,
     )
     if delay_ms is None:

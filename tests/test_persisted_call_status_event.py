@@ -123,15 +123,15 @@ class StatusConflictRetryDelayTests(unittest.TestCase):
                 )
 
     def test_budgeted_jitter_caps_sampling_at_available_runtime(self):
-        randbelow = Mock(return_value=49)
+        randbelow = Mock(return_value=20)
 
         delay = budgeted_status_conflict_retry_delay_ms(
             4, invocation_remaining_ms=150, reserve_ms=100,
-            randbelow=randbelow,
+            minimum_retry_attempt_ms=30, randbelow=randbelow,
         )
 
-        self.assertEqual(delay, 49)
-        randbelow.assert_called_once_with(51)
+        self.assertEqual(delay, 20)
+        randbelow.assert_called_once_with(21)
 
     def test_budgeted_jitter_preserves_policy_ceiling_when_budget_allows(self):
         randbelow = Mock(return_value=200)
@@ -143,6 +143,17 @@ class StatusConflictRetryDelayTests(unittest.TestCase):
 
         self.assertEqual(delay, 200)
         randbelow.assert_called_once_with(201)
+
+    def test_budgeted_jitter_preserves_a_minimum_next_attempt_budget(self):
+        randbelow = Mock(return_value=0)
+
+        delay = budgeted_status_conflict_retry_delay_ms(
+            1, invocation_remaining_ms=125, reserve_ms=100,
+            minimum_retry_attempt_ms=25, randbelow=randbelow,
+        )
+
+        self.assertEqual(delay, 0)
+        randbelow.assert_called_once_with(1)
 
     def test_budgeted_jitter_aborts_without_spending_reserve(self):
         for remaining_ms, reserve_ms in ((0, 0), (100, 100), (99, 100)):
@@ -162,6 +173,10 @@ class StatusConflictRetryDelayTests(unittest.TestCase):
              "invocation_remaining_ms"),
             ({"invocation_remaining_ms": 100, "reserve_ms": -1}, "reserve_ms"),
             ({"invocation_remaining_ms": 100, "reserve_ms": False}, "reserve_ms"),
+            ({"invocation_remaining_ms": 100, "reserve_ms": 0,
+              "minimum_retry_attempt_ms": 0}, "minimum_retry_attempt_ms"),
+            ({"invocation_remaining_ms": 100, "reserve_ms": 0,
+              "minimum_retry_attempt_ms": True}, "minimum_retry_attempt_ms"),
         )
         for arguments, message in cases:
             randbelow = Mock(side_effect=AssertionError("sampler must not run"))
@@ -179,7 +194,7 @@ class StatusConflictRetryDelayTests(unittest.TestCase):
                 ValueError, "^randbelow returned an invalid retry delay$",
             ):
                 budgeted_status_conflict_retry_delay_ms(
-                    1, invocation_remaining_ms=25, reserve_ms=0,
+                    1, invocation_remaining_ms=26, reserve_ms=0,
                     randbelow=Mock(return_value=result),
                 )
 
