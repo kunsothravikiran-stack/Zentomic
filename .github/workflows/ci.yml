@@ -1,0 +1,38 @@
+name: CI
+
+"on":
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python 3.12 tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run offline test suite
+        run: python -m unittest discover -v
+
+      - name: Compile Python sources
+        run: python -m compileall -q zentomic tests
+
+      - name: Run health smoke check
+        run: python -m zentomic | python -m json.tool > /dev/null
