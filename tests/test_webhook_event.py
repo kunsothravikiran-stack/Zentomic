@@ -99,6 +99,29 @@ class FormEventTests(unittest.TestCase):
                 parse_form_event(candidate)
         decoder.assert_not_called()
 
+    def test_header_collection_limit_does_not_trust_reported_length(self):
+        class UnderreportedHeaders(dict):
+            def __len__(self):
+                return 1
+
+        class UninspectedHeaderName(str):
+            def lower(self):
+                raise AssertionError("oversized collection must not be scanned")
+
+        headers = UnderreportedHeaders({
+            UninspectedHeaderName("Content-Type"): FORM,
+            **{f"X-Synthetic-{index}": "value"
+               for index in range(MAX_HEADER_FIELDS)},
+        })
+        candidate = {**event(), "headers": headers}
+
+        with patch("zentomic.webhook_event.parse_form_body") as decoder:
+            with self.assertRaisesRegex(
+                ValueError, "^header collection exceeds size limit$",
+            ):
+                parse_form_event(candidate)
+        decoder.assert_not_called()
+
     def test_oversized_header_name_fails_before_case_folding(self):
         class OversizedHeaderName(str):
             def lower(self):

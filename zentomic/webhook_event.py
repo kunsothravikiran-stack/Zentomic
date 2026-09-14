@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Mapping
+from itertools import islice
 from typing import Any
 
 from zentomic.webhook import parse_form_body
@@ -24,10 +25,11 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
     # API Gateway bounds the wire request, but callers can invoke this offline
     # helper with arbitrary mappings. Bound both collection size and each name
     # before scanning or allocating a lowercase copy.
-    if len(headers) > MAX_HEADER_FIELDS:
+    entries = tuple(islice(headers.items(), MAX_HEADER_FIELDS + 1))
+    if len(entries) > MAX_HEADER_FIELDS:
         raise ValueError("header collection exceeds size limit")
     values = []
-    for name, value in headers.items():
+    for name, value in entries:
         if not isinstance(name, str):
             continue
         if len(name) > MAX_HEADER_NAME_CHARACTERS:
