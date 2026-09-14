@@ -12,6 +12,7 @@ from zentomic.authentication import (
     MAX_SIGNATURE_CHARACTERS,
     validate_form_event,
 )
+from zentomic.webhook_event import MAX_HEADER_FIELDS, MAX_HEADER_NAME_CHARACTERS
 
 
 URL = "https://example.invalid/voice/menu?first=%2F&second=2"
@@ -82,6 +83,70 @@ class AuthenticationTests(unittest.TestCase):
         with patch("zentomic.authentication._SIGNATURE", pattern):
             self.assert_rejected_before_validator(candidate)
         pattern.fullmatch.assert_not_called()
+
+    def test_signature_header_collection_bound_survives_changing_event(self):
+        class UnderreportedHeaders(dict):
+            def __len__(self):
+                return 1
+
+        class UninspectedHeaderName(str):
+            def lower(self):
+                raise AssertionError("oversized collection must not be scanned")
+
+        oversized = UnderreportedHeaders({
+            UninspectedHeaderName("X-Twilio-Signature"): SIGNATURE,
+            **{f"X-Synthetic-{index}": "value"
+               for index in range(MAX_HEADER_FIELDS)},
+        })
+
+        class ChangingEvent(dict):
+            def __init__(self):
+                super().__init__(event())
+                self.header_reads = 0
+
+            def get(self, key, default=None):
+                if key == "headers":
+                    self.header_reads += 1
+                    if self.header_reads > 1:
+                        return oversized
+                return super().get(key, default)
+
+        candidate = ChangingEvent()
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(
+            ValueError, "^header collection exceeds size limit$",
+        ):
+            validate_form_event(candidate, public_url=URL, validator=validator)
+        validator.assert_not_called()
+        self.assertEqual(candidate.header_reads, 2)
+
+    def test_signature_header_name_bound_survives_changing_event(self):
+        class OversizedHeaderName(str):
+            def lower(self):
+                raise AssertionError("oversized header name must not be case folded")
+
+        oversized_name = OversizedHeaderName(
+            "X" * (MAX_HEADER_NAME_CHARACTERS + 1)
+        )
+
+        class ChangingEvent(dict):
+            def __init__(self):
+                super().__init__(event())
+                self.header_reads = 0
+
+            def get(self, key, default=None):
+                if key == "headers":
+                    self.header_reads += 1
+                    if self.header_reads > 1:
+                        return {oversized_name: "synthetic-private-marker"}
+                return super().get(key, default)
+
+        candidate = ChangingEvent()
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(ValueError, "^header name exceeds size limit$"):
+            validate_form_event(candidate, public_url=URL, validator=validator)
+        validator.assert_not_called()
+        self.assertEqual(candidate.header_reads, 2)
 
     def test_duplicate_conflicting_and_v2_multivalue_signatures_fail(self):
         candidate = event()

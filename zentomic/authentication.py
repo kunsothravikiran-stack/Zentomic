@@ -2,10 +2,15 @@
 
 import re
 from collections.abc import Callable, Mapping
+from itertools import islice
 from typing import Any
 from urllib.parse import urlsplit
 
-from zentomic.webhook_event import parse_form_event
+from zentomic.webhook_event import (
+    MAX_HEADER_FIELDS,
+    MAX_HEADER_NAME_CHARACTERS,
+    parse_form_event,
+)
 
 
 SignatureValidator = Callable[[str, dict[str, str], str], bool]
@@ -19,9 +24,25 @@ _INVALID_URL_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 def _signature_header(event: Mapping[str, Any]) -> str:
     values = []
     for key in ("headers", "multiValueHeaders"):
-        headers = event.get(key) or {}
-        matches = [value for name, value in headers.items()
-                   if isinstance(name, str) and name.lower() == "x-twilio-signature"]
+        headers = event.get(key)
+        if headers is None:
+            continue
+        if not isinstance(headers, Mapping):
+            raise ValueError("headers must be a mapping")
+        # Transport validation precedes this gate, but an arbitrary event
+        # mapping can return a different header collection on the next read.
+        # Reapply the same bounds before scanning for the signature.
+        entries = tuple(islice(headers.items(), MAX_HEADER_FIELDS + 1))
+        if len(entries) > MAX_HEADER_FIELDS:
+            raise ValueError("header collection exceeds size limit")
+        matches = []
+        for name, value in entries:
+            if not isinstance(name, str):
+                continue
+            if len(name) > MAX_HEADER_NAME_CHARACTERS:
+                raise ValueError("header name exceeds size limit")
+            if name.lower() == "x-twilio-signature":
+                matches.append(value)
         if len(matches) > 1:
             raise ValueError("webhook signature must be unambiguous")
         if not matches:

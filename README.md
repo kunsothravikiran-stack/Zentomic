@@ -1266,8 +1266,12 @@ and secret loading remain adapter responsibilities.
 
 Missing, malformed, duplicate, or conflicting signatures fail closed. Signature
 values are limited to their exact 28-character HMAC-SHA1 base64 shape before
-pattern matching, bounding work on untrusted headers. Header names are
-case-insensitive; an exact v1 single/multivalue mirror is accepted.
+pattern matching, bounding work on untrusted headers. The signature scan
+independently snapshots each header map up to one entry beyond the shared
+128-field limit and bounds string names to 128 characters before case folding.
+This preserves the transport bounds even if an arbitrary event mapping changes
+between reads. Header names are case-insensitive; an exact v1
+single/multivalue mirror is accepted.
 Only a validator result of boolean `True` releases the fields. False, truthy
 non-booleans, and validator exceptions raise `ValueError` without exposing
 dependency error details. Invalid transport never reaches the validator.
