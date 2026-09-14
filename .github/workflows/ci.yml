@@ -28,8 +28,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run offline test suite
-        run: python -m unittest discover -v
+      - name: Run guarded offline test suite
+        run: python -m tests
 
       - name: Compile Python sources
         run: python -m compileall -q zentomic tests
