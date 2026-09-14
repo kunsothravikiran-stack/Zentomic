@@ -1566,6 +1566,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/call_status_event.py`: authenticated call-leg lifecycle composition.
 - `zentomic/callback_claim_store.py`: bounded local replay claims for adapter tests.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
+- `zentomic/confirmation_event.py`: authenticated intent confirmation with optional replay claims.
 - `zentomic/twiml.py`: offline collection, forwarding, and terminal response rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
@@ -1654,6 +1655,14 @@ step. It validates fallback and retry state, then authenticates, binds and
 claims before admitting `SpeechResult`. Replays therefore cannot release caller
 text for repeated classification. The helper still neither persists attempts
 nor authorizes or invokes a model.
+
+`resolve_claimed_confirmation_event` applies the claim boundary to a trusted
+pending intent and its route snapshot. It validates all confirmation policy
+before authentication, then binds and claims the exact step before reading
+`Digits`. Replays cannot reconfirm an intent, and a route-map mutation during
+the claim cannot replace the validated destination. Production code must keep
+the pending intent, route revision and claim in one authorized current-step
+transaction when those values must change atomically.
 
 For offline conditional-write experiments, `InMemoryCallStatusStore` in
 `zentomic.call_status_store` keeps immutable status/revision snapshots under

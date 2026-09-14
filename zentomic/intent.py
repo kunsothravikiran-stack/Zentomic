@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from itertools import islice
 
-from zentomic.gather import GatherDecision, resolve_gather
+from zentomic.gather import GatherDecision, _resolve_validated_gather
 from zentomic.labels import _valid_intent_label
 from zentomic.routing import _valid_target
 
@@ -20,6 +20,24 @@ def _snapshot_intent_routes(routes: Mapping[str, str]) -> dict[str, str]:
     if len(keys) > MAX_INTENT_ROUTES:
         raise ValueError("routes must contain at most 128 entries")
     return {key: routes[key] for key in keys}
+
+
+def _validate_intent_routes(
+    routes: Mapping[str, str], *, fallback_target: str,
+) -> dict[str, str]:
+    """Return a private route snapshot after validating trusted destinations."""
+    if not _valid_target(fallback_target):
+        raise ValueError("fallback_target must be a nonblank UTF-8 string of at most 256 bytes")
+
+    menu = _snapshot_intent_routes(routes)
+    for label, target in menu.items():
+        if not _valid_intent_label(label):
+            raise ValueError(
+                "intent labels must be nonblank UTF-8 strings of at most 256 bytes"
+            )
+        if not _valid_target(target):
+            raise ValueError("route targets must be nonblank UTF-8 strings of at most 256 bytes")
+    return menu
 
 
 def resolve_intent(
@@ -42,21 +60,48 @@ def resolve_intent(
     Integrators must obtain confirmation from trusted call-session state and
     authorize every target, including fallback, within the current workspace.
     """
-    if not _valid_target(fallback_target):
-        raise ValueError("fallback_target must be a nonblank UTF-8 string of at most 256 bytes")
-
-    menu = _snapshot_intent_routes(routes)
-    for label, target in menu.items():
-        if not _valid_intent_label(label):
-            raise ValueError(
-                "intent labels must be nonblank UTF-8 strings of at most 256 bytes"
-            )
-        if not _valid_target(target):
-            raise ValueError("route targets must be nonblank UTF-8 strings of at most 256 bytes")
+    menu = _validate_intent_routes(routes, fallback_target=fallback_target)
 
     if confirmed is not True or not _valid_intent_label(intent):
         return fallback_target
     return menu.get(intent, fallback_target)
+
+
+def _validate_intent_confirmation_configuration(
+    intent: str | None, routes: Mapping[str, str], *, fallback_target: str,
+    attempts: int, max_attempts: int, hangup_digit: str | None,
+) -> tuple[dict[str, str], bool]:
+    """Snapshot and validate trusted confirmation state without consuming input."""
+    if type(attempts) is not int or attempts < 0:
+        raise ValueError("attempts must be a nonnegative integer")
+    if type(max_attempts) is not int or max_attempts < 1:
+        raise ValueError("max_attempts must be a positive integer")
+    menu = _validate_intent_routes(routes, fallback_target=fallback_target)
+    if hangup_digit is not None:
+        if (not isinstance(hangup_digit, str) or len(hangup_digit) != 1
+                or hangup_digit not in "0123456789"):
+            raise ValueError("hangup_digit must be a single ASCII digit or None")
+        if hangup_digit in ("1", "2"):
+            raise ValueError("hangup_digit must not overlap a configured route")
+
+    known = _valid_intent_label(intent) and intent in menu
+    target = menu[intent] if known else fallback_target
+    return {"1": target, "2": fallback_target}, known
+
+
+def _resolve_validated_intent_confirmation(
+    digits: str | None, confirmation_menu: Mapping[str, str], *, known: bool,
+    fallback_target: str, attempts: int, max_attempts: int,
+    hangup_digit: str | None,
+) -> GatherDecision:
+    """Resolve caller input after trusted confirmation state was validated."""
+    decision = _resolve_validated_gather(
+        digits, confirmation_menu, fallback_target=fallback_target,
+        attempts=attempts, max_attempts=max_attempts, hangup_digit=hangup_digit,
+    )
+    if not known or digits == "2":
+        return GatherDecision("fallback", fallback_target, decision.attempts)
+    return decision
 
 
 def resolve_intent_confirmation(
@@ -82,14 +127,11 @@ def resolve_intent_confirmation(
     workspace-scoped state for this exact confirmation step, not the webhook
     or classifier's claim of confirmation. This does not persist or deduplicate.
     """
-    menu = _snapshot_intent_routes(routes)
-    target = resolve_intent(intent, menu, fallback_target=fallback_target, confirmed=True)
-    known = _valid_intent_label(intent) and intent in menu
-    decision = resolve_gather(
-        digits, {"1": target, "2": fallback_target},
-        fallback_target=fallback_target, attempts=attempts, max_attempts=max_attempts,
-        hangup_digit=hangup_digit,
+    confirmation_menu, known = _validate_intent_confirmation_configuration(
+        intent, routes, fallback_target=fallback_target, attempts=attempts,
+        max_attempts=max_attempts, hangup_digit=hangup_digit,
     )
-    if not known or digits == "2":
-        return GatherDecision("fallback", fallback_target, decision.attempts)
-    return decision
+    return _resolve_validated_intent_confirmation(
+        digits, confirmation_menu, known=known, fallback_target=fallback_target,
+        attempts=attempts, max_attempts=max_attempts, hangup_digit=hangup_digit,
+    )
