@@ -282,6 +282,27 @@ class BudgetedStatusConflictRetryHookTests(unittest.TestCase):
         randbelow.assert_called_once_with(21)
         wait_ms.assert_called_once_with(0)
 
+    def test_post_wait_runtime_must_consume_sampled_delay(self):
+        remaining_ms = Mock(side_effect=[150, 131])
+        randbelow = Mock(return_value=20)
+        wait_ms = Mock()
+        hook = make_budgeted_status_conflict_retry_hook(
+            invocation_remaining_ms=remaining_ms,
+            wait_ms=wait_ms,
+            randbelow=randbelow,
+            reserve_ms=100,
+            minimum_retry_attempt_ms=30,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^wait_ms did not consume the sampled retry delay$",
+        ):
+            hook(4)
+
+        randbelow.assert_called_once_with(21)
+        wait_ms.assert_called_once_with(20)
+
     def test_insufficient_budget_aborts_without_sampling_or_waiting(self):
         remaining_ms = Mock(return_value=129)
         randbelow = Mock(side_effect=AssertionError("sampler must not run"))

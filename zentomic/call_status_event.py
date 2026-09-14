@@ -119,8 +119,9 @@ def make_budgeted_status_conflict_retry_hook(
     validated when the hook is built, without reading the runtime or sampling
     jitter. Each invocation reads remaining time before and after the wait,
     samples one budgeted delay, and passes that delay to ``wait_ms``. The second
-    reading may stay equal or decrease, but cannot increase. Insufficient runtime
-    raises ``StatusRetryBudgetExhaustedError`` before sampling or after waiting.
+    reading must account for the sampled delay (and may stay equal only for a
+    zero delay). Insufficient runtime raises ``StatusRetryBudgetExhaustedError``
+    before sampling or after waiting.
     """
     if not callable(invocation_remaining_ms):
         raise ValueError("invocation_remaining_ms must be callable")
@@ -161,6 +162,10 @@ def make_budgeted_status_conflict_retry_hook(
         if remaining_after_wait_ms > remaining_before_wait_ms:
             raise ValueError(
                 "invocation_remaining_ms must not increase after waiting"
+            )
+        if remaining_before_wait_ms - remaining_after_wait_ms < delay_ms:
+            raise ValueError(
+                "wait_ms did not consume the sampled retry delay"
             )
         if remaining_after_wait_ms < reserve_ms + minimum_retry_attempt_ms:
             raise StatusRetryBudgetExhaustedError(

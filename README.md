@@ -1265,8 +1265,10 @@ authentication, without reading runtime state or sampling randomness. On every
 conflict it reads remaining time, passes the sampled integer delay to the
 injected waiter, then reads remaining time again before allowing another
 attempt. This post-wait check closes the gap when wait overhead or runtime drift
-uses more budget than the sampled delay. The second reading may stay equal or
-decrease, but an impossible increase fails closed as an invalid runtime source.
+uses more budget than the sampled delay. The second reading may stay equal only
+for a zero-delay sample; a positive sample must consume at least that many
+milliseconds or the malformed waiter/runtime pair fails closed. An
+impossible increase also fails closed as an invalid runtime source.
 If the cleanup and next-attempt
 reservations cannot both fit, it raises `StatusRetryBudgetExhaustedError` before
 sampling or after waiting, so `retry_call_status_event` does not start another
