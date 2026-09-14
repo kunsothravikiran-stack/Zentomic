@@ -302,6 +302,23 @@ class RetriedCallStatusEventTests(unittest.TestCase):
             store.load.assert_called_once_with(WORKSPACE, CALL)
             store.observe.assert_not_called()
 
+    def test_conflict_from_load_is_not_mistaken_for_a_write_conflict(self):
+        store = Mock()
+        conflict = StatusConflictError("synthetic load failure")
+        store.load.side_effect = conflict
+        before_retry = Mock()
+
+        with self.assertRaises(StatusConflictError) as caught:
+            self.save(
+                store, max_conflict_retries=8, before_retry=before_retry,
+            )
+
+        self.assertIs(caught.exception, conflict)
+        self.validator.assert_called_once()
+        store.load.assert_called_once_with(WORKSPACE, CALL)
+        store.observe.assert_not_called()
+        before_retry.assert_not_called()
+
     def test_retry_configuration_is_strict_and_checked_before_authentication(self):
         invalid = (
             -1, MAX_STATUS_CONFLICT_RETRIES + 1, True, False, 1.0, "2", None,

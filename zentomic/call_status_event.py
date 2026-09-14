@@ -58,6 +58,47 @@ def advance_call_status_event(
     return advance_call_status(current_status, fields.get("CallStatus"))
 
 
+def _prepare_status_observation(
+    event: Mapping[str, Any], *, public_url: str, validator: SignatureValidator,
+    expected_account_sid: str, expected_call_sid: str, workspace_id: str,
+    store: CallStatusStore,
+) -> tuple[Callable[..., Any], tuple[str, str], str, CallStatusSnapshot,
+           CallStatusSnapshot]:
+    """Validate trusted inputs, authenticate, load, and compute one write."""
+    load = getattr(store, "load", None)
+    observe = getattr(store, "observe", None)
+    if not callable(load) or not callable(observe):
+        raise ValueError("store must provide trusted callable load and observe methods")
+    key = _status_key(workspace_id, expected_call_sid)
+    fields = validate_call_event(
+        event, public_url=public_url, validator=validator,
+        expected_account_sid=expected_account_sid,
+        expected_call_sid=expected_call_sid,
+    )
+    incoming_status = fields.get("CallStatus")
+    is_terminal_call_status(incoming_status)
+    snapshot = _validate_status_snapshot(load(*key))
+    expected_status = advance_call_status(snapshot.status, incoming_status)
+    expected = CallStatusSnapshot(
+        expected_status,
+        snapshot.revision + (expected_status != snapshot.status),
+    )
+    return observe, key, incoming_status, snapshot, expected
+
+
+def _persist_status_observation(
+    observe: Callable[..., Any], key: tuple[str, str], incoming_status: str,
+    snapshot: CallStatusSnapshot, expected: CallStatusSnapshot,
+) -> CallStatusSnapshot:
+    """Perform and validate the conditional write for a prepared observation."""
+    saved = _validate_status_snapshot(observe(
+        *key, incoming_status, expected_revision=snapshot.revision,
+    ))
+    if saved != expected:
+        raise ValueError("store returned an unexpected CallStatusSnapshot")
+    return saved
+
+
 def observe_call_status_event(
     event: Mapping[str, Any], *, public_url: str, validator: SignatureValidator,
     expected_account_sid: str, expected_call_sid: str, workspace_id: str,
@@ -77,30 +118,16 @@ def observe_call_status_event(
     Store failures propagate and fail closed. This helper performs no workspace
     authorization, callback acknowledgement, cleanup or provider I/O.
     """
-    load = getattr(store, "load", None)
-    observe = getattr(store, "observe", None)
-    if not callable(load) or not callable(observe):
-        raise ValueError("store must provide trusted callable load and observe methods")
-    key = _status_key(workspace_id, expected_call_sid)
-    fields = validate_call_event(
-        event, public_url=public_url, validator=validator,
+    prepared = _prepare_status_observation(
+        event,
+        public_url=public_url,
+        validator=validator,
         expected_account_sid=expected_account_sid,
         expected_call_sid=expected_call_sid,
+        workspace_id=workspace_id,
+        store=store,
     )
-    incoming_status = fields.get("CallStatus")
-    is_terminal_call_status(incoming_status)
-    snapshot = _validate_status_snapshot(load(*key))
-    expected_status = advance_call_status(snapshot.status, incoming_status)
-    expected = CallStatusSnapshot(
-        expected_status,
-        snapshot.revision + (expected_status != snapshot.status),
-    )
-    saved = _validate_status_snapshot(observe(
-        *key, incoming_status, expected_revision=snapshot.revision,
-    ))
-    if saved != expected:
-        raise ValueError("store returned an unexpected CallStatusSnapshot")
-    return saved
+    return _persist_status_observation(*prepared)
 
 
 def retry_call_status_event(
@@ -113,12 +140,14 @@ def retry_call_status_event(
 
     Every attempt runs the complete authenticated observation again, including
     trusted configuration validation, signature verification, call binding and
-    a fresh load. Only ``StatusConflictError`` is retried. Invalid callbacks,
-    malformed adapter results, capacity failures and other storage errors fail
-    immediately. When another attempt remains, an optional trusted hook receives
-    its one-based retry number. The hook can provide bounded, runtime-aware
-    backoff without receiving callback data or the storage exception. Hook
-    failures propagate and prevent the next attempt.
+    a fresh load. Only ``StatusConflictError`` raised by the conditional write is
+    retried. The same exception from authentication, loading, or validation is an
+    adapter failure and propagates immediately. Invalid callbacks, malformed
+    adapter results, capacity failures and other storage errors also fail closed.
+    When another attempt remains, an optional trusted hook receives its one-based
+    retry number. The hook can provide bounded, runtime-aware backoff without
+    receiving callback data or the storage exception. Hook failures propagate
+    and prevent the next attempt.
 
     A successful or unchanged terminal snapshot is still not permission to
     repeat cleanup. A production adapter must separately make effects
@@ -130,16 +159,17 @@ def retry_call_status_event(
     if before_retry is not None and not callable(before_retry):
         raise ValueError("before_retry must be callable or None")
     for attempt in range(max_conflict_retries + 1):
+        prepared = _prepare_status_observation(
+            event,
+            public_url=public_url,
+            validator=validator,
+            expected_account_sid=expected_account_sid,
+            expected_call_sid=expected_call_sid,
+            workspace_id=workspace_id,
+            store=store,
+        )
         try:
-            return observe_call_status_event(
-                event,
-                public_url=public_url,
-                validator=validator,
-                expected_account_sid=expected_account_sid,
-                expected_call_sid=expected_call_sid,
-                workspace_id=workspace_id,
-                store=store,
-            )
+            return _persist_status_observation(*prepared)
         except StatusConflictError:
             if attempt == max_conflict_retries:
                 raise
