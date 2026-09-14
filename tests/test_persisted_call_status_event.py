@@ -203,7 +203,7 @@ class StatusConflictRetryDelayTests(unittest.TestCase):
 
 class BudgetedStatusConflictRetryHookTests(unittest.TestCase):
     def test_refreshes_budget_and_waits_with_each_sampled_delay(self):
-        remaining_ms = Mock(side_effect=[150, 130])
+        remaining_ms = Mock(side_effect=[150, 130, 130, 130])
         randbelow = Mock(side_effect=[20, 0])
         wait_ms = Mock()
         hook = make_budgeted_status_conflict_retry_hook(
@@ -217,9 +217,49 @@ class BudgetedStatusConflictRetryHookTests(unittest.TestCase):
         hook(4)
         hook(1)
 
-        self.assertEqual(remaining_ms.call_count, 2)
+        self.assertEqual(remaining_ms.call_count, 4)
         self.assertEqual(randbelow.call_args_list, [call(21), call(1)])
         self.assertEqual(wait_ms.call_args_list, [call(20), call(0)])
+
+    def test_budget_exhausted_while_waiting_aborts_before_next_attempt(self):
+        remaining_ms = Mock(side_effect=[150, 129])
+        randbelow = Mock(return_value=20)
+        wait_ms = Mock()
+        hook = make_budgeted_status_conflict_retry_hook(
+            invocation_remaining_ms=remaining_ms,
+            wait_ms=wait_ms,
+            randbelow=randbelow,
+            reserve_ms=100,
+            minimum_retry_attempt_ms=30,
+        )
+
+        with self.assertRaisesRegex(
+            StatusRetryBudgetExhaustedError,
+            "^insufficient runtime for status retry$",
+        ):
+            hook(4)
+
+        self.assertEqual(remaining_ms.call_count, 2)
+        randbelow.assert_called_once_with(21)
+        wait_ms.assert_called_once_with(20)
+
+    def test_invalid_post_wait_runtime_reading_fails_closed(self):
+        remaining_ms = Mock(side_effect=[150, True])
+        randbelow = Mock(return_value=0)
+        wait_ms = Mock()
+        hook = make_budgeted_status_conflict_retry_hook(
+            invocation_remaining_ms=remaining_ms,
+            wait_ms=wait_ms,
+            randbelow=randbelow,
+            reserve_ms=100,
+            minimum_retry_attempt_ms=30,
+        )
+
+        with self.assertRaisesRegex(ValueError, "invocation_remaining_ms"):
+            hook(1)
+
+        randbelow.assert_called_once_with(21)
+        wait_ms.assert_called_once_with(0)
 
     def test_insufficient_budget_aborts_without_sampling_or_waiting(self):
         remaining_ms = Mock(return_value=129)
@@ -527,6 +567,29 @@ class RetriedCallStatusEventTests(unittest.TestCase):
 
         self.assertIs(caught.exception, failure)
         before_retry.assert_called_once_with(1)
+        self.validator.assert_called_once()
+        store.load.assert_called_once_with(WORKSPACE, CALL)
+        store.observe.assert_called_once_with(
+            WORKSPACE, CALL, "ringing", expected_revision=0,
+        )
+
+    def test_post_wait_budget_exhaustion_aborts_before_reauthentication(self):
+        store = Mock()
+        store.load.return_value = CallStatusSnapshot()
+        store.observe.side_effect = StatusConflictError("synthetic conflict")
+        wait_ms = Mock()
+        before_retry = make_budgeted_status_conflict_retry_hook(
+            invocation_remaining_ms=Mock(side_effect=[150, 129]),
+            wait_ms=wait_ms,
+            randbelow=Mock(return_value=20),
+            reserve_ms=100,
+            minimum_retry_attempt_ms=30,
+        )
+
+        with self.assertRaises(StatusRetryBudgetExhaustedError):
+            self.save(store, before_retry=before_retry)
+
+        wait_ms.assert_called_once_with(20)
         self.validator.assert_called_once()
         store.load.assert_called_once_with(WORKSPACE, CALL)
         store.observe.assert_called_once_with(

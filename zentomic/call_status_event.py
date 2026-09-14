@@ -117,9 +117,10 @@ def make_budgeted_status_conflict_retry_hook(
 
     The trusted callbacks receive no request or storage data. Configuration is
     validated when the hook is built, without reading the runtime or sampling
-    jitter. Each invocation then reads remaining time exactly once, samples a
-    budgeted delay, and passes that delay to ``wait_ms``. Insufficient runtime
-    raises ``StatusRetryBudgetExhaustedError`` before sampling or waiting.
+    jitter. Each invocation reads remaining time before and after the wait,
+    samples one budgeted delay, and passes that delay to ``wait_ms``. Insufficient
+    runtime raises
+    ``StatusRetryBudgetExhaustedError`` before sampling or after waiting.
     """
     if not callable(invocation_remaining_ms):
         raise ValueError("invocation_remaining_ms must be callable")
@@ -150,6 +151,16 @@ def make_budgeted_status_conflict_retry_hook(
                 "insufficient runtime for status retry"
             )
         wait_ms(delay_ms)
+        remaining_after_wait_ms = invocation_remaining_ms()
+        if (type(remaining_after_wait_ms) is not int
+                or remaining_after_wait_ms < 0):
+            raise ValueError(
+                "invocation_remaining_ms must be a nonnegative integer"
+            )
+        if remaining_after_wait_ms < reserve_ms + minimum_retry_attempt_ms:
+            raise StatusRetryBudgetExhaustedError(
+                "insufficient runtime for status retry"
+            )
 
     return before_retry
 

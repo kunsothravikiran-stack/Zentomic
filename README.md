@@ -1262,13 +1262,16 @@ before_status_retry = make_budgeted_status_conflict_retry_hook(
 
 The hook factory validates trusted dependencies and fixed timing policy before
 authentication, without reading runtime state or sampling randomness. On every
-conflict it reads remaining time once and passes the sampled integer delay to
-the injected waiter. If the cleanup and next-attempt reservations cannot both
-fit, it raises `StatusRetryBudgetExhaustedError` before sampling or waiting, so
-`retry_call_status_event` does not start another authentication/load/write
-attempt. Runtime, sampler, and waiter failures also propagate and fail closed.
-The adapter remains responsible for supplying a real bounded wait primitive;
-the scaffold does not import a sleep function or read a Lambda context.
+conflict it reads remaining time, passes the sampled integer delay to the
+injected waiter, then reads remaining time again before allowing another
+attempt. This post-wait check closes the gap when wait overhead or runtime drift
+uses more budget than the sampled delay. If the cleanup and next-attempt
+reservations cannot both fit, it raises `StatusRetryBudgetExhaustedError` before
+sampling or after waiting, so `retry_call_status_event` does not start another
+authentication/load/write attempt. Invalid runtime readings and sampler or
+waiter failures also propagate and fail closed. The adapter remains responsible
+for supplying a real bounded wait primitive; the scaffold does not import a
+sleep function or read a Lambda context.
 
 ### Offline webhook form decoding
 
