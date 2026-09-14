@@ -8,8 +8,12 @@ from zentomic.call_status import advance_call_status, is_terminal_call_status
 from zentomic.call_status_store import (
     CallStatusSnapshot,
     CallStatusStore,
+    StatusConflictError,
     _key as _status_key,
 )
+
+
+MAX_STATUS_CONFLICT_RETRIES = 8
 
 
 def _validate_status_snapshot(value: Any) -> CallStatusSnapshot:
@@ -97,3 +101,41 @@ def observe_call_status_event(
     if saved != expected:
         raise ValueError("store returned an unexpected CallStatusSnapshot")
     return saved
+
+
+def retry_call_status_event(
+    event: Mapping[str, Any], *, public_url: str, validator: SignatureValidator,
+    expected_account_sid: str, expected_call_sid: str, workspace_id: str,
+    store: CallStatusStore, max_conflict_retries: int = 2,
+) -> CallStatusSnapshot:
+    """Retry a bounded number of conditional-write conflicts.
+
+    Every attempt runs the complete authenticated observation again, including
+    trusted configuration validation, signature verification, call binding and
+    a fresh load. Only ``StatusConflictError`` is retried. Invalid callbacks,
+    malformed adapter results, capacity failures and other storage errors fail
+    immediately. The retry count is deliberately small and performs no sleep,
+    provider I/O, acknowledgement or side effect.
+
+    A successful or unchanged terminal snapshot is still not permission to
+    repeat cleanup. A production adapter must separately make effects
+    idempotent and choose an appropriate contention/backoff policy.
+    """
+    if (type(max_conflict_retries) is not int
+            or not 0 <= max_conflict_retries <= MAX_STATUS_CONFLICT_RETRIES):
+        raise ValueError("max_conflict_retries must be an integer from 0 to 8")
+    for attempt in range(max_conflict_retries + 1):
+        try:
+            return observe_call_status_event(
+                event,
+                public_url=public_url,
+                validator=validator,
+                expected_account_sid=expected_account_sid,
+                expected_call_sid=expected_call_sid,
+                workspace_id=workspace_id,
+                store=store,
+            )
+        except StatusConflictError:
+            if attempt == max_conflict_retries:
+                raise
+    raise AssertionError("unreachable")

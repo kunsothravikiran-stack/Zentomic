@@ -6,7 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from tests.test_voice_flow import ACCOUNT, CALL, SIGNATURE, callback
-from zentomic.call_status_event import observe_call_status_event
+from zentomic.call_status_event import (
+    MAX_STATUS_CONFLICT_RETRIES,
+    observe_call_status_event,
+    retry_call_status_event,
+)
 from zentomic.call_status_store import (
     CallStatusSnapshot,
     InMemoryCallStatusStore,
@@ -177,6 +181,104 @@ class PersistedCallStatusEventTests(unittest.TestCase):
                 store.observe.assert_called_once_with(
                     WORKSPACE, CALL, incoming, expected_revision=loaded.revision,
                 )
+
+
+class RetriedCallStatusEventTests(unittest.TestCase):
+    def setUp(self):
+        self.validator = Mock(return_value=True)
+        self.event = callback({"CallStatus": "ringing"}, "2.0", True)
+
+    def save(self, store, **overrides):
+        config = dict(
+            public_url=URL,
+            validator=self.validator,
+            expected_account_sid=ACCOUNT,
+            expected_call_sid=CALL,
+            workspace_id=WORKSPACE,
+            store=store,
+        )
+        config.update(overrides)
+        return retry_call_status_event(self.event, **config)
+
+    def test_conflict_reloads_reauthenticates_and_then_succeeds(self):
+        store = InMemoryCallStatusStore()
+        store.load = Mock(wraps=store.load)
+        observe = Mock(side_effect=[
+            StatusConflictError("synthetic conflict"),
+            CallStatusSnapshot("ringing", 1),
+        ])
+        store.observe = observe
+        original = copy.deepcopy(self.event)
+
+        saved = self.save(store)
+
+        self.assertEqual(saved, CallStatusSnapshot("ringing", 1))
+        self.assertEqual(self.validator.call_count, 2)
+        self.assertEqual(store.load.call_count, 2)
+        self.assertEqual(observe.call_count, 2)
+        self.assertEqual(store.load(WORKSPACE, CALL), CallStatusSnapshot())
+        self.assertEqual(self.event, original)
+
+    def test_retry_limit_rethrows_the_final_conflict(self):
+        store = Mock()
+        store.load.return_value = CallStatusSnapshot()
+        store.observe.side_effect = StatusConflictError("synthetic conflict")
+
+        with self.assertRaisesRegex(StatusConflictError, "^synthetic conflict$"):
+            self.save(store, max_conflict_retries=3)
+
+        self.assertEqual(self.validator.call_count, 4)
+        self.assertEqual(store.load.call_count, 4)
+        self.assertEqual(store.observe.call_count, 4)
+
+    def test_zero_retries_preserves_single_attempt_behavior(self):
+        store = Mock()
+        store.load.return_value = CallStatusSnapshot()
+        conflict = StatusConflictError("synthetic conflict")
+        store.observe.side_effect = conflict
+
+        with self.assertRaises(StatusConflictError) as caught:
+            self.save(store, max_conflict_retries=0)
+
+        self.assertIs(caught.exception, conflict)
+        self.validator.assert_called_once()
+        store.load.assert_called_once_with(WORKSPACE, CALL)
+        store.observe.assert_called_once_with(
+            WORKSPACE, CALL, "ringing", expected_revision=0,
+        )
+
+    def test_only_conflicts_are_retried(self):
+        for failure in (
+            ValueError("synthetic invalid adapter"),
+            RuntimeError("synthetic unavailable store"),
+        ):
+            store = Mock()
+            store.load.side_effect = failure
+            self.validator.reset_mock()
+            with self.subTest(failure=type(failure)), self.assertRaises(
+                type(failure),
+            ) as caught:
+                self.save(store, max_conflict_retries=8)
+            self.assertIs(caught.exception, failure)
+            self.validator.assert_called_once()
+            store.load.assert_called_once_with(WORKSPACE, CALL)
+            store.observe.assert_not_called()
+
+    def test_retry_configuration_is_strict_and_checked_before_authentication(self):
+        invalid = (
+            -1, MAX_STATUS_CONFLICT_RETRIES + 1, True, False, 1.0, "2", None,
+        )
+        for value in invalid:
+            self.validator.reset_mock()
+            store = Mock()
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError,
+                "^max_conflict_retries must be an integer from 0 to 8$",
+            ):
+                self.save(store, max_conflict_retries=value)
+            self.validator.assert_not_called()
+            store.load.assert_not_called()
+            store.observe.assert_not_called()
 
 
 if __name__ == "__main__":

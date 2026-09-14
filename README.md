@@ -1207,6 +1207,15 @@ results fail closed. The included in-memory store makes this flow testable
 offline; production still requires authorized durable conditional writes and
 idempotent side effects.
 
+`retry_call_status_event(..., max_conflict_retries=2)` provides that complete
+retry loop for local adapter composition. It revalidates the signature and call
+binding, reloads the snapshot, and recomputes after each conflict. Only
+`StatusConflictError` is retried, with an explicit limit from zero through eight;
+invalid callbacks and every other adapter failure stop immediately. It does not
+sleep, acknowledge the webhook, call a provider, or make downstream effects
+idempotent, so production code must still supply an appropriate backoff and
+idempotency policy.
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:
