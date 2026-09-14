@@ -1,6 +1,6 @@
 """Authenticated call-leg lifecycle composition with injectable persistence."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from zentomic.authentication import SignatureValidator, validate_call_event
@@ -107,6 +107,7 @@ def retry_call_status_event(
     event: Mapping[str, Any], *, public_url: str, validator: SignatureValidator,
     expected_account_sid: str, expected_call_sid: str, workspace_id: str,
     store: CallStatusStore, max_conflict_retries: int = 2,
+    before_retry: Callable[[int], None] | None = None,
 ) -> CallStatusSnapshot:
     """Retry a bounded number of conditional-write conflicts.
 
@@ -114,8 +115,10 @@ def retry_call_status_event(
     trusted configuration validation, signature verification, call binding and
     a fresh load. Only ``StatusConflictError`` is retried. Invalid callbacks,
     malformed adapter results, capacity failures and other storage errors fail
-    immediately. The retry count is deliberately small and performs no sleep,
-    provider I/O, acknowledgement or side effect.
+    immediately. When another attempt remains, an optional trusted hook receives
+    its one-based retry number. The hook can provide bounded, runtime-aware
+    backoff without receiving callback data or the storage exception. Hook
+    failures propagate and prevent the next attempt.
 
     A successful or unchanged terminal snapshot is still not permission to
     repeat cleanup. A production adapter must separately make effects
@@ -124,6 +127,8 @@ def retry_call_status_event(
     if (type(max_conflict_retries) is not int
             or not 0 <= max_conflict_retries <= MAX_STATUS_CONFLICT_RETRIES):
         raise ValueError("max_conflict_retries must be an integer from 0 to 8")
+    if before_retry is not None and not callable(before_retry):
+        raise ValueError("before_retry must be callable or None")
     for attempt in range(max_conflict_retries + 1):
         try:
             return observe_call_status_event(
@@ -138,4 +143,6 @@ def retry_call_status_event(
         except StatusConflictError:
             if attempt == max_conflict_retries:
                 raise
+            if before_retry is not None:
+                before_retry(attempt + 1)
     raise AssertionError("unreachable")

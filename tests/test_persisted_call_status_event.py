@@ -3,7 +3,7 @@
 import copy
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 from tests.test_voice_flow import ACCOUNT, CALL, SIGNATURE, callback
 from zentomic.call_status_event import (
@@ -223,13 +223,51 @@ class RetriedCallStatusEventTests(unittest.TestCase):
         store = Mock()
         store.load.return_value = CallStatusSnapshot()
         store.observe.side_effect = StatusConflictError("synthetic conflict")
+        before_retry = Mock()
 
         with self.assertRaisesRegex(StatusConflictError, "^synthetic conflict$"):
-            self.save(store, max_conflict_retries=3)
+            self.save(
+                store, max_conflict_retries=3, before_retry=before_retry,
+            )
 
         self.assertEqual(self.validator.call_count, 4)
         self.assertEqual(store.load.call_count, 4)
         self.assertEqual(store.observe.call_count, 4)
+        self.assertEqual(before_retry.call_args_list, [call(1), call(2), call(3)])
+
+    def test_retry_hook_runs_only_between_conflicted_attempts(self):
+        store = Mock()
+        store.load.return_value = CallStatusSnapshot()
+        store.observe.side_effect = [
+            StatusConflictError("first conflict"),
+            StatusConflictError("second conflict"),
+            CallStatusSnapshot("ringing", 1),
+        ]
+        before_retry = Mock()
+
+        saved = self.save(store, before_retry=before_retry)
+
+        self.assertEqual(saved, CallStatusSnapshot("ringing", 1))
+        self.assertEqual(before_retry.call_args_list, [call(1), call(2)])
+        self.assertEqual(self.validator.call_count, 3)
+
+    def test_retry_hook_failure_aborts_before_reauthentication(self):
+        store = Mock()
+        store.load.return_value = CallStatusSnapshot()
+        store.observe.side_effect = StatusConflictError("synthetic conflict")
+        failure = RuntimeError("synthetic backoff failure")
+        before_retry = Mock(side_effect=failure)
+
+        with self.assertRaises(RuntimeError) as caught:
+            self.save(store, before_retry=before_retry)
+
+        self.assertIs(caught.exception, failure)
+        before_retry.assert_called_once_with(1)
+        self.validator.assert_called_once()
+        store.load.assert_called_once_with(WORKSPACE, CALL)
+        store.observe.assert_called_once_with(
+            WORKSPACE, CALL, "ringing", expected_revision=0,
+        )
 
     def test_zero_retries_preserves_single_attempt_behavior(self):
         store = Mock()
@@ -276,6 +314,18 @@ class RetriedCallStatusEventTests(unittest.TestCase):
                 "^max_conflict_retries must be an integer from 0 to 8$",
             ):
                 self.save(store, max_conflict_retries=value)
+            self.validator.assert_not_called()
+            store.load.assert_not_called()
+            store.observe.assert_not_called()
+
+    def test_retry_hook_configuration_is_checked_before_authentication(self):
+        for value in (False, 0, "hook", object()):
+            self.validator.reset_mock()
+            store = Mock()
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError, "^before_retry must be callable or None$",
+            ):
+                self.save(store, before_retry=value)
             self.validator.assert_not_called()
             store.load.assert_not_called()
             store.observe.assert_not_called()

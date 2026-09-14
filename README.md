@@ -1211,10 +1211,13 @@ idempotent side effects.
 retry loop for local adapter composition. It revalidates the signature and call
 binding, reloads the snapshot, and recomputes after each conflict. Only
 `StatusConflictError` is retried, with an explicit limit from zero through eight;
-invalid callbacks and every other adapter failure stop immediately. It does not
-sleep, acknowledge the webhook, call a provider, or make downstream effects
-idempotent, so production code must still supply an appropriate backoff and
-idempotency policy.
+invalid callbacks and every other adapter failure stop immediately. An optional
+trusted `before_retry(retry_number)` hook runs only when another attempt remains,
+before the next authentication. It can implement bounded, runtime-aware backoff
+or abort by raising, without receiving the callback or storage exception. The
+helper does not otherwise sleep, acknowledge the webhook, call a provider, or
+make downstream effects idempotent, so production code must still supply an
+appropriate backoff and idempotency policy.
 
 ### Offline webhook form decoding
 
