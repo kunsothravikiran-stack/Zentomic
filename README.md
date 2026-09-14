@@ -1027,6 +1027,14 @@ An injected validator cannot rewrite or invent the text consumed by policy.
 The existing decision representation omits transcripts, but explicit access
 and serialization still need privacy controls. Caller text remains untrusted.
 
+`resolve_claimed_speech_event` adds the injectable atomic claim boundary used
+by keypad callbacks. It validates the trusted fallback and retry budget before
+authenticating or claiming, then admits one callback for the trusted
+`(workspace_id, call_sid, step_id)` key. Invalid policy and rejected callbacks
+leave the step unclaimed. An authenticated replay raises `CallbackReplayError`
+before speech policy sees or returns caller text. Request fields cannot select
+the claim key or retry state.
+
 Account/call binding is not step binding or replay protection. Before acting,
 adapters must enforce the current speech step, deadline and transition budget,
 atomically claim the step and persist attempts, and reload/revalidate on
@@ -1551,6 +1559,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/gather_event.py`: authenticated keypad decisions with optional replay claims.
 - `zentomic/budget.py`: individual and combined whole-call time/count admission and timeouts.
 - `zentomic/speech.py`: bounded speech result admission before classification.
+- `zentomic/speech_event.py`: authenticated speech admission with optional replay claims.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
 - `zentomic/call_status.py`: strict terminal versus active call-leg classification.
@@ -1639,6 +1648,12 @@ digit, then authenticates, binds and claims before resolving `Digits`. That
 ordering prevents bad trusted policy or rejected transport from poisoning a
 valid step and prevents a replay from reaching collection policy. The helper
 still does not persist the returned attempt count or execute its decision.
+
+`resolve_claimed_speech_event` applies the same ordering to a bounded speech
+step. It validates fallback and retry state, then authenticates, binds and
+claims before admitting `SpeechResult`. Replays therefore cannot release caller
+text for repeated classification. The helper still neither persists attempts
+nor authorizes or invokes a model.
 
 For offline conditional-write experiments, `InMemoryCallStatusStore` in
 `zentomic.call_status_store` keeps immutable status/revision snapshots under

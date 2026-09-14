@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from zentomic.gather import resolve_gather
+from zentomic.gather import GatherDecision, resolve_gather
 
 
 MAX_TRANSCRIPT_CHARS = 2000
@@ -21,6 +21,33 @@ class SpeechDecision:
     transcript: str | None = field(repr=False)
     target: str | None
     attempts: int
+
+
+def _validate_speech_configuration(
+    *, fallback_target: str, attempts: int, max_attempts: int,
+) -> GatherDecision:
+    """Return the collection budget after validating trusted speech policy."""
+    return resolve_gather(
+        None, {}, fallback_target=fallback_target,
+        attempts=attempts, max_attempts=max_attempts,
+    )
+
+
+def _resolve_validated_speech(
+    speech: str | None, *, budget: GatherDecision,
+    attempts: int, max_attempts: int,
+) -> SpeechDecision:
+    """Admit speech after the caller validated and snapshotted its budget."""
+    if (attempts < max_attempts and isinstance(speech, str)
+            and len(speech) <= MAX_TRANSCRIPT_CHARS and speech.strip()):
+        try:
+            speech.encode("utf-8")
+        except UnicodeEncodeError:
+            pass  # Malformed text follows the same finite retry budget.
+        else:
+            return SpeechDecision("classify", speech, None, budget.attempts)
+    action = "retry" if budget.action == "retry" else "fallback"
+    return SpeechDecision(action, None, budget.target, budget.attempts)
 
 
 def resolve_speech_gather(
@@ -41,17 +68,10 @@ def resolve_speech_gather(
     Text is still untrusted: this is not prompt-injection protection, intent
     classification, confirmation, authorization, or a model token/cost limit.
     """
-    budget = resolve_gather(
-        None, {}, fallback_target=fallback_target,
-        attempts=attempts, max_attempts=max_attempts,
+    budget = _validate_speech_configuration(
+        fallback_target=fallback_target, attempts=attempts,
+        max_attempts=max_attempts,
     )
-    if (attempts < max_attempts and isinstance(speech, str)
-            and len(speech) <= MAX_TRANSCRIPT_CHARS and speech.strip()):
-        try:
-            speech.encode("utf-8")
-        except UnicodeEncodeError:
-            pass  # Malformed text follows the same finite retry budget.
-        else:
-            return SpeechDecision("classify", speech, None, budget.attempts)
-    action = "retry" if budget.action == "retry" else "fallback"
-    return SpeechDecision(action, None, budget.target, budget.attempts)
+    return _resolve_validated_speech(
+        speech, budget=budget, attempts=attempts, max_attempts=max_attempts,
+    )
