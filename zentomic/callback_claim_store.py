@@ -1,6 +1,10 @@
-"""Process-local callback claims for offline adapter development, not Lambda."""
+"""Authenticated process-local callback claims for offline adapter tests."""
 
+from collections.abc import Mapping
 from threading import Lock
+from typing import Any, Protocol
+
+from zentomic.authentication import SignatureValidator, validate_call_event
 
 
 MAX_CLAIM_IDENTIFIER_BYTES = 256
@@ -11,6 +15,17 @@ _IDENTIFIER_ERROR = (
 
 class CallbackClaimCapacityError(ValueError):
     """A new callback cannot be claimed without exceeding this instance's limit."""
+
+
+class CallbackReplayError(ValueError):
+    """An authenticated callback repeats an already claimed synthetic step."""
+
+
+class CallbackClaimer(Protocol):
+    """Minimal atomic claim boundary supplied by a local or durable adapter."""
+
+    def claim(self, workspace_id: str, call_sid: str, step_id: str) -> bool:
+        """Return exactly True for a new key and exactly False for a replay."""
 
 
 def _key(workspace_id: str, call_sid: str, step_id: str) -> tuple[str, str, str]:
@@ -63,3 +78,38 @@ class InMemoryCallbackClaimStore:
                 raise CallbackClaimCapacityError("callback claim capacity reached")
             self._claims.add(key)
             return True
+
+
+def validate_and_claim_call_event(
+    event: Mapping[str, Any], *, public_url: str, validator: SignatureValidator,
+    expected_account_sid: str, expected_call_sid: str, workspace_id: str,
+    step_id: str, claimer: CallbackClaimer,
+) -> dict[str, str]:
+    """Authenticate, bind and atomically claim one trusted synthetic step.
+
+    Workspace, expected call and step identifiers must come from trusted
+    session state. Callback fields cannot select the claim key. Invalid trusted
+    claim configuration is rejected before signature validation, while invalid
+    transport, signature or call binding is rejected before the claimer runs.
+
+    A successful claim returns the already validated form-field snapshot for
+    subsequent local policy evaluation. An exact replay raises
+    CallbackReplayError. Storage failures and capacity errors propagate so an
+    adapter fails closed. This helper does not authorize a workspace, persist
+    state, acknowledge a webhook or execute an effect.
+    """
+    claim = getattr(claimer, "claim", None)
+    if not callable(claim):
+        raise ValueError("claimer must provide a trusted callable claim method")
+    key = _key(workspace_id, expected_call_sid, step_id)
+    fields = validate_call_event(
+        event, public_url=public_url, validator=validator,
+        expected_account_sid=expected_account_sid,
+        expected_call_sid=expected_call_sid,
+    )
+    claimed = claim(*key)
+    if claimed is False:
+        raise CallbackReplayError("callback step already claimed")
+    if claimed is not True:
+        raise ValueError("claimer must return exactly True or False")
+    return fields

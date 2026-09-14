@@ -1,13 +1,45 @@
 """Offline callback claim tests using synthetic identifiers only."""
 
+import copy
 import unittest
+from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import Mock
+from urllib.parse import urlencode
 
 from zentomic.callback_claim_store import (
     MAX_CLAIM_IDENTIFIER_BYTES,
     CallbackClaimCapacityError,
+    CallbackReplayError,
     InMemoryCallbackClaimStore,
+    validate_and_claim_call_event,
 )
+
+
+ACCOUNT = "synthetic-account"
+CALL = "synthetic-call"
+URL = "https://example.invalid/voice/menu"
+SIGNATURE = "A" * 27 + "="
+
+
+def callback(fields=None, *, version="2.0", encoded=False):
+    body = urlencode({"AccountSid": ACCOUNT, "CallSid": CALL, **(fields or {})})
+    event = {
+        "version": version,
+        "body": body,
+        "isBase64Encoded": encoded,
+        "headers": {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Twilio-Signature": SIGNATURE,
+        },
+    }
+    if encoded:
+        event["body"] = b64encode(body.encode()).decode()
+    if version == "1.0":
+        event["httpMethod"] = "POST"
+    else:
+        event["requestContext"] = {"http": {"method": "POST"}}
+    return event
 
 
 class CallbackClaimStoreTests(unittest.TestCase):
@@ -77,6 +109,117 @@ class CallbackClaimStoreTests(unittest.TestCase):
 
         with ThreadPoolExecutor(max_workers=16) as executor:
             results = list(executor.map(lambda _: store.claim(*key), range(64)))
+
+        self.assertEqual(results.count(True), 1)
+        self.assertEqual(results.count(False), 63)
+
+
+class CallbackClaimEventTests(unittest.TestCase):
+    def claim(self, event, claimer, validator=None, **overrides):
+        config = dict(
+            public_url=URL,
+            validator=validator or Mock(return_value=True),
+            expected_account_sid=ACCOUNT,
+            expected_call_sid=CALL,
+            workspace_id="synthetic-workspace",
+            step_id="menu-attempt-1",
+            claimer=claimer,
+        )
+        config.update(overrides)
+        return validate_and_claim_call_event(event, **config)
+
+    def test_authenticated_event_is_claimed_once_in_all_proxy_formats(self):
+        for version in ("1.0", "2.0"):
+            for encoded in (False, True):
+                with self.subTest(version=version, encoded=encoded):
+                    store = InMemoryCallbackClaimStore()
+                    event = callback(
+                        {"Digits": "1", "workspace_id": "untrusted",
+                         "step_id": "untrusted"},
+                        version=version, encoded=encoded,
+                    )
+                    original = copy.deepcopy(event)
+                    fields = self.claim(event, store)
+                    self.assertEqual(fields["Digits"], "1")
+                    self.assertEqual(event, original)
+                    with self.assertRaisesRegex(
+                        CallbackReplayError, "^callback step already claimed$",
+                    ):
+                        self.claim(event, store)
+
+                    # Signed fields cannot choose a different workspace or step.
+                    self.assertFalse(store.claim(
+                        "synthetic-workspace", CALL, "menu-attempt-1",
+                    ))
+                    self.assertTrue(store.claim("untrusted", CALL, "untrusted"))
+
+    def test_rejected_callback_does_not_poison_the_trusted_claim(self):
+        store = InMemoryCallbackClaimStore()
+        cases = (
+            (callback(), Mock(return_value=False)),
+            (callback({"AccountSid": "synthetic-other"}), Mock(return_value=True)),
+            ({}, Mock(return_value=True)),
+        )
+        for event, validator in cases:
+            with self.subTest(event=event):
+                with self.assertRaises(ValueError):
+                    self.claim(event, store, validator)
+                self.assertTrue(store.claim(
+                    "synthetic-workspace", CALL, "menu-attempt-1",
+                ))
+                store = InMemoryCallbackClaimStore()
+
+    def test_invalid_trusted_claim_configuration_precedes_authentication(self):
+        for overrides in (
+            {"workspace_id": ""},
+            {"step_id": " "},
+            {"expected_call_sid": "x" * (MAX_CLAIM_IDENTIFIER_BYTES + 1)},
+        ):
+            validator = Mock(return_value=True)
+            claimer = Mock()
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.claim(callback(), claimer, validator, **overrides)
+            validator.assert_not_called()
+            claimer.claim.assert_not_called()
+
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(
+            ValueError, "^claimer must provide a trusted callable claim method$",
+        ):
+            self.claim(callback(), object(), validator)
+        validator.assert_not_called()
+
+    def test_claimer_must_return_an_exact_boolean(self):
+        for value in (None, 0, 1, "true", [], {}):
+            claimer = Mock()
+            claimer.claim.return_value = value
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError, "^claimer must return exactly True or False$",
+            ):
+                self.claim(callback(), claimer)
+
+    def test_capacity_failures_propagate_without_claiming_another_step(self):
+        store = InMemoryCallbackClaimStore(max_entries=1)
+        self.assertTrue(store.claim("synthetic-workspace", CALL, "existing"))
+        with self.assertRaisesRegex(
+            CallbackClaimCapacityError, "^callback claim capacity reached$",
+        ):
+            self.claim(callback(), store)
+        self.assertFalse(store.claim("synthetic-workspace", CALL, "existing"))
+
+    def test_concurrent_authenticated_replays_admit_exactly_one(self):
+        store = InMemoryCallbackClaimStore()
+        event = callback({"Digits": "1"})
+
+        def attempt(_):
+            try:
+                self.claim(event, store, validator=lambda *_: True)
+            except CallbackReplayError:
+                return False
+            return True
+
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            results = list(executor.map(attempt, range(64)))
 
         self.assertEqual(results.count(True), 1)
         self.assertEqual(results.count(False), 63)

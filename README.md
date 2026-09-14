@@ -1606,6 +1606,22 @@ an atomic durable claim keyed to the authorized current step; they must fail
 closed on storage errors and commit the claim together with relevant state when
 the workflow requires one transaction.
 
+`validate_and_claim_call_event` composes the existing form transport,
+injected signature gate, exact account/call binding, and an atomic claim. Its
+workspace, call and step key comes only from trusted arguments, never signed
+form fields. It returns the authenticated field snapshot once and raises
+`CallbackReplayError` on a replay, so local adapter tests can prove that policy
+or effect code is skipped. Invalid transport, signatures and call bindings do
+not consume a claim. Claim-capacity and storage failures propagate to keep the
+boundary fail-closed. Validate trusted operation configuration before using
+the helper; it deliberately claims before downstream effect execution.
+
+This composition remains an offline seam, not an exactly-once delivery
+guarantee. A production implementation must authorize the workspace, verify
+the current persisted step, and use a durable conditional write. When a claim
+and related state transition must succeed together, commit them in one
+transaction. Do not retry an effect merely because a response was lost.
+
 For offline conditional-write experiments, `InMemoryCallStatusStore` in
 `zentomic.call_status_store` keeps immutable status/revision snapshots under
 exact `(workspace_id, call_sid)` keys. `load` returns revision 0 and status
