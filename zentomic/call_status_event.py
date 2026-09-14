@@ -67,6 +67,39 @@ def jittered_status_conflict_retry_delay_ms(
     return delay_ms
 
 
+def budgeted_status_conflict_retry_delay_ms(
+    retry_number: int, *, invocation_remaining_ms: int, reserve_ms: int,
+    randbelow: Callable[[int], int], base_delay_ms: int = 25,
+    max_delay_ms: int = 400,
+) -> int | None:
+    """Sample full jitter without spending the invocation cleanup reserve.
+
+    Return ``None`` when the trusted runtime's fresh remaining duration has no
+    time beyond ``reserve_ms``. Otherwise, sample from zero through the smaller
+    of the exponential ceiling and the available duration. This pure helper
+    neither reads the runtime clock nor sleeps.
+    """
+    if not callable(randbelow):
+        raise ValueError("randbelow must be callable")
+    ceiling_ms = status_conflict_retry_delay_ms(
+        retry_number,
+        base_delay_ms=base_delay_ms,
+        max_delay_ms=max_delay_ms,
+    )
+    if type(invocation_remaining_ms) is not int or invocation_remaining_ms < 0:
+        raise ValueError("invocation_remaining_ms must be a nonnegative integer")
+    if type(reserve_ms) is not int or reserve_ms < 0:
+        raise ValueError("reserve_ms must be a nonnegative integer")
+    available_ms = invocation_remaining_ms - reserve_ms
+    if available_ms <= 0:
+        return None
+    upper_bound = min(ceiling_ms, available_ms) + 1
+    delay_ms = randbelow(upper_bound)
+    if type(delay_ms) is not int or not 0 <= delay_ms < upper_bound:
+        raise ValueError("randbelow returned an invalid retry delay")
+    return delay_ms
+
+
 def _validate_status_snapshot(value: Any) -> CallStatusSnapshot:
     """Keep malformed adapter results from crossing the orchestration boundary."""
     if type(value) is not CallStatusSnapshot:

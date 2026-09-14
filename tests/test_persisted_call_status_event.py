@@ -9,6 +9,7 @@ from tests.test_voice_flow import ACCOUNT, CALL, SIGNATURE, callback
 from zentomic.call_status_event import (
     MAX_STATUS_CONFLICT_RETRIES,
     MAX_STATUS_RETRY_DELAY_MS,
+    budgeted_status_conflict_retry_delay_ms,
     jittered_status_conflict_retry_delay_ms,
     observe_call_status_event,
     retry_call_status_event,
@@ -119,6 +120,67 @@ class StatusConflictRetryDelayTests(unittest.TestCase):
             ):
                 jittered_status_conflict_retry_delay_ms(
                     1, randbelow=randbelow,
+                )
+
+    def test_budgeted_jitter_caps_sampling_at_available_runtime(self):
+        randbelow = Mock(return_value=49)
+
+        delay = budgeted_status_conflict_retry_delay_ms(
+            4, invocation_remaining_ms=150, reserve_ms=100,
+            randbelow=randbelow,
+        )
+
+        self.assertEqual(delay, 49)
+        randbelow.assert_called_once_with(51)
+
+    def test_budgeted_jitter_preserves_policy_ceiling_when_budget_allows(self):
+        randbelow = Mock(return_value=200)
+
+        delay = budgeted_status_conflict_retry_delay_ms(
+            4, invocation_remaining_ms=1_000, reserve_ms=100,
+            randbelow=randbelow,
+        )
+
+        self.assertEqual(delay, 200)
+        randbelow.assert_called_once_with(201)
+
+    def test_budgeted_jitter_aborts_without_spending_reserve(self):
+        for remaining_ms, reserve_ms in ((0, 0), (100, 100), (99, 100)):
+            randbelow = Mock(side_effect=AssertionError("sampler must not run"))
+            with self.subTest(remaining_ms=remaining_ms, reserve_ms=reserve_ms):
+                self.assertIsNone(budgeted_status_conflict_retry_delay_ms(
+                    1, invocation_remaining_ms=remaining_ms,
+                    reserve_ms=reserve_ms, randbelow=randbelow,
+                ))
+            randbelow.assert_not_called()
+
+    def test_budgeted_jitter_configuration_is_strict_before_sampling(self):
+        cases = (
+            ({"invocation_remaining_ms": -1, "reserve_ms": 0},
+             "invocation_remaining_ms"),
+            ({"invocation_remaining_ms": True, "reserve_ms": 0},
+             "invocation_remaining_ms"),
+            ({"invocation_remaining_ms": 100, "reserve_ms": -1}, "reserve_ms"),
+            ({"invocation_remaining_ms": 100, "reserve_ms": False}, "reserve_ms"),
+        )
+        for arguments, message in cases:
+            randbelow = Mock(side_effect=AssertionError("sampler must not run"))
+            with self.subTest(arguments=arguments), self.assertRaisesRegex(
+                ValueError, message,
+            ):
+                budgeted_status_conflict_retry_delay_ms(
+                    1, randbelow=randbelow, **arguments,
+                )
+            randbelow.assert_not_called()
+
+    def test_budgeted_jitter_rejects_invalid_sampler_results(self):
+        for result in (-1, 26, True, 1.0, None):
+            with self.subTest(result=result), self.assertRaisesRegex(
+                ValueError, "^randbelow returned an invalid retry delay$",
+            ):
+                budgeted_status_conflict_retry_delay_ms(
+                    1, invocation_remaining_ms=25, reserve_ms=0,
+                    randbelow=Mock(return_value=result),
                 )
 
 

@@ -1237,17 +1237,28 @@ validation, and must return an exact integer in range. The helper rejects a
 malformed result and propagates sampler failures. It does not sleep or read
 callback/storage data.
 
+`budgeted_status_conflict_retry_delay_ms(...)` additionally caps that sampling
+range using a fresh trusted invocation remaining-time reading and a cleanup
+reserve. It returns `None` without sampling when no time remains beyond the
+reserve, so the hook can abort before another authentication/load attempt.
+Neither timing value may come from callback fields.
+
 ```python
 # example: compile-only
 from secrets import randbelow
 
-from zentomic.call_status_event import jittered_status_conflict_retry_delay_ms
+from zentomic.call_status_event import budgeted_status_conflict_retry_delay_ms
 
 def before_status_retry(retry_number):
-    delay_ms = jittered_status_conflict_retry_delay_ms(
-        retry_number, randbelow=randbelow,
+    delay_ms = budgeted_status_conflict_retry_delay_ms(
+        retry_number,
+        invocation_remaining_ms=trusted_runtime_remaining_ms(),
+        reserve_ms=500,
+        randbelow=randbelow,
     )
-    trusted_runtime_wait_ms(delay_ms)  # must enforce a fresh runtime budget
+    if delay_ms is None:
+        raise TimeoutError("insufficient runtime for status retry")
+    trusted_runtime_wait_ms(delay_ms)
 ```
 
 ### Offline webhook form decoding
