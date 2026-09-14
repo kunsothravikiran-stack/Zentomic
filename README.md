@@ -1222,6 +1222,24 @@ helper does not otherwise sleep, acknowledge the webhook, call a provider, or
 make downstream effects idempotent, so production code must still supply an
 appropriate backoff and idempotency policy.
 
+`status_conflict_retry_delay_ms(retry_number)` provides a pure exponential
+backoff policy for that hook. Its defaults yield 25, 50, 100, 200, then at most
+400 milliseconds; custom base and maximum delays are positive integers capped
+at 10 seconds. It does not sleep, sample a clock, inspect callback data, or use
+randomness. A runtime adapter can wait for the returned duration only when its
+fresh remaining-time budget allows it. When many writers can contend, choose a
+jittered value no greater than the returned delay instead of synchronizing all
+retries at the same boundary.
+
+```python
+# example: compile-only
+from zentomic.call_status_event import status_conflict_retry_delay_ms
+
+def before_status_retry(retry_number):
+    delay_ms = status_conflict_retry_delay_ms(retry_number)
+    trusted_runtime_wait_ms(delay_ms)  # must enforce a fresh runtime budget
+```
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:

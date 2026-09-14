@@ -14,6 +14,31 @@ from zentomic.call_status_store import (
 
 
 MAX_STATUS_CONFLICT_RETRIES = 8
+MAX_STATUS_RETRY_DELAY_MS = 10_000
+
+
+def status_conflict_retry_delay_ms(
+    retry_number: int, *, base_delay_ms: int = 25,
+    max_delay_ms: int = 400,
+) -> int:
+    """Return a bounded exponential delay for a one-based conflict retry.
+
+    This pure policy helper does not sleep or read a clock. Pass its result to a
+    trusted, runtime-aware ``before_retry`` hook. Production adapters can choose
+    a smaller jittered delay within this bound when many writers may contend.
+    """
+    if (type(retry_number) is not int
+            or not 1 <= retry_number <= MAX_STATUS_CONFLICT_RETRIES):
+        raise ValueError("retry_number must be an integer from 1 to 8")
+    if (type(base_delay_ms) is not int
+            or not 1 <= base_delay_ms <= MAX_STATUS_RETRY_DELAY_MS):
+        raise ValueError("base_delay_ms must be an integer from 1 to 10000")
+    if (type(max_delay_ms) is not int
+            or not 1 <= max_delay_ms <= MAX_STATUS_RETRY_DELAY_MS):
+        raise ValueError("max_delay_ms must be an integer from 1 to 10000")
+    if base_delay_ms > max_delay_ms:
+        raise ValueError("base_delay_ms must not exceed max_delay_ms")
+    return min(max_delay_ms, base_delay_ms * (1 << (retry_number - 1)))
 
 
 def _validate_status_snapshot(value: Any) -> CallStatusSnapshot:

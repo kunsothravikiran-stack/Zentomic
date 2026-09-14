@@ -3,13 +3,15 @@
 import copy
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, call
+from unittest.mock import Mock, call, patch
 
 from tests.test_voice_flow import ACCOUNT, CALL, SIGNATURE, callback
 from zentomic.call_status_event import (
     MAX_STATUS_CONFLICT_RETRIES,
+    MAX_STATUS_RETRY_DELAY_MS,
     observe_call_status_event,
     retry_call_status_event,
+    status_conflict_retry_delay_ms,
 )
 from zentomic.call_status_store import (
     CallStatusSnapshot,
@@ -20,6 +22,55 @@ from zentomic.call_status_store import (
 
 WORKSPACE = "synthetic-workspace"
 URL = "https://example.invalid/voice/status"
+
+
+class StatusConflictRetryDelayTests(unittest.TestCase):
+    def test_default_delay_grows_exponentially_and_caps(self):
+        self.assertEqual(
+            [status_conflict_retry_delay_ms(retry) for retry in range(1, 9)],
+            [25, 50, 100, 200, 400, 400, 400, 400],
+        )
+
+    def test_custom_delay_boundaries_are_exact(self):
+        self.assertEqual(
+            status_conflict_retry_delay_ms(
+                1, base_delay_ms=1, max_delay_ms=MAX_STATUS_RETRY_DELAY_MS,
+            ),
+            1,
+        )
+        self.assertEqual(
+            status_conflict_retry_delay_ms(
+                8, base_delay_ms=MAX_STATUS_RETRY_DELAY_MS,
+                max_delay_ms=MAX_STATUS_RETRY_DELAY_MS,
+            ),
+            MAX_STATUS_RETRY_DELAY_MS,
+        )
+
+    def test_configuration_is_strict(self):
+        cases = (
+            ({"retry_number": 0}, "retry_number"),
+            ({"retry_number": 9}, "retry_number"),
+            ({"retry_number": True}, "retry_number"),
+            ({"retry_number": 1.0}, "retry_number"),
+            ({"retry_number": 1, "base_delay_ms": 0}, "base_delay_ms"),
+            ({"retry_number": 1, "base_delay_ms": True}, "base_delay_ms"),
+            ({"retry_number": 1, "base_delay_ms": 10_001}, "base_delay_ms"),
+            ({"retry_number": 1, "max_delay_ms": 0}, "max_delay_ms"),
+            ({"retry_number": 1, "max_delay_ms": False}, "max_delay_ms"),
+            ({"retry_number": 1, "max_delay_ms": 10_001}, "max_delay_ms"),
+            ({"retry_number": 1, "base_delay_ms": 2, "max_delay_ms": 1},
+             "must not exceed"),
+        )
+        for arguments, message in cases:
+            with self.subTest(arguments=arguments), self.assertRaisesRegex(
+                ValueError, message,
+            ):
+                status_conflict_retry_delay_ms(**arguments)
+
+    def test_policy_has_no_runtime_dependencies(self):
+        with patch("time.sleep") as sleep:
+            self.assertEqual(status_conflict_retry_delay_ms(3), 100)
+        sleep.assert_not_called()
 
 
 class PersistedCallStatusEventTests(unittest.TestCase):
