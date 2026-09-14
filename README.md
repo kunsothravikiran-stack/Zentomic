@@ -1562,6 +1562,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/speech_event.py`: authenticated speech admission with optional replay claims.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
+- `zentomic/dial_event.py`: authenticated child-leg outcomes with optional replay claims.
 - `zentomic/call_status.py`: strict terminal versus active call-leg classification.
 - `zentomic/call_status_event.py`: authenticated call-leg lifecycle composition.
 - `zentomic/callback_claim_store.py`: bounded local replay claims for adapter tests.
@@ -1663,6 +1664,14 @@ before authentication, then binds and claims the exact step before reading
 the claim cannot replace the validated destination. Production code must keep
 the pending intent, route revision and claim in one authorized current-step
 transaction when those values must change atomically.
+
+`resolve_claimed_dial_result_event` applies the claim boundary to a Number
+action callback. It validates trusted fallback state, authenticates the parent
+call, checks the exact expected child leg, and only then claims the dial step
+before reading `DialCallStatus`. A delayed result from an earlier child cannot
+consume the current step, and a replay cannot request the fallback twice. A
+production transaction must bind the claim to the authorized current child and
+atomically persist `fallback_used` before any new dial is placed.
 
 For offline conditional-write experiments, `InMemoryCallStatusStore` in
 `zentomic.call_status_store` keeps immutable status/revision snapshots under

@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 from threading import Lock
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from zentomic.authentication import SignatureValidator, validate_call_event
 
@@ -28,6 +28,12 @@ class CallbackClaimer(Protocol):
         """Return exactly True for a new key and exactly False for a replay."""
 
 
+PreparedCallbackClaim = tuple[
+    Callable[[str, str, str], bool],
+    tuple[str, str, str],
+]
+
+
 def _key(workspace_id: str, call_sid: str, step_id: str) -> tuple[str, str, str]:
     for value in (workspace_id, call_sid, step_id):
         # UTF-8 needs at least one byte per character. Reject long inputs before
@@ -42,6 +48,26 @@ def _key(workspace_id: str, call_sid: str, step_id: str) -> tuple[str, str, str]
         if len(encoded) > MAX_CLAIM_IDENTIFIER_BYTES:
             raise ValueError(_IDENTIFIER_ERROR)
     return workspace_id, call_sid, step_id
+
+
+def _prepare_callback_claim(
+    workspace_id: str, call_sid: str, step_id: str, claimer: CallbackClaimer,
+) -> PreparedCallbackClaim:
+    """Validate a trusted claim boundary without consuming its key."""
+    claim = getattr(claimer, "claim", None)
+    if not callable(claim):
+        raise ValueError("claimer must provide a trusted callable claim method")
+    return claim, _key(workspace_id, call_sid, step_id)
+
+
+def _commit_callback_claim(prepared: PreparedCallbackClaim) -> None:
+    """Consume a previously validated claim, rejecting replays and bad adapters."""
+    claim, key = prepared
+    claimed = claim(*key)
+    if claimed is False:
+        raise CallbackReplayError("callback step already claimed")
+    if claimed is not True:
+        raise ValueError("claimer must return exactly True or False")
 
 
 class InMemoryCallbackClaimStore:
@@ -98,18 +124,13 @@ def validate_and_claim_call_event(
     adapter fails closed. This helper does not authorize a workspace, persist
     state, acknowledge a webhook or execute an effect.
     """
-    claim = getattr(claimer, "claim", None)
-    if not callable(claim):
-        raise ValueError("claimer must provide a trusted callable claim method")
-    key = _key(workspace_id, expected_call_sid, step_id)
+    prepared = _prepare_callback_claim(
+        workspace_id, expected_call_sid, step_id, claimer,
+    )
     fields = validate_call_event(
         event, public_url=public_url, validator=validator,
         expected_account_sid=expected_account_sid,
         expected_call_sid=expected_call_sid,
     )
-    claimed = claim(*key)
-    if claimed is False:
-        raise CallbackReplayError("callback step already claimed")
-    if claimed is not True:
-        raise ValueError("claimer must return exactly True or False")
+    _commit_callback_claim(prepared)
     return fields

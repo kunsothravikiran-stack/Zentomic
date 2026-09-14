@@ -4,7 +4,17 @@ from collections.abc import Mapping
 from typing import Any
 
 from zentomic.authentication import SignatureValidator, validate_call_event
-from zentomic.dial import DialDecision, resolve_dial_result
+from zentomic.callback_claim_store import (
+    CallbackClaimer,
+    _commit_callback_claim,
+    _prepare_callback_claim,
+)
+from zentomic.dial import (
+    DialDecision,
+    _resolve_validated_dial_result,
+    _validate_dial_result_configuration,
+    resolve_dial_result,
+)
 from zentomic.routing import _valid_target
 
 
@@ -42,6 +52,49 @@ def resolve_dial_result_event(
     if fields.get("DialCallSid") != expected_dial_call_sid:
         raise ValueError("webhook does not match the expected dial step")
     return resolve_dial_result(
+        fields.get("DialCallStatus"), fallback_target=fallback_target,
+        fallback_used=fallback_used,
+    )
+
+
+def resolve_claimed_dial_result_event(
+    event: Mapping[str, Any], *, public_url: str, validator: SignatureValidator,
+    expected_account_sid: str, expected_call_sid: str, expected_dial_call_sid: str,
+    workspace_id: str, step_id: str, claimer: CallbackClaimer,
+    fallback_target: str, fallback_used: bool = False,
+) -> DialDecision:
+    """Validate trusted state, bind the child leg, claim, then resolve once.
+
+    Parent and child call identifiers, workspace, step and fallback state must
+    come from one trusted session snapshot. Configuration and the claim boundary
+    are validated before authentication. A rejected signature, wrong parent or
+    stale child callback leaves the step unclaimed. The exact child identity is
+    checked before claiming, while replays fail before outcome policy runs.
+
+    Production adapters still need an authorized current-step and child-leg
+    check plus a durable conditional write, transactionally combined with
+    fallback state when required. This helper performs no I/O, persistence,
+    rendering, callback acknowledgement, cleanup, or dialing.
+    """
+    if not _valid_target(expected_dial_call_sid):
+        raise ValueError(
+            "expected_dial_call_sid must be a nonblank UTF-8 string of at most 256 bytes"
+        )
+    _validate_dial_result_configuration(
+        fallback_target=fallback_target, fallback_used=fallback_used,
+    )
+    prepared = _prepare_callback_claim(
+        workspace_id, expected_call_sid, step_id, claimer,
+    )
+    fields = validate_call_event(
+        event, public_url=public_url, validator=validator,
+        expected_account_sid=expected_account_sid,
+        expected_call_sid=expected_call_sid,
+    )
+    if fields.get("DialCallSid") != expected_dial_call_sid:
+        raise ValueError("webhook does not match the expected dial step")
+    _commit_callback_claim(prepared)
+    return _resolve_validated_dial_result(
         fields.get("DialCallStatus"), fallback_target=fallback_target,
         fallback_used=fallback_used,
     )

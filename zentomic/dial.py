@@ -29,10 +29,28 @@ def resolve_dial_result(
     a fallback; never take it from the request or reset it on each callback.
     This helper does not authenticate, deduplicate, persist, render, or dial.
     """
+    _validate_dial_result_configuration(
+        fallback_target=fallback_target, fallback_used=fallback_used,
+    )
+    return _resolve_validated_dial_result(
+        status, fallback_target=fallback_target, fallback_used=fallback_used,
+    )
+
+
+def _validate_dial_result_configuration(
+    *, fallback_target: str, fallback_used: bool,
+) -> None:
+    """Validate trusted dial-result state before admitting callback input."""
     if not _valid_target(fallback_target):
         raise ValueError("fallback_target must be a nonblank UTF-8 string of at most 256 bytes")
     if type(fallback_used) is not bool:
         raise ValueError("fallback_used must be a boolean")
+
+
+def _resolve_validated_dial_result(
+    status: str, *, fallback_target: str, fallback_used: bool,
+) -> DialDecision:
+    """Resolve one callback status after trusted configuration was validated."""
     if not isinstance(status, str) or status not in _FAILED_STATUSES | _TERMINAL_STATUSES:
         raise ValueError("unsupported Number dial result status")
 

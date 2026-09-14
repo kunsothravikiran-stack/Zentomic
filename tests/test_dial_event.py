@@ -6,8 +6,15 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 
+from zentomic.callback_claim_store import (
+    CallbackReplayError,
+    InMemoryCallbackClaimStore,
+)
 from zentomic.dial import DialDecision
-from zentomic.dial_event import resolve_dial_result_event
+from zentomic.dial_event import (
+    resolve_claimed_dial_result_event,
+    resolve_dial_result_event,
+)
 
 
 class DialEventTests(unittest.TestCase):
@@ -123,6 +130,114 @@ class DialEventTests(unittest.TestCase):
         decision = self.resolve(self.event(DialCallSid=child), Mock(return_value=True),
                                 expected_dial_call_sid=child, fallback_target=" reception-\u00e9 ")
         self.assertEqual(decision, DialDecision("fallback", " reception-\u00e9 "))
+
+
+class ClaimedDialEventTests(unittest.TestCase):
+    event = DialEventTests.event
+
+    def resolve_claimed(self, event, claimer, validator=None, **overrides):
+        config = {
+            "public_url": "https://example.com/voice/dial-result",
+            "validator": validator or Mock(return_value=True),
+            "expected_account_sid": "synthetic-account",
+            "expected_call_sid": "synthetic-parent",
+            "expected_dial_call_sid": "synthetic-child",
+            "workspace_id": "synthetic-workspace",
+            "step_id": "dial-attempt-1",
+            "claimer": claimer,
+            "fallback_target": "demo-reception",
+            "fallback_used": False,
+        }
+        config.update(overrides)
+        return resolve_claimed_dial_result_event(event, **config)
+
+    def test_authenticated_child_result_is_claimed_once_in_all_proxy_formats(self):
+        for version in ("1.0", "2.0"):
+            for encoded in (False, True):
+                with self.subTest(version=version, encoded=encoded):
+                    store = InMemoryCallbackClaimStore()
+                    event = self.event(
+                        version, encoded, workspace_id="untrusted",
+                        step_id="untrusted", fallback_target="untrusted",
+                    )
+                    original = copy.deepcopy(event)
+                    self.assertEqual(
+                        self.resolve_claimed(event, store),
+                        DialDecision("fallback", "demo-reception"),
+                    )
+                    self.assertEqual(event, original)
+                    with self.assertRaisesRegex(
+                        CallbackReplayError, "^callback step already claimed$",
+                    ), patch(
+                        "zentomic.dial_event._resolve_validated_dial_result",
+                    ) as policy:
+                        self.resolve_claimed(event, store)
+                    policy.assert_not_called()
+                    self.assertFalse(store.claim(
+                        "synthetic-workspace", "synthetic-parent", "dial-attempt-1",
+                    ))
+                    self.assertTrue(store.claim(
+                        "untrusted", "synthetic-parent", "untrusted",
+                    ))
+
+    def test_rejected_or_stale_child_callback_does_not_consume_the_step(self):
+        cases = (
+            ({}, Mock(return_value=False)),
+            ({"AccountSid": "other-account"}, Mock(return_value=True)),
+            ({"CallSid": "other-parent"}, Mock(return_value=True)),
+            ({"DialCallSid": "previous-child"}, Mock(return_value=True)),
+        )
+        for fields, validator in cases:
+            store = InMemoryCallbackClaimStore()
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                self.resolve_claimed(self.event(**fields), store, validator)
+            self.assertTrue(store.claim(
+                "synthetic-workspace", "synthetic-parent", "dial-attempt-1",
+            ))
+
+    def test_invalid_trusted_state_does_not_authenticate_or_claim(self):
+        for overrides in (
+            {"expected_dial_call_sid": ""},
+            {"fallback_target": ""},
+            {"fallback_used": "false"},
+            {"workspace_id": ""},
+            {"step_id": " "},
+            {"claimer": object()},
+        ):
+            validator = Mock(return_value=True)
+            claimer = Mock()
+            call_overrides = dict(overrides)
+            supplied_claimer = call_overrides.pop("claimer", claimer)
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.resolve_claimed(
+                    self.event(), supplied_claimer, validator, **call_overrides,
+                )
+            validator.assert_not_called()
+            claimer.claim.assert_not_called()
+
+    def test_claim_cannot_trigger_revalidation_or_replace_trusted_fallback(self):
+        class SingleValidationTarget(str):
+            checks = 0
+
+            def encode(self, *args, **kwargs):
+                self.checks += 1
+                if self.checks > 1:
+                    raise AssertionError("fallback was validated after the claim")
+                return super().encode(*args, **kwargs)
+
+        target = SingleValidationTarget("demo-reception")
+        claimer = Mock()
+        claimer.claim.return_value = True
+        self.assertEqual(
+            self.resolve_claimed(
+                self.event(), claimer, fallback_target=target,
+            ),
+            DialDecision("fallback", target),
+        )
+        self.assertEqual(target.checks, 1)
+        claimer.claim.assert_called_once_with(
+            "synthetic-workspace", "synthetic-parent", "dial-attempt-1",
+        )
 
 
 if __name__ == "__main__":
