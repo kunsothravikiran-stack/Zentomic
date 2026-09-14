@@ -996,6 +996,17 @@ atomically claim that step and persist the attempt count before acting, and
 reload/revalidate on conflicts. There is no endpoint, SDK cryptography, state
 store, target authorization, or telephony operation in this helper.
 
+`resolve_claimed_gather_event` adds the repository's injectable atomic claim
+boundary to that composition. It validates the complete trusted keypad policy
+before authenticating or claiming, then admits exactly one callback for the
+trusted `(workspace_id, call_sid, step_id)` key. Invalid configuration and
+rejected callbacks leave the step unclaimed; an authenticated replay raises
+`CallbackReplayError` before keypad policy runs. Request fields cannot select
+the claim key or retry state. Use `InMemoryCallbackClaimStore` only for offline
+tests. Production still requires an authorized current-step check and a durable
+conditional write, transactionally combined with related session state when
+needed.
+
 Run the synthetic v1/v2, plain/base64, exhaustion, configuration-isolation, and
 authentication-order checks with `python -m tests tests.test_gather_event`.
 
@@ -1537,7 +1548,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
 - `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
-- `zentomic/gather_event.py`: authenticated keypad decisions using trusted route snapshots.
+- `zentomic/gather_event.py`: authenticated keypad decisions with optional replay claims.
 - `zentomic/budget.py`: individual and combined whole-call time/count admission and timeouts.
 - `zentomic/speech.py`: bounded speech result admission before classification.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
@@ -1621,6 +1632,13 @@ guarantee. A production implementation must authorize the workspace, verify
 the current persisted step, and use a durable conditional write. When a claim
 and related state transition must succeed together, commit them in one
 transaction. Do not retry an effect merely because a response was lost.
+
+`resolve_claimed_gather_event` applies this seam to one bounded keypad step. It
+first snapshots and validates routes, destinations, retry counts and the hangup
+digit, then authenticates, binds and claims before resolving `Digits`. That
+ordering prevents bad trusted policy or rejected transport from poisoning a
+valid step and prevents a replay from reaching collection policy. The helper
+still does not persist the returned attempt count or execute its decision.
 
 For offline conditional-write experiments, `InMemoryCallStatusStore` in
 `zentomic.call_status_store` keeps immutable status/revision snapshots under

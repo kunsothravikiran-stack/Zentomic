@@ -16,6 +16,53 @@ class GatherDecision:
     attempts: int
 
 
+def _validate_gather_configuration(
+    routes: Mapping[str, str], *, fallback_target: str, attempts: int,
+    max_attempts: int, hangup_digit: str | None,
+) -> dict[str, str]:
+    """Return a private menu snapshot after validating all trusted state."""
+    if type(attempts) is not int or attempts < 0:
+        raise ValueError("attempts must be a nonnegative integer")
+    if type(max_attempts) is not int or max_attempts < 1:
+        raise ValueError("max_attempts must be a positive integer")
+    menu = _snapshot_dtmf_routes(routes)
+    # Missing input exercises every route and fallback configuration check
+    # without selecting a destination or consuming an attempt.
+    resolve_dtmf(None, menu, fallback_target=fallback_target)
+    if hangup_digit is not None:
+        if (not isinstance(hangup_digit, str) or len(hangup_digit) != 1
+                or hangup_digit not in "0123456789"):
+            raise ValueError("hangup_digit must be a single ASCII digit or None")
+        if hangup_digit in menu:
+            raise ValueError("hangup_digit must not overlap a configured route")
+    return menu
+
+
+def _resolve_validated_gather(
+    digits: str | None, menu: Mapping[str, str], *, fallback_target: str,
+    attempts: int, max_attempts: int, hangup_digit: str | None,
+) -> GatherDecision:
+    """Resolve input after the caller validated and privately copied policy."""
+    valid_digit = (
+        isinstance(digits, str) and len(digits) == 1
+        and digits in "0123456789"
+    )
+    target = menu.get(digits, fallback_target) if valid_digit else fallback_target
+    if attempts >= max_attempts:
+        return GatherDecision("fallback", fallback_target, attempts)
+
+    completed = attempts + 1
+    if hangup_digit is not None and valid_digit and digits == hangup_digit:
+        return GatherDecision("hangup", None, completed)
+    # Membership distinguishes a configured reception key from invalid input
+    # that happens to resolve to the same fallback destination.
+    if valid_digit and digits in menu:
+        return GatherDecision("route", target, completed)
+    if completed < max_attempts:
+        return GatherDecision("retry", None, completed)
+    return GatherDecision("fallback", fallback_target, completed)
+
+
 def resolve_gather(
     digits: str | None,
     routes: Mapping[str, str],
@@ -38,28 +85,11 @@ def resolve_gather(
     Adapters must atomically deduplicate callbacks and persist the returned
     count in trusted, workspace-scoped call-session state before retrying.
     """
-    if type(attempts) is not int or attempts < 0:
-        raise ValueError("attempts must be a nonnegative integer")
-    if type(max_attempts) is not int or max_attempts < 1:
-        raise ValueError("max_attempts must be a positive integer")
-    menu = _snapshot_dtmf_routes(routes)
-    target = resolve_dtmf(digits, menu, fallback_target=fallback_target)
-    if hangup_digit is not None:
-        if (not isinstance(hangup_digit, str) or len(hangup_digit) != 1
-                or hangup_digit not in "0123456789"):
-            raise ValueError("hangup_digit must be a single ASCII digit or None")
-        if hangup_digit in menu:
-            raise ValueError("hangup_digit must not overlap a configured route")
-    if attempts >= max_attempts:
-        return GatherDecision("fallback", fallback_target, attempts)
-
-    completed = attempts + 1
-    if hangup_digit is not None and isinstance(digits, str) and digits == hangup_digit:
-        return GatherDecision("hangup", None, completed)
-    # Membership distinguishes a configured reception key from invalid input
-    # that happens to resolve to the same fallback destination.
-    if isinstance(digits, str) and digits in menu:
-        return GatherDecision("route", target, completed)
-    if completed < max_attempts:
-        return GatherDecision("retry", None, completed)
-    return GatherDecision("fallback", fallback_target, completed)
+    menu = _validate_gather_configuration(
+        routes, fallback_target=fallback_target, attempts=attempts,
+        max_attempts=max_attempts, hangup_digit=hangup_digit,
+    )
+    return _resolve_validated_gather(
+        digits, menu, fallback_target=fallback_target, attempts=attempts,
+        max_attempts=max_attempts, hangup_digit=hangup_digit,
+    )
