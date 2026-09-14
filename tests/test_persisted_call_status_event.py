@@ -303,6 +303,29 @@ class BudgetedStatusConflictRetryHookTests(unittest.TestCase):
         randbelow.assert_called_once_with(21)
         wait_ms.assert_called_once_with(20)
 
+    def test_runtime_must_not_increase_between_retries(self):
+        remaining_ms = Mock(side_effect=[150, 130, 131])
+        randbelow = Mock(return_value=20)
+        wait_ms = Mock()
+        hook = make_budgeted_status_conflict_retry_hook(
+            invocation_remaining_ms=remaining_ms,
+            wait_ms=wait_ms,
+            randbelow=randbelow,
+            reserve_ms=100,
+            minimum_retry_attempt_ms=30,
+        )
+
+        hook(4)
+        with self.assertRaisesRegex(
+            ValueError,
+            "^invocation_remaining_ms must not increase between retries$",
+        ):
+            hook(1)
+
+        self.assertEqual(remaining_ms.call_count, 3)
+        randbelow.assert_called_once_with(21)
+        wait_ms.assert_called_once_with(20)
+
     def test_insufficient_budget_aborts_without_sampling_or_waiting(self):
         remaining_ms = Mock(return_value=129)
         randbelow = Mock(side_effect=AssertionError("sampler must not run"))

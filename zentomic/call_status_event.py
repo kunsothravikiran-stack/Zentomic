@@ -120,8 +120,9 @@ def make_budgeted_status_conflict_retry_hook(
     jitter. Each invocation reads remaining time before and after the wait,
     samples one budgeted delay, and passes that delay to ``wait_ms``. The second
     reading must account for the sampled delay (and may stay equal only for a
-    zero delay). Insufficient runtime raises ``StatusRetryBudgetExhaustedError``
-    before sampling or after waiting.
+    zero delay). Later retry readings cannot exceed the preceding post-wait
+    reading. Insufficient runtime raises ``StatusRetryBudgetExhaustedError``
+    before sampling or after waiting. Build one hook per invocation.
     """
     if not callable(invocation_remaining_ms):
         raise ValueError("invocation_remaining_ms must be callable")
@@ -137,8 +138,21 @@ def make_budgeted_status_conflict_retry_hook(
     if type(minimum_retry_attempt_ms) is not int or minimum_retry_attempt_ms < 1:
         raise ValueError("minimum_retry_attempt_ms must be a positive integer")
 
+    last_remaining_ms: int | None = None
+
     def before_retry(retry_number: int) -> None:
+        nonlocal last_remaining_ms
         remaining_before_wait_ms = invocation_remaining_ms()
+        if (type(remaining_before_wait_ms) is not int
+                or remaining_before_wait_ms < 0):
+            raise ValueError(
+                "invocation_remaining_ms must be a nonnegative integer"
+            )
+        if (last_remaining_ms is not None
+                and remaining_before_wait_ms > last_remaining_ms):
+            raise ValueError(
+                "invocation_remaining_ms must not increase between retries"
+            )
         delay_ms = budgeted_status_conflict_retry_delay_ms(
             retry_number,
             invocation_remaining_ms=remaining_before_wait_ms,
@@ -171,6 +185,7 @@ def make_budgeted_status_conflict_retry_hook(
             raise StatusRetryBudgetExhaustedError(
                 "insufficient runtime for status retry"
             )
+        last_remaining_ms = remaining_after_wait_ms
 
     return before_retry
 

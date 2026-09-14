@@ -1268,7 +1268,10 @@ attempt. This post-wait check closes the gap when wait overhead or runtime drift
 uses more budget than the sampled delay. The second reading may stay equal only
 for a zero-delay sample; a positive sample must consume at least that many
 milliseconds or the malformed waiter/runtime pair fails closed. An
-impossible increase also fails closed as an invalid runtime source.
+impossible increase also fails closed as an invalid runtime source. Across
+conflicts, each fresh pre-wait reading must not exceed the preceding post-wait
+reading, preventing a stale or reset runtime source from restoring spent budget.
+Create a new hook for each invocation so this monotonic history is not shared.
 If the cleanup and next-attempt
 reservations cannot both fit, it raises `StatusRetryBudgetExhaustedError` before
 sampling or after waiting, so `retry_call_status_event` does not start another
