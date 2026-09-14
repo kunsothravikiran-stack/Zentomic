@@ -9,6 +9,7 @@ from tests.test_voice_flow import ACCOUNT, CALL, SIGNATURE, callback
 from zentomic.call_status_event import (
     MAX_STATUS_CONFLICT_RETRIES,
     MAX_STATUS_RETRY_DELAY_MS,
+    jittered_status_conflict_retry_delay_ms,
     observe_call_status_event,
     retry_call_status_event,
     status_conflict_retry_delay_ms,
@@ -71,6 +72,54 @@ class StatusConflictRetryDelayTests(unittest.TestCase):
         with patch("time.sleep") as sleep:
             self.assertEqual(status_conflict_retry_delay_ms(3), 100)
         sleep.assert_not_called()
+
+    def test_full_jitter_samples_once_with_an_exclusive_ceiling(self):
+        randbelow = Mock(return_value=99)
+
+        delay = jittered_status_conflict_retry_delay_ms(3, randbelow=randbelow)
+
+        self.assertEqual(delay, 99)
+        randbelow.assert_called_once_with(101)
+
+    def test_full_jitter_admits_both_boundaries(self):
+        self.assertEqual(
+            jittered_status_conflict_retry_delay_ms(
+                1, randbelow=lambda upper: 0,
+            ),
+            0,
+        )
+        self.assertEqual(
+            jittered_status_conflict_retry_delay_ms(
+                8, randbelow=lambda upper: upper - 1,
+            ),
+            400,
+        )
+
+    def test_full_jitter_validates_policy_before_sampling(self):
+        randbelow = Mock(side_effect=AssertionError("sampler must not run"))
+
+        with self.assertRaisesRegex(ValueError, "retry_number"):
+            jittered_status_conflict_retry_delay_ms(0, randbelow=randbelow)
+
+        randbelow.assert_not_called()
+
+    def test_full_jitter_sampler_contract_is_strict(self):
+        for result in (-1, 26, True, False, 1.0, "1", None):
+            with self.subTest(result=result), self.assertRaisesRegex(
+                ValueError, "^randbelow returned an invalid retry delay$",
+            ):
+                jittered_status_conflict_retry_delay_ms(
+                    1, randbelow=Mock(return_value=result),
+                )
+
+    def test_full_jitter_requires_a_callable_sampler(self):
+        for randbelow in (None, False, 0, "sampler", object()):
+            with self.subTest(randbelow=randbelow), self.assertRaisesRegex(
+                ValueError, "^randbelow must be callable$",
+            ):
+                jittered_status_conflict_retry_delay_ms(
+                    1, randbelow=randbelow,
+                )
 
 
 class PersistedCallStatusEventTests(unittest.TestCase):

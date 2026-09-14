@@ -41,6 +41,32 @@ def status_conflict_retry_delay_ms(
     return min(max_delay_ms, base_delay_ms * (1 << (retry_number - 1)))
 
 
+def jittered_status_conflict_retry_delay_ms(
+    retry_number: int, *, randbelow: Callable[[int], int],
+    base_delay_ms: int = 25, max_delay_ms: int = 400,
+) -> int:
+    """Sample a full-jitter delay within the exponential retry ceiling.
+
+    ``randbelow`` is a trusted injected function with the same contract as
+    ``secrets.randbelow``: given an exclusive positive upper bound, it returns
+    an integer from zero up to that bound. The callback receives no request or
+    storage data. This helper validates all policy inputs before sampling, calls
+    the sampler exactly once, and rejects malformed sampler results.
+    """
+    if not callable(randbelow):
+        raise ValueError("randbelow must be callable")
+    ceiling_ms = status_conflict_retry_delay_ms(
+        retry_number,
+        base_delay_ms=base_delay_ms,
+        max_delay_ms=max_delay_ms,
+    )
+    upper_bound = ceiling_ms + 1
+    delay_ms = randbelow(upper_bound)
+    if type(delay_ms) is not int or not 0 <= delay_ms < upper_bound:
+        raise ValueError("randbelow returned an invalid retry delay")
+    return delay_ms
+
+
 def _validate_status_snapshot(value: Any) -> CallStatusSnapshot:
     """Keep malformed adapter results from crossing the orchestration boundary."""
     if type(value) is not CallStatusSnapshot:

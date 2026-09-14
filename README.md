@@ -1223,20 +1223,30 @@ make downstream effects idempotent, so production code must still supply an
 appropriate backoff and idempotency policy.
 
 `status_conflict_retry_delay_ms(retry_number)` provides a pure exponential
-backoff policy for that hook. Its defaults yield 25, 50, 100, 200, then at most
+backoff ceiling for that hook. Its defaults yield 25, 50, 100, 200, then at most
 400 milliseconds; custom base and maximum delays are positive integers capped
 at 10 seconds. It does not sleep, sample a clock, inspect callback data, or use
 randomness. A runtime adapter can wait for the returned duration only when its
-fresh remaining-time budget allows it. When many writers can contend, choose a
-jittered value no greater than the returned delay instead of synchronizing all
-retries at the same boundary.
+fresh remaining-time budget allows it.
+
+`jittered_status_conflict_retry_delay_ms(..., randbelow=...)` samples full
+jitter from zero through that ceiling so contending writers do not all retry at
+the same boundary. The trusted sampler follows the `secrets.randbelow` contract:
+it receives one exclusive upper bound, is called exactly once after policy
+validation, and must return an exact integer in range. The helper rejects a
+malformed result and propagates sampler failures. It does not sleep or read
+callback/storage data.
 
 ```python
 # example: compile-only
-from zentomic.call_status_event import status_conflict_retry_delay_ms
+from secrets import randbelow
+
+from zentomic.call_status_event import jittered_status_conflict_retry_delay_ms
 
 def before_status_retry(retry_number):
-    delay_ms = status_conflict_retry_delay_ms(retry_number)
+    delay_ms = jittered_status_conflict_retry_delay_ms(
+        retry_number, randbelow=randbelow,
+    )
     trusted_runtime_wait_ms(delay_ms)  # must enforce a fresh runtime budget
 ```
 
