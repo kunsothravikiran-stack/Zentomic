@@ -17,6 +17,10 @@ MAX_STATUS_CONFLICT_RETRIES = 8
 MAX_STATUS_RETRY_DELAY_MS = 10_000
 
 
+class StatusRetryBudgetExhaustedError(TimeoutError):
+    """Raised before retrying when the trusted runtime budget is too small."""
+
+
 def status_conflict_retry_delay_ms(
     retry_number: int, *, base_delay_ms: int = 25,
     max_delay_ms: int = 400,
@@ -101,6 +105,53 @@ def budgeted_status_conflict_retry_delay_ms(
     if type(delay_ms) is not int or not 0 <= delay_ms < upper_bound:
         raise ValueError("randbelow returned an invalid retry delay")
     return delay_ms
+
+
+def make_budgeted_status_conflict_retry_hook(
+    *, invocation_remaining_ms: Callable[[], int],
+    wait_ms: Callable[[int], None], randbelow: Callable[[int], int],
+    reserve_ms: int, minimum_retry_attempt_ms: int = 1,
+    base_delay_ms: int = 25, max_delay_ms: int = 400,
+) -> Callable[[int], None]:
+    """Build a retry hook that refreshes runtime budget before every wait.
+
+    The trusted callbacks receive no request or storage data. Configuration is
+    validated when the hook is built, without reading the runtime or sampling
+    jitter. Each invocation then reads remaining time exactly once, samples a
+    budgeted delay, and passes that delay to ``wait_ms``. Insufficient runtime
+    raises ``StatusRetryBudgetExhaustedError`` before sampling or waiting.
+    """
+    if not callable(invocation_remaining_ms):
+        raise ValueError("invocation_remaining_ms must be callable")
+    if not callable(wait_ms):
+        raise ValueError("wait_ms must be callable")
+    if not callable(randbelow):
+        raise ValueError("randbelow must be callable")
+    status_conflict_retry_delay_ms(
+        1, base_delay_ms=base_delay_ms, max_delay_ms=max_delay_ms,
+    )
+    if type(reserve_ms) is not int or reserve_ms < 0:
+        raise ValueError("reserve_ms must be a nonnegative integer")
+    if type(minimum_retry_attempt_ms) is not int or minimum_retry_attempt_ms < 1:
+        raise ValueError("minimum_retry_attempt_ms must be a positive integer")
+
+    def before_retry(retry_number: int) -> None:
+        delay_ms = budgeted_status_conflict_retry_delay_ms(
+            retry_number,
+            invocation_remaining_ms=invocation_remaining_ms(),
+            reserve_ms=reserve_ms,
+            minimum_retry_attempt_ms=minimum_retry_attempt_ms,
+            randbelow=randbelow,
+            base_delay_ms=base_delay_ms,
+            max_delay_ms=max_delay_ms,
+        )
+        if delay_ms is None:
+            raise StatusRetryBudgetExhaustedError(
+                "insufficient runtime for status retry"
+            )
+        wait_ms(delay_ms)
+
+    return before_retry
 
 
 def _validate_status_snapshot(value: Any) -> CallStatusSnapshot:

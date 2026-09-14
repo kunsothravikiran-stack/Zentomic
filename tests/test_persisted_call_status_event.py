@@ -9,8 +9,10 @@ from tests.test_voice_flow import ACCOUNT, CALL, SIGNATURE, callback
 from zentomic.call_status_event import (
     MAX_STATUS_CONFLICT_RETRIES,
     MAX_STATUS_RETRY_DELAY_MS,
+    StatusRetryBudgetExhaustedError,
     budgeted_status_conflict_retry_delay_ms,
     jittered_status_conflict_retry_delay_ms,
+    make_budgeted_status_conflict_retry_hook,
     observe_call_status_event,
     retry_call_status_event,
     status_conflict_retry_delay_ms,
@@ -197,6 +199,91 @@ class StatusConflictRetryDelayTests(unittest.TestCase):
                     1, invocation_remaining_ms=26, reserve_ms=0,
                     randbelow=Mock(return_value=result),
                 )
+
+
+class BudgetedStatusConflictRetryHookTests(unittest.TestCase):
+    def test_refreshes_budget_and_waits_with_each_sampled_delay(self):
+        remaining_ms = Mock(side_effect=[150, 130])
+        randbelow = Mock(side_effect=[20, 0])
+        wait_ms = Mock()
+        hook = make_budgeted_status_conflict_retry_hook(
+            invocation_remaining_ms=remaining_ms,
+            wait_ms=wait_ms,
+            randbelow=randbelow,
+            reserve_ms=100,
+            minimum_retry_attempt_ms=30,
+        )
+
+        hook(4)
+        hook(1)
+
+        self.assertEqual(remaining_ms.call_count, 2)
+        self.assertEqual(randbelow.call_args_list, [call(21), call(1)])
+        self.assertEqual(wait_ms.call_args_list, [call(20), call(0)])
+
+    def test_insufficient_budget_aborts_without_sampling_or_waiting(self):
+        remaining_ms = Mock(return_value=129)
+        randbelow = Mock(side_effect=AssertionError("sampler must not run"))
+        wait_ms = Mock(side_effect=AssertionError("wait must not run"))
+        hook = make_budgeted_status_conflict_retry_hook(
+            invocation_remaining_ms=remaining_ms,
+            wait_ms=wait_ms,
+            randbelow=randbelow,
+            reserve_ms=100,
+            minimum_retry_attempt_ms=30,
+        )
+
+        with self.assertRaisesRegex(
+            StatusRetryBudgetExhaustedError,
+            "^insufficient runtime for status retry$",
+        ):
+            hook(1)
+
+        remaining_ms.assert_called_once_with()
+        randbelow.assert_not_called()
+        wait_ms.assert_not_called()
+
+    def test_factory_validates_configuration_without_running_callbacks(self):
+        callbacks = {
+            "invocation_remaining_ms": Mock(return_value=1_000),
+            "wait_ms": Mock(),
+            "randbelow": Mock(return_value=0),
+        }
+        cases = (
+            ({"invocation_remaining_ms": None}, "invocation_remaining_ms"),
+            ({"wait_ms": False}, "wait_ms"),
+            ({"randbelow": 0}, "randbelow"),
+            ({"reserve_ms": -1}, "reserve_ms"),
+            ({"reserve_ms": True}, "reserve_ms"),
+            ({"minimum_retry_attempt_ms": 0}, "minimum_retry_attempt_ms"),
+            ({"minimum_retry_attempt_ms": False}, "minimum_retry_attempt_ms"),
+            ({"base_delay_ms": 0}, "base_delay_ms"),
+            ({"max_delay_ms": 10_001}, "max_delay_ms"),
+        )
+        for overrides, message in cases:
+            arguments = {**callbacks, "reserve_ms": 100, **overrides}
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(
+                ValueError, message,
+            ):
+                make_budgeted_status_conflict_retry_hook(**arguments)
+        for callback_mock in callbacks.values():
+            callback_mock.assert_not_called()
+
+    def test_invalid_fresh_runtime_reading_fails_before_sampling(self):
+        randbelow = Mock(side_effect=AssertionError("sampler must not run"))
+        wait_ms = Mock()
+        hook = make_budgeted_status_conflict_retry_hook(
+            invocation_remaining_ms=Mock(return_value=True),
+            wait_ms=wait_ms,
+            randbelow=randbelow,
+            reserve_ms=100,
+        )
+
+        with self.assertRaisesRegex(ValueError, "invocation_remaining_ms"):
+            hook(1)
+
+        randbelow.assert_not_called()
+        wait_ms.assert_not_called()
 
 
 class PersistedCallStatusEventTests(unittest.TestCase):

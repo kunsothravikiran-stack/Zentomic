@@ -1249,20 +1249,26 @@ None of these timing values may come from callback fields.
 # example: compile-only
 from secrets import randbelow
 
-from zentomic.call_status_event import budgeted_status_conflict_retry_delay_ms
+from zentomic.call_status_event import make_budgeted_status_conflict_retry_hook
 
-def before_status_retry(retry_number):
-    delay_ms = budgeted_status_conflict_retry_delay_ms(
-        retry_number,
-        invocation_remaining_ms=trusted_runtime_remaining_ms(),
-        reserve_ms=500,
-        minimum_retry_attempt_ms=100,
-        randbelow=randbelow,
-    )
-    if delay_ms is None:
-        raise TimeoutError("insufficient runtime for status retry")
-    trusted_runtime_wait_ms(delay_ms)
+before_status_retry = make_budgeted_status_conflict_retry_hook(
+    invocation_remaining_ms=trusted_runtime_remaining_ms,
+    wait_ms=trusted_runtime_wait_ms,
+    randbelow=randbelow,
+    reserve_ms=500,
+    minimum_retry_attempt_ms=100,
+)
 ```
+
+The hook factory validates trusted dependencies and fixed timing policy before
+authentication, without reading runtime state or sampling randomness. On every
+conflict it reads remaining time once and passes the sampled integer delay to
+the injected waiter. If the cleanup and next-attempt reservations cannot both
+fit, it raises `StatusRetryBudgetExhaustedError` before sampling or waiting, so
+`retry_call_status_event` does not start another authentication/load/write
+attempt. Runtime, sampler, and waiter failures also propagate and fail closed.
+The adapter remains responsible for supplying a real bounded wait primitive;
+the scaffold does not import a sleep function or read a Lambda context.
 
 ### Offline webhook form decoding
 
