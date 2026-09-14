@@ -1201,9 +1201,11 @@ revision. Signed form fields cannot replace the workspace, call, or revision.
 Invalid callbacks never read or write the store; a concurrent update raises
 `StatusConflictError`, so retry the complete operation to authenticate and load
 again. Duplicate or delayed observations return the store's unchanged snapshot
-and do not authorize cleanup. The included in-memory store makes this flow
-testable offline; production still requires authorized durable conditional
-writes and idempotent side effects.
+and do not authorize cleanup. Returned snapshots must exactly match the requested
+monotonic transition and revision change; malformed or contradictory adapter
+results fail closed. The included in-memory store makes this flow testable
+offline; production still requires authorized durable conditional writes and
+idempotent side effects.
 
 ### Offline webhook form decoding
 

@@ -18,6 +18,8 @@ def _validate_status_snapshot(value: Any) -> CallStatusSnapshot:
         raise ValueError("store must return an exact CallStatusSnapshot")
     if type(value.revision) is not int or value.revision < 0:
         raise ValueError("store returned an invalid CallStatusSnapshot")
+    if (value.status is None) != (value.revision == 0):
+        raise ValueError("store returned an invalid CallStatusSnapshot")
     if value.status is not None:
         try:
             is_terminal_call_status(value.status)
@@ -84,7 +86,14 @@ def observe_call_status_event(
     incoming_status = fields.get("CallStatus")
     is_terminal_call_status(incoming_status)
     snapshot = _validate_status_snapshot(load(*key))
-    saved = observe(
-        *key, incoming_status, expected_revision=snapshot.revision,
+    expected_status = advance_call_status(snapshot.status, incoming_status)
+    expected = CallStatusSnapshot(
+        expected_status,
+        snapshot.revision + (expected_status != snapshot.status),
     )
-    return _validate_status_snapshot(saved)
+    saved = _validate_status_snapshot(observe(
+        *key, incoming_status, expected_revision=snapshot.revision,
+    ))
+    if saved != expected:
+        raise ValueError("store returned an unexpected CallStatusSnapshot")
+    return saved

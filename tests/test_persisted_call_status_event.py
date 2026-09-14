@@ -139,6 +139,8 @@ class PersistedCallStatusEventTests(unittest.TestCase):
         for snapshot in (
             object(),
             CallStatusSnapshot("private-invalid", 0),
+            CallStatusSnapshot("ringing", 0),
+            CallStatusSnapshot(None, 1),
             CallStatusSnapshot("ringing", True),
             CallStatusSnapshot("ringing", -1),
         ):
@@ -149,6 +151,32 @@ class PersistedCallStatusEventTests(unittest.TestCase):
             ):
                 self.save(callback({"CallStatus": "completed"}, "2.0", False), store=store)
             store.observe.assert_not_called()
+
+    def test_store_result_must_match_the_requested_transition(self):
+        cases = (
+            (CallStatusSnapshot(), "ringing", CallStatusSnapshot("queued", 1)),
+            (CallStatusSnapshot(), "ringing", CallStatusSnapshot("ringing", 2)),
+            (CallStatusSnapshot("ringing", 1), "completed",
+             CallStatusSnapshot("ringing", 1)),
+            (CallStatusSnapshot("completed", 2), "ringing",
+             CallStatusSnapshot("busy", 3)),
+            (CallStatusSnapshot("in-progress", 4), "queued",
+             CallStatusSnapshot("in-progress", 5)),
+        )
+        for loaded, incoming, returned in cases:
+            store = Mock()
+            store.load.return_value = loaded
+            store.observe.return_value = returned
+            with self.subTest(loaded=loaded, incoming=incoming, returned=returned):
+                with self.assertRaisesRegex(
+                    ValueError, "^store returned an unexpected CallStatusSnapshot$",
+                ):
+                    self.save(
+                        callback({"CallStatus": incoming}, "2.0", False), store=store,
+                    )
+                store.observe.assert_called_once_with(
+                    WORKSPACE, CALL, incoming, expected_revision=loaded.revision,
+                )
 
 
 if __name__ == "__main__":
