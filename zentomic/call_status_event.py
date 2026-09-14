@@ -118,9 +118,9 @@ def make_budgeted_status_conflict_retry_hook(
     The trusted callbacks receive no request or storage data. Configuration is
     validated when the hook is built, without reading the runtime or sampling
     jitter. Each invocation reads remaining time before and after the wait,
-    samples one budgeted delay, and passes that delay to ``wait_ms``. Insufficient
-    runtime raises
-    ``StatusRetryBudgetExhaustedError`` before sampling or after waiting.
+    samples one budgeted delay, and passes that delay to ``wait_ms``. The second
+    reading may stay equal or decrease, but cannot increase. Insufficient runtime
+    raises ``StatusRetryBudgetExhaustedError`` before sampling or after waiting.
     """
     if not callable(invocation_remaining_ms):
         raise ValueError("invocation_remaining_ms must be callable")
@@ -137,9 +137,10 @@ def make_budgeted_status_conflict_retry_hook(
         raise ValueError("minimum_retry_attempt_ms must be a positive integer")
 
     def before_retry(retry_number: int) -> None:
+        remaining_before_wait_ms = invocation_remaining_ms()
         delay_ms = budgeted_status_conflict_retry_delay_ms(
             retry_number,
-            invocation_remaining_ms=invocation_remaining_ms(),
+            invocation_remaining_ms=remaining_before_wait_ms,
             reserve_ms=reserve_ms,
             minimum_retry_attempt_ms=minimum_retry_attempt_ms,
             randbelow=randbelow,
@@ -156,6 +157,10 @@ def make_budgeted_status_conflict_retry_hook(
                 or remaining_after_wait_ms < 0):
             raise ValueError(
                 "invocation_remaining_ms must be a nonnegative integer"
+            )
+        if remaining_after_wait_ms > remaining_before_wait_ms:
+            raise ValueError(
+                "invocation_remaining_ms must not increase after waiting"
             )
         if remaining_after_wait_ms < reserve_ms + minimum_retry_attempt_ms:
             raise StatusRetryBudgetExhaustedError(
