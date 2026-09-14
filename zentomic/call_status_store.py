@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from threading import Lock
+from typing import Protocol
 
 from zentomic.call_status import advance_call_status, is_terminal_call_status
 
@@ -26,6 +27,19 @@ class StatusConflictError(ValueError):
 
 class StatusCapacityError(ValueError):
     """A new call cannot be stored without exceeding this instance's limit."""
+
+
+class CallStatusStore(Protocol):
+    """Minimal conditional lifecycle boundary supplied by an adapter."""
+
+    def load(self, workspace_id: str, call_sid: str) -> CallStatusSnapshot:
+        """Return the current exact snapshot for a trusted workspace/call key."""
+
+    def observe(
+        self, workspace_id: str, call_sid: str, incoming_status: str,
+        *, expected_revision: int,
+    ) -> CallStatusSnapshot:
+        """Conditionally apply one monotonic observation."""
 
 
 def _key(workspace_id: str, call_sid: str) -> tuple[str, str]:

@@ -1193,6 +1193,18 @@ an HTTP acknowledgment, or authorize side effects. The conditional-write and
 idempotency requirements above still apply. Tests use synthetic events and an
 injected mock validator, not a live SDK or database.
 
+`observe_call_status_event(event, ..., workspace_id=..., store=...)` adds an
+injectable conditional-storage boundary. It validates the trusted key and store
+shape, authenticates and binds the callback, validates `CallStatus`, then loads
+the exact `(workspace_id, expected_call_sid)` snapshot and writes against its
+revision. Signed form fields cannot replace the workspace, call, or revision.
+Invalid callbacks never read or write the store; a concurrent update raises
+`StatusConflictError`, so retry the complete operation to authenticate and load
+again. Duplicate or delayed observations return the store's unchanged snapshot
+and do not authorize cleanup. The included in-memory store makes this flow
+testable offline; production still requires authorized durable conditional
+writes and idempotent side effects.
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:
@@ -1564,7 +1576,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
 - `zentomic/dial_event.py`: authenticated child-leg outcomes with optional replay claims.
 - `zentomic/call_status.py`: strict terminal versus active call-leg classification.
-- `zentomic/call_status_event.py`: authenticated call-leg lifecycle composition.
+- `zentomic/call_status_event.py`: authenticated lifecycle proposals and conditional writes.
 - `zentomic/callback_claim_store.py`: bounded local replay claims for adapter tests.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/confirmation_event.py`: authenticated intent confirmation with optional replay claims.
@@ -1592,6 +1604,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
 - `tests/test_call_status.py`: lifecycle values, rejection, and authenticated composition.
 - `tests/test_call_status_flow.py`: authenticated lifecycle sequences and rejected updates.
+- `tests/test_persisted_call_status_event.py`: authenticated conditional lifecycle writes.
 - `tests/test_callback_claim_store.py`: replay claims, isolation, capacity, and contention.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 - `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
