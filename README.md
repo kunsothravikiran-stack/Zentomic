@@ -1544,6 +1544,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/dial.py`: one-fallback Number dial outcome policy.
 - `zentomic/call_status.py`: strict terminal versus active call-leg classification.
 - `zentomic/call_status_event.py`: authenticated call-leg lifecycle composition.
+- `zentomic/callback_claim_store.py`: bounded local replay claims for adapter tests.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/twiml.py`: offline collection, forwarding, and terminal response rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
@@ -1569,12 +1570,41 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_dial_result.py`: outcome policy, fallback exhaustion, and offline composition.
 - `tests/test_call_status.py`: lifecycle values, rejection, and authenticated composition.
 - `tests/test_call_status_flow.py`: authenticated lifecycle sequences and rejected updates.
+- `tests/test_callback_claim_store.py`: replay claims, isolation, capacity, and contention.
 - `tests/test_webhook.py`: encoding, parser limits, and offline routing integration.
 - `tests/test_webhook_event.py`: proxy formats, media types, and transport rejection.
 - `tests/test_authentication.py`: signature gate, dependency failures, and privacy.
 - `tests/test_call_authentication.py`: account/call binding and rejection before routing.
 
 ## Development boundaries
+
+For synthetic callback replay tests, `InMemoryCallbackClaimStore` in
+`zentomic.callback_claim_store` atomically claims exact
+`(workspace_id, call_sid, step_id)` keys. The first claim returns `True`; an
+identical replay returns `False`, allowing a local adapter test to prove that it
+would skip repeated routing, model, or telephony effects. Derive `step_id` from
+trusted persisted call state after authenticating and binding the callback,
+never from an untrusted form field. Different workspaces, calls, and steps are
+isolated. All identifiers are preserved exactly and must be nonblank UTF-8
+strings of at most 256 encoded bytes.
+
+```python
+from zentomic.callback_claim_store import InMemoryCallbackClaimStore
+
+claims = InMemoryCallbackClaimStore(max_entries=10)
+assert claims.claim("demo-workspace", "demo-call", "menu-attempt-1") is True
+assert claims.claim("demo-workspace", "demo-call", "menu-attempt-1") is False
+```
+
+The claim store is bounded by a positive `max_entries` constructor argument
+(default 1000). At capacity, a new key raises `CallbackClaimCapacityError`, while
+an already claimed key still returns `False`. Claims are never evicted or reset,
+and claim checking plus insertion share one lock. This supports deterministic
+single-process concurrency tests but provides no TTL, payload fingerprinting,
+distributed coordination, or durable storage. Production Lambda adapters need
+an atomic durable claim keyed to the authorized current step; they must fail
+closed on storage errors and commit the claim together with relevant state when
+the workflow requires one transaction.
 
 For offline conditional-write experiments, `InMemoryCallStatusStore` in
 `zentomic.call_status_store` keeps immutable status/revision snapshots under
@@ -1606,8 +1636,8 @@ authorization, and does not bound total Python object memory.
 
 This is a synthetic local test double, **not production session persistence**.
 Its lock coordinates only threads sharing one instance. It does not coordinate
-Lambda invocations, authenticate or authorize callers, deduplicate callbacks,
-store budgets/step claims, expire records, or provide durable storage. Use
+Lambda invocations, authenticate or authorize callers, integrate callback
+claims, store budgets/steps, expire records, or provide durable storage. Use
 short-lived instances and synthetic identifiers only. Conditional lifecycle
 write tests include two competing local threads and workspace/call isolation;
 they do not establish distributed database concurrency guarantees.
@@ -1619,7 +1649,7 @@ Local `.env` files are ignored and are not loaded by the scaffold.
 Future increments can add mocked service adapters, call-session state, and
 webhook validation. The signature gate has no configured production validator;
 end-to-end authentication, workspace isolation, cryptographic signature
-verification, durable persistence, and deployment are not implemented. Do not connect
-this scaffold to real call traffic until those boundaries are designed and
-tested. Do not add automatic deployments or paid service calls as part of
-routine development.
+verification, durable callback claims/persistence, and deployment are not
+implemented. Do not connect this scaffold to real call traffic until those
+boundaries are designed and tested. Do not add automatic deployments or paid
+service calls as part of routine development.
