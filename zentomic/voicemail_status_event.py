@@ -15,6 +15,11 @@ from zentomic.voicemail_status import (
     _resolve_validated_voicemail_recording_status,
     _validate_recording_sid,
 )
+from zentomic.voicemail_status_store import (
+    VoicemailStatusStore,
+    _key as _status_key,
+    _validate_status,
+)
 
 
 def _resolve_fields(
@@ -91,3 +96,42 @@ def resolve_claimed_voicemail_recording_status_event(
     )
     _commit_callback_claim(prepared)
     return result
+
+
+def record_voicemail_recording_status_event(
+    event: Mapping[str, Any], *, public_url: str, validator: SignatureValidator,
+    expected_account_sid: str, expected_call_sid: str,
+    expected_recording_sid: str, workspace_id: str,
+    store: VoicemailStatusStore, max_length: int = 120,
+) -> VoicemailRecordingStatus:
+    """Authenticate, bind, sanitize, and immutably record one final status.
+
+    Every identifier is trusted workspace/session state. The exact storage key
+    and adapter shape are validated before request authentication. The recording
+    SID is always bound to expected_recording_sid, so signed callback fields
+    cannot select another recording key. Invalid callbacks never reach storage.
+
+    The adapter must make exact redelivery idempotent and reject contradictory
+    final metadata. Its returned value is validated against the admitted result.
+    Storage errors propagate and fail closed. This helper performs no media
+    retrieval, callback acknowledgement, replay claiming, or provider I/O.
+    """
+    _validate_voicemail_max_length(max_length)
+    _validate_recording_sid(expected_recording_sid)
+    record = getattr(store, "record", None)
+    if not callable(record):
+        raise ValueError("store must provide a trusted callable record method")
+    _status_key(workspace_id, expected_call_sid, expected_recording_sid)
+    result = resolve_voicemail_recording_status_event(
+        event,
+        public_url=public_url,
+        validator=validator,
+        expected_account_sid=expected_account_sid,
+        expected_call_sid=expected_call_sid,
+        max_length=max_length,
+        expected_recording_sid=expected_recording_sid,
+    )
+    saved = _validate_status(record(workspace_id, expected_call_sid, result))
+    if saved != result:
+        raise ValueError("store returned an unexpected VoicemailRecordingStatus")
+    return saved

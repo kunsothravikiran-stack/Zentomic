@@ -754,6 +754,13 @@ metadata. It stores neither a recording URL nor audio. The configured capacity
 is only a local test bound: production still needs durable workspace-authorized
 storage, retention/expiry policy, encryption, and idempotent downstream effects.
 
+`record_voicemail_recording_status_event` composes that boundary with callback
+authentication, trusted account/call/recording binding, and status admission.
+It validates the exact trusted storage key and adapter shape before authenticating,
+never lets signed callback fields choose the key, and verifies that the adapter
+returns the admitted immutable result. Invalid callbacks never reach storage.
+The helper does not retrieve media, acknowledge callbacks, or perform provider I/O.
+
 ### Offline speech collection renderer
 
 `render_speech_gather` prepares an English, speech-only collection for a future
@@ -1829,6 +1836,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_voicemail_event.py`: voicemail result admission, authentication, privacy, and replay claims.
 - `tests/test_voicemail_status.py`: recording-status admission, authentication, privacy, and replay claims.
 - `tests/test_voicemail_status_store.py`: final-status idempotency, isolation, capacity, and contention.
+- `tests/test_voicemail_status_store_event.py`: authenticated final-status storage composition.
 - `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
 - `tests/test_speech.py`: speech budgets, text limits, and confirmation separation.
 - `tests/test_classification.py`: classifier schema, byte limits, and confirmation separation.
