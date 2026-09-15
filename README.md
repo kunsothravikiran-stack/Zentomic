@@ -1586,12 +1586,14 @@ python -m pip wheel --no-index --no-deps --no-build-isolation --wheel-dir dist .
 python -m pip install --no-index --no-deps dist/zentomic-0.1.0-py3-none-any.whl
 ```
 
-The wheel includes only the `zentomic` package and distribution metadata, not
-the test package or local configuration files. Keep running the test suite
-from the repository root. Building or installing locally does not publish a
-package or produce a deployable Lambda bundle; there is no release or
-deployment automation. Version `0.1.0` identifies this offline scaffold, not
-the production service.
+The wheel includes only the `zentomic` package, its `py.typed` marker, and
+distribution metadata, not the test package or local configuration files. The
+marker advertises the package\'s inline type annotations to compatible static
+type checkers. CI verifies that the marker survives a wheel build and install.
+Keep running the test suite from the repository root. Building or installing
+locally does not publish a package or produce a deployable Lambda bundle; there
+is no release or deployment automation. Version `0.1.0` identifies this offline
+scaffold, not the production service.
 
 ### Cross-module tests
 

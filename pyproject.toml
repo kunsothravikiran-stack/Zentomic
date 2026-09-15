@@ -22,6 +22,9 @@ include-package-data = false
 [tool.setuptools.dynamic]
 version = {attr = "zentomic.__version__"}
 
+[tool.setuptools.package-data]
+zentomic = ["py.typed"]
+
 [tool.setuptools.packages.find]
 include = ["zentomic", "zentomic.*"]
 namespaces = false

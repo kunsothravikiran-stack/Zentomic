@@ -48,6 +48,7 @@ jobs:
           zentomic | python -m json.tool > /dev/null
           expected_version="$(python -c 'from importlib.metadata import version; print(version("zentomic"))')"
           test "$(zentomic --version)" = "zentomic ${expected_version}"
+          python -c 'from importlib.resources import files; assert files("zentomic").joinpath("py.typed").is_file()'
 
       - name: Run health smoke check
         run: python -m zentomic | python -m json.tool > /dev/null
