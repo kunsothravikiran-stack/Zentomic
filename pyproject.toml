@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 
+[project.scripts]
+zentomic = "zentomic.__main__:main"
+
 [project.urls]
 Repository = "https://github.com/kunsothravikiran-stack/Zentomic"
 
