@@ -644,6 +644,40 @@ caller/model input. Rendering is offline and does not classify a caller, block
 a number, change persisted state, expose an endpoint, or place/reject a call.
 See the [Twilio Reject reference](https://www.twilio.com/docs/voice/twiml/reject).
 
+### Offline voicemail recording renderer
+
+`render_voicemail` serializes a trusted consent prompt followed by one bounded
+`Record` verb. It requires separate hosted callbacks for continuing call flow
+and for learning when the recording is available or absent:
+
+```python
+from zentomic.twiml import render_voicemail
+
+xml = render_voicemail(
+    "Please leave a message after the beep. By continuing, you consent to recording.",
+    action_path="/voice/voicemail-result",
+    recording_status_path="/voice/voicemail-status",
+    max_length=120,
+)
+```
+
+Both callbacks use POST and the same root-relative path restrictions as Gather.
+The status callback subscribes to `completed` and `absent`; use it instead of
+assuming the action callback means audio is already available. The renderer
+always enables the beep, trims surrounding silence, and accepts one DTMF finish
+key. `max_length` is project-limited to integer values from 2 through 600
+seconds, and the silence `timeout` to 1 through 60 seconds. Transcription is not
+requested, avoiding an implicit paid processing feature. These attributes
+follow the [Twilio Record reference](https://www.twilio.com/docs/voice/twiml/record).
+
+Recording has privacy, consent, retention, access-control, and payment-data
+implications. The prompt is trusted configuration, but this helper cannot prove
+that it satisfies the laws applying to a caller. A live adapter must authenticate
+and bind both callbacks, deduplicate them, authorize the current voicemail step,
+store only provider identifiers needed by policy, and restrict retrieval and
+retention. Never log recording URLs or caller audio. The helper performs no
+recording, storage, download, transcription, endpoint, or provider request.
+
 ### Offline speech collection renderer
 
 `render_speech_gather` prepares an English, speech-only collection for a future
@@ -1695,7 +1729,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/callback_claim_store.py`: bounded local replay claims for adapter tests.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/confirmation_event.py`: authenticated intent confirmation with optional replay claims.
-- `zentomic/twiml.py`: offline collection, forwarding, hangup, and pre-answer rejection rendering.
+- `zentomic/twiml.py`: offline collection, forwarding, voicemail, hangup, and pre-answer rejection rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.

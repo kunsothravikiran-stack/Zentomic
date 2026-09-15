@@ -6,7 +6,7 @@ from xml.etree.ElementTree import fromstring
 
 from zentomic.twiml import (
     render_dial, render_dtmf_gather, render_hangup, render_redirect,
-    render_reject, render_speech_gather,
+    render_reject, render_speech_gather, render_voicemail,
 )
 
 
@@ -159,6 +159,96 @@ class HangupTests(unittest.TestCase):
         ):
             self.assertEqual(render_hangup(), "<Response><Hangup /></Response>")
             self.assertEqual(render_hangup("Goodbye"), render_hangup("Goodbye"))
+
+
+class VoicemailTests(unittest.TestCase):
+    def render(self, prompt="Please leave a message after the beep.", **kwargs):
+        config = {
+            "action_path": "/voice/voicemail-result",
+            "recording_status_path": "/voice/voicemail-status",
+        }
+        config.update(kwargs)
+        return render_voicemail(prompt, **config)
+
+    def test_prompt_precedes_bounded_recording_with_two_post_callbacks(self):
+        root = fromstring(self.render())
+        self.assertEqual(root.tag, "Response")
+        self.assertEqual(root.attrib, {})
+        self.assertEqual([child.tag for child in root], ["Say", "Record"])
+        self.assertEqual(root[0].text, "Please leave a message after the beep.")
+        self.assertEqual(root[1].attrib, {
+            "action": "/voice/voicemail-result",
+            "method": "POST",
+            "recordingStatusCallback": "/voice/voicemail-status",
+            "recordingStatusCallbackMethod": "POST",
+            "recordingStatusCallbackEvent": "completed absent",
+            "maxLength": "120",
+            "timeout": "5",
+            "finishOnKey": "#",
+            "playBeep": "true",
+            "trim": "trim-silence",
+        })
+        self.assertEqual(len(root[1]), 0)
+        self.assertNotIn("transcribe", root[1].attrib)
+
+    def test_project_bounds_and_finish_keys_round_trip(self):
+        for max_length in (2, 120, 600):
+            for timeout in (1, 5, 60):
+                for finish_on_key in ("0", "9", "*", "#"):
+                    with self.subTest(max_length=max_length, timeout=timeout,
+                                      finish_on_key=finish_on_key):
+                        record = fromstring(self.render(
+                            max_length=max_length, timeout=timeout,
+                            finish_on_key=finish_on_key,
+                        ))[1]
+                        self.assertEqual(record.get("maxLength"), str(max_length))
+                        self.assertEqual(record.get("timeout"), str(timeout))
+                        self.assertEqual(record.get("finishOnKey"), finish_on_key)
+
+    def test_invalid_recording_policy_is_rejected_before_serialization(self):
+        cases = (
+            {"max_length": 1}, {"max_length": 601}, {"max_length": True},
+            {"max_length": 2.0}, {"max_length": "120"}, {"timeout": 0},
+            {"timeout": 61}, {"timeout": False}, {"timeout": 5.0},
+            {"finish_on_key": ""}, {"finish_on_key": "12"},
+            {"finish_on_key": "a"}, {"finish_on_key": True},
+        )
+        for kwargs in cases:
+            with self.subTest(kwargs=kwargs), patch("zentomic.twiml._serialize") as serialize:
+                with self.assertRaises(ValueError):
+                    self.render(**kwargs)
+                serialize.assert_not_called()
+
+    def test_both_callback_paths_use_the_shared_hosted_path_policy(self):
+        valid = "/" + "a" * 2047
+        root = fromstring(self.render(
+            action_path=valid, recording_status_path="/v1/recording_status/",
+        ))
+        self.assertEqual(root[1].get("action"), valid)
+        self.assertEqual(root[1].get("recordingStatusCallback"), "/v1/recording_status/")
+        invalid = (None, "", "/", "voice/result", "https://example.invalid/result",
+                   "/voice/result?next=1", "/voice/../other", "/" + "a" * 2048)
+        for path in invalid:
+            for field in ("action_path", "recording_status_path"):
+                with self.subTest(field=field, path=repr(path)[:40]), \
+                        self.assertRaises(ValueError):
+                    self.render(**{field: path})
+
+    def test_prompt_is_escaped_and_uses_shared_text_validation(self):
+        prompt = 'Message & <Dial>synthetic</Dial> "now"'
+        root = fromstring(self.render(prompt))
+        self.assertEqual(root[0].text, prompt)
+        self.assertEqual(root.findall(".//Dial"), [])
+        for invalid in (None, True, "", " \t\n", "x" * 1001, "Message\x00"):
+            with self.subTest(prompt=repr(invalid)[:40]), self.assertRaises(ValueError):
+                self.render(invalid)
+
+    def test_rendering_is_deterministic_and_offline(self):
+        expected = self.render()
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "socket.socket", side_effect=AssertionError("Network forbidden")
+        ):
+            self.assertEqual(self.render(), expected)
 
 
 class RejectTests(unittest.TestCase):

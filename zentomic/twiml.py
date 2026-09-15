@@ -170,6 +170,46 @@ def render_hangup(prompt: str | None = None) -> str:
     return _serialize(response)
 
 
+def render_voicemail(
+    prompt: str, *, action_path: str, recording_status_path: str,
+    max_length: int = 120, timeout: int = 5, finish_on_key: str = "#",
+) -> str:
+    """Render a bounded voicemail prompt and recording with trusted callbacks.
+
+    The action callback continues call flow after recording stops. The separate
+    status callback reports when the recording is available or absent. Both use
+    POST and the hosted, root-relative application path policy. Transcription is
+    deliberately not requested. This only serializes XML and does not record,
+    retain, fetch, authorize, or disclose caller audio.
+    """
+    _validate_prompt(prompt)
+    _validate_action_path(action_path)
+    _validate_action_path(recording_status_path)
+    if type(max_length) is not int or not 2 <= max_length <= 600:
+        raise ValueError("max_length must be an integer from 2 to 600 seconds")
+    if type(timeout) is not int or not 1 <= timeout <= 60:
+        raise ValueError("timeout must be an integer from 1 to 60 seconds")
+    if not isinstance(finish_on_key, str) or len(finish_on_key) != 1 \
+            or finish_on_key not in "0123456789*#":
+        raise ValueError("finish_on_key must be one DTMF character")
+
+    response = Element("Response")
+    SubElement(response, "Say").text = prompt
+    SubElement(response, "Record", {
+        "action": action_path,
+        "method": "POST",
+        "recordingStatusCallback": recording_status_path,
+        "recordingStatusCallbackMethod": "POST",
+        "recordingStatusCallbackEvent": "completed absent",
+        "maxLength": str(max_length),
+        "timeout": str(timeout),
+        "finishOnKey": finish_on_key,
+        "playBeep": "true",
+        "trim": "trim-silence",
+    })
+    return _serialize(response)
+
+
 def render_reject(*, reason: Literal["rejected", "busy"] = "rejected") -> str:
     """Render a pre-answer rejection for an authorized inbound call.
 
