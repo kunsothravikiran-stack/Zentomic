@@ -68,6 +68,16 @@ class VoicemailStatusExpiryStore(Protocol):
         """Replace exact expected metadata with a durable tombstone."""
 
 
+class VoicemailStatusSnapshotExpiryStore(Protocol):
+    """Atomic expiry-and-receipt boundary supplied by a retention adapter."""
+
+    def expire_and_inspect(
+        self, workspace_id: str, call_sid: str, recording_sid: str, *,
+        expected_status: VoicemailRecordingStatus,
+    ) -> VoicemailRecordingStatusSnapshot | None:
+        """Replace exact metadata and return only the created tombstone."""
+
+
 class VoicemailStatusExpiryReader(Protocol):
     """Read-only tombstone boundary supplied by a retention adapter."""
 
@@ -122,11 +132,13 @@ def _key(
 
 def _validate_snapshot(
     snapshot: VoicemailRecordingStatusSnapshot, *, recording_sid: str,
+    source: str = "inspect",
 ) -> VoicemailRecordingStatusSnapshot:
     """Validate one adapter snapshot and bind any status to the trusted key."""
     if type(snapshot) is not VoicemailRecordingStatusSnapshot:
         raise ValueError(
-            "store inspect must return an exact VoicemailRecordingStatusSnapshot"
+            f"store {source} must return an exact "
+            "VoicemailRecordingStatusSnapshot"
         )
     if type(snapshot.expired) is not bool:
         raise ValueError("snapshot expired must be an exact boolean")
@@ -229,6 +241,43 @@ def expire_voicemail_recording_status(
     if type(expired) is not bool:
         raise ValueError("store expire must return an exact boolean")
     return expired
+
+
+def expire_voicemail_recording_status_snapshot(
+    workspace_id: str, call_sid: str, recording_sid: str, *,
+    expected_status: VoicemailRecordingStatus,
+    store: VoicemailStatusSnapshotExpiryStore,
+) -> VoicemailRecordingStatusSnapshot | None:
+    """Atomically expire metadata and return the created tombstone snapshot.
+
+    The adapter must replace only the exact expected immutable status and
+    return the newly created, versioned tombstone in the same operation. A
+    missing or already expired value returns ``None``. This keeps a retention
+    worker from adopting a tombstone version created by a later recording
+    lifecycle through a separate inspection.
+
+    The helper validates the adapter, trusted key, expected value, and returned
+    snapshot. It performs no authentication, authorization, clock check, media
+    deletion, logging, network access, or provider operation.
+    """
+    expire_and_inspect = getattr(store, "expire_and_inspect", None)
+    if not callable(expire_and_inspect):
+        raise ValueError(
+            "store must provide a trusted callable expire_and_inspect method"
+        )
+    key = _key(workspace_id, call_sid, recording_sid)
+    expected_status = _validate_status(expected_status)
+    if expected_status.recording_sid != key[2]:
+        raise ValueError("expected status is for an unexpected recording")
+    snapshot = expire_and_inspect(*key, expected_status=expected_status)
+    if snapshot is None:
+        return None
+    snapshot = _validate_snapshot(
+        snapshot, recording_sid=key[2], source="expire_and_inspect",
+    )
+    if snapshot.status is not None or snapshot.expiry_version is None:
+        raise ValueError("store expiry result must identify a tombstone")
+    return snapshot
 
 
 def is_voicemail_recording_status_expired(
@@ -419,16 +468,26 @@ class InMemoryVoicemailStatusStore:
         expected_status: VoicemailRecordingStatus,
     ) -> bool:
         """Replace matching metadata with a tombstone that blocks recreation."""
+        return self.expire_and_inspect(
+            workspace_id, call_sid, recording_sid,
+            expected_status=expected_status,
+        ) is not None
+
+    def expire_and_inspect(
+        self, workspace_id: str, call_sid: str, recording_sid: str, *,
+        expected_status: VoicemailRecordingStatus,
+    ) -> VoicemailRecordingStatusSnapshot | None:
+        """Replace matching metadata and return its tombstone under one lock."""
         key = _key(workspace_id, call_sid, recording_sid)
         expected_status = _validate_status(expected_status)
         if expected_status.recording_sid != key[2]:
             raise ValueError("expected status is for an unexpected recording")
         with self._lock:
             if key in self._expired:
-                return False
+                return None
             current = self._states.get(key)
             if current is None:
-                return False
+                return None
             if current != expected_status:
                 raise VoicemailStatusConflictError(
                     "voicemail recording status conflict"
@@ -436,7 +495,9 @@ class InMemoryVoicemailStatusStore:
             del self._states[key]
             self._expired[key] = self._next_expiry_version
             self._next_expiry_version += 1
-            return True
+            return VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=self._expired[key],
+            )
 
     def purge_expired(
         self, workspace_id: str, call_sid: str, recording_sid: str,

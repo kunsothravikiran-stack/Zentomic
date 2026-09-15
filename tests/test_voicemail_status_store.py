@@ -9,6 +9,7 @@ from zentomic.voicemail_status import VoicemailRecordingStatus
 from zentomic.voicemail_status_store import (
     delete_voicemail_recording_status,
     expire_voicemail_recording_status,
+    expire_voicemail_recording_status_snapshot,
     InMemoryVoicemailStatusStore,
     inspect_voicemail_recording_status,
     is_voicemail_recording_status_expired,
@@ -191,6 +192,32 @@ class VoicemailStatusStoreTests(unittest.TestCase):
             "^voicemail recording status has expired$",
         ):
             self.store.record("workspace", "call", self.available)
+
+    def test_atomic_expiry_returns_only_the_tombstone_it_created(self):
+        self.store.record("workspace", "call", self.available)
+        first = self.store.expire_and_inspect(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.available,
+        )
+        self.assertEqual(
+            first, VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1,
+            ),
+        )
+        self.assertIsNone(self.store.expire_and_inspect(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.available,
+        ))
+        self.assertTrue(self.store.purge_expired(
+            "workspace", "call", RECORDING_SID,
+            expected_version=first.expiry_version,
+        ))
+        self.store.record("workspace", "call", self.available)
+        second = self.store.expire_and_inspect(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.available,
+        )
+        self.assertNotEqual(first.expiry_version, second.expiry_version)
 
     def test_atomic_inspection_distinguishes_all_three_storage_states(self):
         missing = VoicemailRecordingStatusSnapshot()
@@ -482,6 +509,86 @@ class ExpireVoicemailRecordingStatusTests(unittest.TestCase):
     def test_adapter_errors_propagate(self):
         store = Mock()
         store.expire.side_effect = RuntimeError("synthetic adapter failure")
+        with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
+            self.expire(store=store)
+
+
+class ExpireVoicemailRecordingStatusSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        self.status = VoicemailRecordingStatus(
+            "available", RECORDING_SID, 12,
+        )
+        self.store = InMemoryVoicemailStatusStore()
+
+    def expire(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "call_sid": "call",
+            "recording_sid": RECORDING_SID,
+            "expected_status": self.status,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return expire_voicemail_recording_status_snapshot(**config)
+
+    def test_returns_created_tombstone_without_a_followup_read(self):
+        self.assertIsNone(self.expire())
+        self.store.record("workspace", "call", self.status)
+        snapshot = self.expire()
+        self.assertEqual(
+            snapshot,
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1,
+            ),
+        )
+        self.assertIsNone(self.expire())
+
+    def test_invalid_adapter_key_or_expected_value_fails_before_expiry(self):
+        other = VoicemailRecordingStatus(
+            "available", "RE" + "b2" * 16, 12,
+        )
+        for overrides in (
+            {"store": object()},
+            {"workspace_id": ""},
+            {"call_sid": " "},
+            {"recording_sid": "CA" + "1" * 32},
+            {"expected_status": other},
+            {"expected_status": {"availability": "available"}},
+        ):
+            store = Mock()
+            if "store" not in overrides:
+                overrides["store"] = store
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.expire(**overrides)
+            store.expire_and_inspect.assert_not_called()
+
+    def test_result_must_be_none_or_an_exact_expiry_snapshot(self):
+        invalid = (
+            False,
+            {"expired": True, "expiry_version": 1},
+            VoicemailRecordingStatusSnapshot(),
+            VoicemailRecordingStatusSnapshot(status=self.status),
+            VoicemailRecordingStatusSnapshot(expired=True),
+            VoicemailRecordingStatusSnapshot(expiry_version=1),
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=True,
+            ),
+        )
+        for returned in invalid:
+            store = Mock()
+            store.expire_and_inspect.return_value = returned
+            with self.subTest(returned=returned), self.assertRaises(ValueError):
+                self.expire(store=store)
+            store.expire_and_inspect.assert_called_once_with(
+                "workspace", "call", RECORDING_SID,
+                expected_status=self.status,
+            )
+
+    def test_adapter_errors_propagate(self):
+        store = Mock()
+        store.expire_and_inspect.side_effect = RuntimeError(
+            "synthetic adapter failure"
+        )
         with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
             self.expire(store=store)
 
