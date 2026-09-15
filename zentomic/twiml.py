@@ -5,6 +5,8 @@ from itertools import islice
 from typing import Literal
 from xml.etree.ElementTree import Element, SubElement, tostring
 
+from zentomic.voicemail import _validate_voicemail_result_configuration
+
 
 MAX_ACTION_PATH_CHARACTERS = 2048
 MAX_DIAL_DESTINATIONS = 10
@@ -185,13 +187,11 @@ def render_voicemail(
     _validate_prompt(prompt)
     _validate_action_path(action_path)
     _validate_action_path(recording_status_path)
-    if type(max_length) is not int or not 2 <= max_length <= 600:
-        raise ValueError("max_length must be an integer from 2 to 600 seconds")
+    _validate_voicemail_result_configuration(
+        max_length=max_length, finish_on_key=finish_on_key,
+    )
     if type(timeout) is not int or not 1 <= timeout <= 60:
         raise ValueError("timeout must be an integer from 1 to 60 seconds")
-    if not isinstance(finish_on_key, str) or len(finish_on_key) != 1 \
-            or finish_on_key not in "0123456789*#":
-        raise ValueError("finish_on_key must be one DTMF character")
 
     response = Element("Response")
     SubElement(response, "Say").text = prompt

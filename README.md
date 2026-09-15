@@ -678,6 +678,40 @@ store only provider identifiers needed by policy, and restrict retrieval and
 retention. Never log recording URLs or caller audio. The helper performs no
 recording, storage, download, transcription, endpoint, or provider request.
 
+`resolve_voicemail_result_event` adds an authenticated Record `action` callback
+boundary. It binds the request to the trusted account and call, admits only a
+canonical duration within the configured `max_length`, and recognizes only the
+configured finish key, provider `hangup`, or missing/blank `Digits`:
+
+```python
+# example: compile-only
+from zentomic.voicemail_event import resolve_voicemail_result_event
+
+decision = resolve_voicemail_result_event(
+    event,
+    public_url=configured_voicemail_result_url,
+    validator=trusted_request_validator.validate,
+    expected_account_sid=session_account_sid,
+    expected_call_sid=session_call_sid,
+    max_length=120,
+    finish_on_key="#",
+)
+```
+
+The result contains only `action`, `duration_seconds`, and `ended_by`; the
+callback's recording URL, audio, and unrelated fields are neither accepted nor
+returned. `hangup` remains terminal, while a finish key or silence/length stop
+can continue call flow. The action duration is preliminary and does not prove
+that audio is available. Use the separately authenticated recording-status
+callback for availability and final post-trim duration.
+
+`resolve_claimed_voicemail_result_event` also claims one trusted voicemail step
+after authentication and result admission but before returning the decision.
+Malformed or rejected callbacks cannot consume the step, and exact replays fail
+closed. Production requires a durable, workspace-authorized current-step claim
+and an independent deduplication lifecycle for the status callback. Neither
+helper fetches recordings, persists data, renders TwiML, or performs I/O.
+
 ### Offline speech collection renderer
 
 `render_speech_gather` prepares an English, speech-only collection for a future
@@ -1730,6 +1764,8 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/confirmation_event.py`: authenticated intent confirmation with optional replay claims.
 - `zentomic/twiml.py`: offline collection, forwarding, voicemail, hangup, and pre-answer rejection rendering.
+- `zentomic/voicemail.py`: sanitized Record action result admission and bounded duration policy.
+- `zentomic/voicemail_event.py`: authenticated voicemail results with optional replay claims.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.
@@ -1745,6 +1781,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_intent.py`: confirmation, exact matching, and intent safety tests.
 - `tests/test_intent_confirmation.py`: bounded keypad confirmation and renderer composition.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
+- `tests/test_voicemail_event.py`: voicemail result admission, authentication, privacy, and replay claims.
 - `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
 - `tests/test_speech.py`: speech budgets, text limits, and confirmation separation.
 - `tests/test_classification.py`: classifier schema, byte limits, and confirmation separation.
