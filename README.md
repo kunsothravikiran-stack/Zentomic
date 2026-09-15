@@ -746,6 +746,14 @@ trusted identifiers fail before authentication; a valid mismatch fails before
 claiming. Production must durably authorize that step and apply storage,
 retention, and access policy outside these offline helpers.
 
+`InMemoryVoicemailStatusStore` is a process-local adapter test double for the
+sanitized final result. It keys observations by exact workspace, call, and
+recording identifiers. The first final observation wins, exact redelivery is
+idempotent, and contradictory redelivery fails without overwriting stored
+metadata. It stores neither a recording URL nor audio. The configured capacity
+is only a local test bound: production still needs durable workspace-authorized
+storage, retention/expiry policy, encryption, and idempotent downstream effects.
+
 ### Offline speech collection renderer
 
 `render_speech_gather` prepares an English, speech-only collection for a future
@@ -1802,6 +1810,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/voicemail_event.py`: authenticated voicemail results with optional replay claims.
 - `zentomic/voicemail_status.py`: sanitized recording availability and final-duration admission.
 - `zentomic/voicemail_status_event.py`: authenticated recording status with optional replay claims.
+- `zentomic/voicemail_status_store.py`: bounded local final-status storage for adapter tests.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.
@@ -1819,6 +1828,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_voicemail_event.py`: voicemail result admission, authentication, privacy, and replay claims.
 - `tests/test_voicemail_status.py`: recording-status admission, authentication, privacy, and replay claims.
+- `tests/test_voicemail_status_store.py`: final-status idempotency, isolation, capacity, and contention.
 - `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
 - `tests/test_speech.py`: speech budgets, text limits, and confirmation separation.
 - `tests/test_classification.py`: classifier schema, byte limits, and confirmation separation.
