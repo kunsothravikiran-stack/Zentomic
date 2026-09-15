@@ -1,5 +1,6 @@
 """Process-local final voicemail status storage for adapter development."""
 
+from dataclasses import dataclass
 from threading import Lock
 from typing import Protocol
 
@@ -21,6 +22,14 @@ class VoicemailStatusCapacityError(ValueError):
 
 class VoicemailStatusExpiredError(ValueError):
     """A final status cannot be recreated after durable expiry."""
+
+
+@dataclass(frozen=True)
+class VoicemailRecordingStatusSnapshot:
+    """Atomic tri-state observation without any deleted status metadata."""
+
+    status: VoicemailRecordingStatus | None = None
+    expired: bool = False
 
 
 class VoicemailStatusStore(Protocol):
@@ -65,6 +74,15 @@ class VoicemailStatusExpiryReader(Protocol):
         self, workspace_id: str, call_sid: str, recording_sid: str,
     ) -> bool:
         """Return whether the exact trusted recording key has a tombstone."""
+
+
+class VoicemailStatusSnapshotStore(Protocol):
+    """Atomic status-or-tombstone read boundary supplied by an adapter."""
+
+    def inspect(
+        self, workspace_id: str, call_sid: str, recording_sid: str,
+    ) -> VoicemailRecordingStatusSnapshot:
+        """Return one validated active, expired, or missing observation."""
 
 
 class VoicemailStatusExpiryPurgeStore(Protocol):
@@ -209,6 +227,42 @@ def is_voicemail_recording_status_expired(
     return expired
 
 
+def inspect_voicemail_recording_status(
+    workspace_id: str, call_sid: str, recording_sid: str, *,
+    store: VoicemailStatusSnapshotStore,
+) -> VoicemailRecordingStatusSnapshot:
+    """Atomically inspect active, expired, or missing state for a trusted key.
+
+    The adapter shape and exact key are validated before the lookup. A result
+    must be an exact snapshot containing either one validated active status or
+    an expiry marker, never both. Deleted status metadata is not exposed and
+    adapter errors propagate.
+
+    This read does not reserve state or authorize a callback, mutation, or
+    tombstone purge. Production decisions that depend on the observation still
+    need a conditional durable write in the same authorized workflow.
+    """
+    inspect = getattr(store, "inspect", None)
+    if not callable(inspect):
+        raise ValueError("store must provide a trusted callable inspect method")
+    key = _key(workspace_id, call_sid, recording_sid)
+    snapshot = inspect(*key)
+    if type(snapshot) is not VoicemailRecordingStatusSnapshot:
+        raise ValueError(
+            "store inspect must return an exact VoicemailRecordingStatusSnapshot"
+        )
+    if type(snapshot.expired) is not bool:
+        raise ValueError("snapshot expired must be an exact boolean")
+    if snapshot.status is None:
+        return snapshot
+    status = _validate_status(snapshot.status)
+    if snapshot.expired:
+        raise ValueError("snapshot cannot contain active and expired state")
+    if status.recording_sid != key[2]:
+        raise ValueError("store returned a status for an unexpected recording")
+    return snapshot
+
+
 def purge_voicemail_recording_status_expiry(
     workspace_id: str, call_sid: str, recording_sid: str, *,
     store: VoicemailStatusExpiryPurgeStore,
@@ -272,6 +326,18 @@ class InMemoryVoicemailStatusStore:
         key = _key(workspace_id, call_sid, recording_sid)
         with self._lock:
             return key in self._expired
+
+    def inspect(
+        self, workspace_id: str, call_sid: str, recording_sid: str,
+    ) -> VoicemailRecordingStatusSnapshot:
+        """Read active, expired, or missing state under one local lock."""
+        key = _key(workspace_id, call_sid, recording_sid)
+        with self._lock:
+            status = self._states.get(key)
+            return VoicemailRecordingStatusSnapshot(
+                status=status,
+                expired=status is None and key in self._expired,
+            )
 
     def record(
         self, workspace_id: str, call_sid: str,
