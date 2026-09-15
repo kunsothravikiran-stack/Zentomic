@@ -20,16 +20,22 @@ class VoicemailRecordingStatus:
     duration_seconds: int | None
 
 
+def _validate_recording_sid(recording_sid: str | None) -> str:
+    """Return one canonical provider recording identifier or fail closed."""
+    if (not isinstance(recording_sid, str)
+            or len(recording_sid) > 34
+            or not _RECORDING_SID.fullmatch(recording_sid)):
+        raise ValueError("recording SID must use Twilio RE identifier syntax")
+    return recording_sid
+
+
 def _resolve_validated_voicemail_recording_status(
     recording_sid: str | None, recording_status: str | None,
     recording_duration: str | None, recording_channels: str | None,
     recording_source: str | None, *, max_length: int,
 ) -> VoicemailRecordingStatus:
     """Admit documented Record status fields after trusted policy validation."""
-    if (not isinstance(recording_sid, str)
-            or len(recording_sid) > 34
-            or not _RECORDING_SID.fullmatch(recording_sid)):
-        raise ValueError("recording SID must use Twilio RE identifier syntax")
+    recording_sid = _validate_recording_sid(recording_sid)
     if recording_status not in ("completed", "failed"):
         raise ValueError("unsupported recording status")
     if recording_channels != "1":

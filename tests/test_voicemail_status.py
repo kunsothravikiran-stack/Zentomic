@@ -137,6 +137,31 @@ class VoicemailRecordingStatusEventTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds the configured maximum"):
             self.resolve(event)
 
+    def test_optional_recording_binding_requires_the_exact_trusted_sid(self):
+        self.assertEqual(
+            self.resolve(
+                self.event(), expected_recording_sid=RECORDING_SID,
+            ).recording_sid,
+            RECORDING_SID,
+        )
+        with self.assertRaisesRegex(
+            ValueError, "^recording SID does not match the expected recording$",
+        ):
+            self.resolve(
+                self.event(), expected_recording_sid="RE" + "b2" * 16,
+            )
+
+    def test_invalid_trusted_recording_sid_fails_before_authentication(self):
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(
+            ValueError, "^recording SID must use Twilio RE identifier syntax$",
+        ):
+            self.resolve(
+                self.event(), validator,
+                expected_recording_sid="CA" + "1" * 32,
+            )
+        validator.assert_not_called()
+
 
 class ClaimedVoicemailRecordingStatusEventTests(unittest.TestCase):
     event = VoicemailRecordingStatusEventTests.event
@@ -180,6 +205,19 @@ class ClaimedVoicemailRecordingStatusEventTests(unittest.TestCase):
             self.resolve(self.event(), claimer, validator, status_step_id="")
         validator.assert_not_called()
         claimer.claim.assert_not_called()
+
+    def test_recording_mismatch_does_not_consume_status_step(self):
+        store = InMemoryCallbackClaimStore()
+        with self.assertRaisesRegex(
+            ValueError, "^recording SID does not match the expected recording$",
+        ):
+            self.resolve(
+                self.event(), store,
+                expected_recording_sid="RE" + "b2" * 16,
+            )
+        self.assertTrue(store.claim(
+            "synthetic-workspace", "synthetic-call", "voicemail-status-1",
+        ))
 
 
 if __name__ == "__main__":

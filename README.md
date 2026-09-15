@@ -732,14 +732,19 @@ status = resolve_voicemail_recording_status_event(
     validator=trusted_request_validator.validate,
     expected_account_sid=session_account_sid,
     expected_call_sid=session_call_sid,
+    expected_recording_sid=session_recording_sid,
     max_length=120,
 )
 ```
 
 `resolve_claimed_voicemail_recording_status_event` additionally deduplicates a
 trusted status step after admission. Its `status_step_id` must be distinct from
-the Record action callback step. Production must durably authorize that step
-and apply storage, retention, and access policy outside these offline helpers.
+the Record action callback step. When trusted session state already contains the
+provider recording identifier, pass `expected_recording_sid` to either helper so
+a status for another recording cannot be admitted or consume the claim. Invalid
+trusted identifiers fail before authentication; a valid mismatch fails before
+claiming. Production must durably authorize that step and apply storage,
+retention, and access policy outside these offline helpers.
 
 ### Offline speech collection renderer
 
