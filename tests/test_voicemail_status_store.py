@@ -11,6 +11,7 @@ from zentomic.voicemail_status_store import (
     expire_voicemail_recording_status,
     InMemoryVoicemailStatusStore,
     is_voicemail_recording_status_expired,
+    purge_voicemail_recording_status_expiry,
     VoicemailStatusCapacityError,
     VoicemailStatusConflictError,
     VoicemailStatusExpiredError,
@@ -215,6 +216,38 @@ class VoicemailStatusStoreTests(unittest.TestCase):
                 "workspace", "call", RECORDING_SID,
                 expected_status=stale,
             )
+        self.assertEqual(
+            self.store.load("workspace", "call", RECORDING_SID), self.available,
+        )
+
+    def test_purging_a_tombstone_releases_capacity_and_recreation_guard(self):
+        store = InMemoryVoicemailStatusStore(max_entries=1)
+        store.record("workspace", "call", self.available)
+        store.expire(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.available,
+        )
+        self.assertTrue(store.purge_expired(
+            "workspace", "call", RECORDING_SID,
+        ))
+        self.assertFalse(store.purge_expired(
+            "workspace", "call", RECORDING_SID,
+        ))
+        self.assertFalse(store.is_expired(
+            "workspace", "call", RECORDING_SID,
+        ))
+        self.assertEqual(
+            store.record("workspace", "call", self.available), self.available,
+        )
+
+    def test_purging_missing_or_active_state_never_removes_metadata(self):
+        self.assertFalse(self.store.purge_expired(
+            "workspace", "call", RECORDING_SID,
+        ))
+        self.store.record("workspace", "call", self.available)
+        self.assertFalse(self.store.purge_expired(
+            "workspace", "call", RECORDING_SID,
+        ))
         self.assertEqual(
             self.store.load("workspace", "call", RECORDING_SID), self.available,
         )
@@ -466,6 +499,70 @@ class IsVoicemailRecordingStatusExpiredTests(unittest.TestCase):
         store.is_expired.side_effect = RuntimeError("synthetic adapter failure")
         with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
             self.is_expired(store=store)
+
+
+class PurgeVoicemailRecordingStatusExpiryTests(unittest.TestCase):
+    def setUp(self):
+        self.status = VoicemailRecordingStatus(
+            "available", RECORDING_SID, 12,
+        )
+        self.store = InMemoryVoicemailStatusStore()
+
+    def purge(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "call_sid": "call",
+            "recording_sid": RECORDING_SID,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return purge_voicemail_recording_status_expiry(**config)
+
+    def test_only_an_expiry_tombstone_is_purged_idempotently(self):
+        self.assertFalse(self.purge())
+        self.store.record("workspace", "call", self.status)
+        self.assertFalse(self.purge())
+        self.store.expire(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.status,
+        )
+        self.assertTrue(self.purge())
+        self.assertFalse(self.purge())
+
+    def test_invalid_adapter_or_key_fails_before_purge(self):
+        for overrides in (
+            {"store": object()},
+            {"workspace_id": ""},
+            {"call_sid": " "},
+            {"recording_sid": "CA" + "1" * 32},
+        ):
+            store = Mock()
+            if "store" not in overrides:
+                overrides["store"] = store
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.purge(**overrides)
+            store.purge_expired.assert_not_called()
+
+    def test_adapter_result_must_be_an_exact_boolean(self):
+        for returned in (None, 0, 1, "true"):
+            store = Mock()
+            store.purge_expired.return_value = returned
+            with self.subTest(returned=returned), self.assertRaisesRegex(
+                ValueError,
+                "^store purge_expired must return an exact boolean$",
+            ):
+                self.purge(store=store)
+            store.purge_expired.assert_called_once_with(
+                "workspace", "call", RECORDING_SID,
+            )
+
+    def test_adapter_errors_propagate(self):
+        store = Mock()
+        store.purge_expired.side_effect = RuntimeError(
+            "synthetic adapter failure"
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
+            self.purge(store=store)
 
 
 if __name__ == "__main__":

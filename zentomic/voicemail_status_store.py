@@ -67,6 +67,15 @@ class VoicemailStatusExpiryReader(Protocol):
         """Return whether the exact trusted recording key has a tombstone."""
 
 
+class VoicemailStatusExpiryPurgeStore(Protocol):
+    """Tombstone cleanup boundary supplied by a retention adapter."""
+
+    def purge_expired(
+        self, workspace_id: str, call_sid: str, recording_sid: str,
+    ) -> bool:
+        """Remove one tombstone after its trusted replay window has elapsed."""
+
+
 def _validate_status(status: VoicemailRecordingStatus) -> VoicemailRecordingStatus:
     """Reject values that could not have crossed the admission boundary."""
     if type(status) is not VoicemailRecordingStatus:
@@ -200,6 +209,34 @@ def is_voicemail_recording_status_expired(
     return expired
 
 
+def purge_voicemail_recording_status_expiry(
+    workspace_id: str, call_sid: str, recording_sid: str, *,
+    store: VoicemailStatusExpiryPurgeStore,
+) -> bool:
+    """Remove one retained tombstone selected only by a trusted key.
+
+    Call this only after a separately authorized retention workflow establishes
+    that the provider replay window has elapsed. The adapter must atomically
+    remove only a tombstone, never active status metadata. Missing or active
+    state is an idempotent ``False``. The adapter shape, exact key, and result
+    are validated; errors propagate.
+
+    Purging releases the recreation guard, so subsequent callback delivery may
+    store status for the key again. This helper performs no authentication,
+    authorization, clock check, media deletion, logging, network access, or
+    provider operation.
+    """
+    purge_expired = getattr(store, "purge_expired", None)
+    if not callable(purge_expired):
+        raise ValueError(
+            "store must provide a trusted callable purge_expired method"
+        )
+    purged = purge_expired(*_key(workspace_id, call_sid, recording_sid))
+    if type(purged) is not bool:
+        raise ValueError("store purge_expired must return an exact boolean")
+    return purged
+
+
 class InMemoryVoicemailStatusStore:
     """Thread-safe, process-local test double for immutable final statuses.
 
@@ -303,4 +340,15 @@ class InMemoryVoicemailStatusStore:
                 )
             del self._states[key]
             self._expired.add(key)
+            return True
+
+    def purge_expired(
+        self, workspace_id: str, call_sid: str, recording_sid: str,
+    ) -> bool:
+        """Remove one tombstone, allowing future storage for the exact key."""
+        key = _key(workspace_id, call_sid, recording_sid)
+        with self._lock:
+            if key not in self._expired:
+                return False
+            self._expired.remove(key)
             return True
