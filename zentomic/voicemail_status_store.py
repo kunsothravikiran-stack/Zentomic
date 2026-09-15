@@ -34,6 +34,16 @@ class VoicemailStatusStore(Protocol):
         """Store one final status, allowing only exact idempotent duplicates."""
 
 
+class VoicemailStatusRetentionStore(Protocol):
+    """Conditional metadata deletion boundary supplied by a retention adapter."""
+
+    def delete(
+        self, workspace_id: str, call_sid: str, recording_sid: str, *,
+        expected_status: VoicemailRecordingStatus,
+    ) -> bool:
+        """Delete exact expected metadata, returning false when already absent."""
+
+
 def _validate_status(status: VoicemailRecordingStatus) -> VoicemailRecordingStatus:
     """Reject values that could not have crossed the admission boundary."""
     if type(status) is not VoicemailRecordingStatus:
@@ -85,6 +95,35 @@ def load_voicemail_recording_status(
     return status
 
 
+def delete_voicemail_recording_status(
+    workspace_id: str, call_sid: str, recording_sid: str, *,
+    expected_status: VoicemailRecordingStatus,
+    store: VoicemailStatusRetentionStore,
+) -> bool:
+    """Conditionally delete final status metadata selected by a trusted key.
+
+    The expected immutable value prevents stale retention work from deleting a
+    different observation. The adapter shape, exact key, and expected value are
+    validated before deletion. A missing value is an idempotent ``False``;
+    adapter errors propagate and non-boolean results fail closed.
+
+    This helper deletes neither provider media nor caller audio and performs no
+    authentication, authorization, logging, network access, or provider work.
+    Production must prevent late callbacks from recreating expired metadata.
+    """
+    delete = getattr(store, "delete", None)
+    if not callable(delete):
+        raise ValueError("store must provide a trusted callable delete method")
+    key = _key(workspace_id, call_sid, recording_sid)
+    expected_status = _validate_status(expected_status)
+    if expected_status.recording_sid != key[2]:
+        raise ValueError("expected status is for an unexpected recording")
+    deleted = delete(*key, expected_status=expected_status)
+    if type(deleted) is not bool:
+        raise ValueError("store delete must return an exact boolean")
+    return deleted
+
+
 class InMemoryVoicemailStatusStore:
     """Thread-safe, process-local test double for immutable final statuses.
 
@@ -132,3 +171,23 @@ class InMemoryVoicemailStatusStore:
                 )
             self._states[key] = status
             return status
+
+    def delete(
+        self, workspace_id: str, call_sid: str, recording_sid: str, *,
+        expected_status: VoicemailRecordingStatus,
+    ) -> bool:
+        """Delete only matching metadata; stale expectations fail closed."""
+        key = _key(workspace_id, call_sid, recording_sid)
+        expected_status = _validate_status(expected_status)
+        if expected_status.recording_sid != key[2]:
+            raise ValueError("expected status is for an unexpected recording")
+        with self._lock:
+            current = self._states.get(key)
+            if current is None:
+                return False
+            if current != expected_status:
+                raise VoicemailStatusConflictError(
+                    "voicemail recording status conflict"
+                )
+            del self._states[key]
+            return True

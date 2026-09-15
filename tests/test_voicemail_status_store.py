@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 from zentomic.voicemail_status import VoicemailRecordingStatus
 from zentomic.voicemail_status_store import (
+    delete_voicemail_recording_status,
     InMemoryVoicemailStatusStore,
     VoicemailStatusCapacityError,
     VoicemailStatusConflictError,
@@ -126,6 +127,39 @@ class VoicemailStatusStoreTests(unittest.TestCase):
             with self.subTest(limit=limit), self.assertRaises(ValueError):
                 InMemoryVoicemailStatusStore(max_entries=limit)
 
+    def test_conditional_delete_is_idempotent_and_releases_capacity(self):
+        store = InMemoryVoicemailStatusStore(max_entries=1)
+        store.record("workspace", "call", self.available)
+        self.assertTrue(store.delete(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.available,
+        ))
+        self.assertFalse(store.delete(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.available,
+        ))
+        other = VoicemailRecordingStatus(
+            "unavailable", "RE" + "b2" * 16, None,
+        )
+        self.assertEqual(store.record("workspace", "call", other), other)
+
+    def test_stale_delete_preserves_the_first_observation(self):
+        self.store.record("workspace", "call", self.available)
+        stale = VoicemailRecordingStatus(
+            "available", RECORDING_SID, 13,
+        )
+        with self.assertRaisesRegex(
+            VoicemailStatusConflictError,
+            "^voicemail recording status conflict$",
+        ):
+            self.store.delete(
+                "workspace", "call", RECORDING_SID,
+                expected_status=stale,
+            )
+        self.assertEqual(
+            self.store.load("workspace", "call", RECORDING_SID), self.available,
+        )
+
 
 class LoadVoicemailRecordingStatusTests(unittest.TestCase):
     def setUp(self):
@@ -185,6 +219,69 @@ class LoadVoicemailRecordingStatusTests(unittest.TestCase):
         store.load.side_effect = RuntimeError("synthetic adapter failure")
         with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
             self.load(store=store)
+
+
+class DeleteVoicemailRecordingStatusTests(unittest.TestCase):
+    def setUp(self):
+        self.status = VoicemailRecordingStatus(
+            "available", RECORDING_SID, 12,
+        )
+        self.store = InMemoryVoicemailStatusStore()
+
+    def delete(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "call_sid": "call",
+            "recording_sid": RECORDING_SID,
+            "expected_status": self.status,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return delete_voicemail_recording_status(**config)
+
+    def test_present_and_missing_metadata_are_deleted_idempotently(self):
+        self.store.record("workspace", "call", self.status)
+        self.assertTrue(self.delete())
+        self.assertIsNone(self.store.load("workspace", "call", RECORDING_SID))
+        self.assertFalse(self.delete())
+
+    def test_invalid_adapter_key_or_expected_value_fails_before_delete(self):
+        other = VoicemailRecordingStatus(
+            "available", "RE" + "b2" * 16, 12,
+        )
+        for overrides in (
+            {"store": object()},
+            {"workspace_id": ""},
+            {"call_sid": " "},
+            {"recording_sid": "CA" + "1" * 32},
+            {"expected_status": other},
+            {"expected_status": {"availability": "available"}},
+        ):
+            store = Mock()
+            if "store" not in overrides:
+                overrides["store"] = store
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.delete(**overrides)
+            store.delete.assert_not_called()
+
+    def test_adapter_result_must_be_an_exact_boolean(self):
+        for returned in (None, 0, 1, "true"):
+            store = Mock()
+            store.delete.return_value = returned
+            with self.subTest(returned=returned), self.assertRaisesRegex(
+                ValueError, "^store delete must return an exact boolean$",
+            ):
+                self.delete(store=store)
+            store.delete.assert_called_once_with(
+                "workspace", "call", RECORDING_SID,
+                expected_status=self.status,
+            )
+
+    def test_adapter_errors_propagate(self):
+        store = Mock()
+        store.delete.side_effect = RuntimeError("synthetic adapter failure")
+        with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
+            self.delete(store=store)
 
 
 if __name__ == "__main__":

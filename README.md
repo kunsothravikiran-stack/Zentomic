@@ -779,6 +779,15 @@ status = load_voicemail_recording_status(
 )
 ```
 
+After a separately authorized retention workflow deletes the provider media,
+`delete_voicemail_recording_status` can conditionally remove its sanitized
+metadata. It requires the exact previously loaded immutable status, rejects a
+stale value without deleting the current observation, and treats an already
+missing value as an idempotent result. The helper validates the adapter result
+but does not delete media, authorize the workspace, or contact a provider.
+Production must use a durable tombstone or equivalent transaction so a late
+recording-status callback cannot recreate metadata after retention cleanup.
+
 ### Offline speech collection renderer
 
 `render_speech_gather` prepares an English, speech-only collection for a future
@@ -1853,7 +1862,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_voicemail_event.py`: voicemail result admission, authentication, privacy, and replay claims.
 - `tests/test_voicemail_status.py`: recording-status admission, authentication, privacy, and replay claims.
-- `tests/test_voicemail_status_store.py`: final-status idempotency, isolation, capacity, and contention.
+- `tests/test_voicemail_status_store.py`: final-status idempotency, isolation, capacity, conditional deletion, and contention.
 - `tests/test_voicemail_status_store_event.py`: authenticated final-status storage composition.
 - `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
 - `tests/test_speech.py`: speech budgets, text limits, and confirmation separation.
