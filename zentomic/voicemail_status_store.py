@@ -19,6 +19,10 @@ class VoicemailStatusCapacityError(ValueError):
     """A new recording cannot be stored without exceeding the local limit."""
 
 
+class VoicemailStatusExpiredError(ValueError):
+    """A final status cannot be recreated after durable expiry."""
+
+
 class VoicemailStatusStore(Protocol):
     """Minimal immutable final-status boundary supplied by an adapter."""
 
@@ -42,6 +46,16 @@ class VoicemailStatusRetentionStore(Protocol):
         expected_status: VoicemailRecordingStatus,
     ) -> bool:
         """Delete exact expected metadata, returning false when already absent."""
+
+
+class VoicemailStatusExpiryStore(Protocol):
+    """Conditional durable-expiry boundary supplied by a retention adapter."""
+
+    def expire(
+        self, workspace_id: str, call_sid: str, recording_sid: str, *,
+        expected_status: VoicemailRecordingStatus,
+    ) -> bool:
+        """Replace exact expected metadata with a durable tombstone."""
 
 
 def _validate_status(status: VoicemailRecordingStatus) -> VoicemailRecordingStatus:
@@ -124,6 +138,35 @@ def delete_voicemail_recording_status(
     return deleted
 
 
+def expire_voicemail_recording_status(
+    workspace_id: str, call_sid: str, recording_sid: str, *,
+    expected_status: VoicemailRecordingStatus,
+    store: VoicemailStatusExpiryStore,
+) -> bool:
+    """Conditionally replace final status metadata with a tombstone.
+
+    The adapter must atomically replace only the exact expected immutable value
+    and retain a durable tombstone that rejects later writes for the same key.
+    A missing or already expired value is an idempotent ``False``. The adapter
+    shape, exact key, expected value, and result are validated; errors propagate.
+
+    This helper performs no authentication, authorization, media deletion,
+    logging, network access, or provider operation. Delete provider media in a
+    separately authorized retention workflow before expiring its metadata.
+    """
+    expire = getattr(store, "expire", None)
+    if not callable(expire):
+        raise ValueError("store must provide a trusted callable expire method")
+    key = _key(workspace_id, call_sid, recording_sid)
+    expected_status = _validate_status(expected_status)
+    if expected_status.recording_sid != key[2]:
+        raise ValueError("expected status is for an unexpected recording")
+    expired = expire(*key, expected_status=expected_status)
+    if type(expired) is not bool:
+        raise ValueError("store expire must return an exact boolean")
+    return expired
+
+
 class InMemoryVoicemailStatusStore:
     """Thread-safe, process-local test double for immutable final statuses.
 
@@ -140,6 +183,7 @@ class InMemoryVoicemailStatusStore:
         self._states: dict[
             tuple[str, str, str], VoicemailRecordingStatus
         ] = {}
+        self._expired: set[tuple[str, str, str]] = set()
         self._lock = Lock()
 
     def load(
@@ -165,7 +209,11 @@ class InMemoryVoicemailStatusStore:
                         "voicemail recording status conflict"
                     )
                 return current
-            if len(self._states) >= self._max_entries:
+            if key in self._expired:
+                raise VoicemailStatusExpiredError(
+                    "voicemail recording status has expired"
+                )
+            if len(self._states) + len(self._expired) >= self._max_entries:
                 raise VoicemailStatusCapacityError(
                     "voicemail status capacity reached"
                 )
@@ -190,4 +238,27 @@ class InMemoryVoicemailStatusStore:
                     "voicemail recording status conflict"
                 )
             del self._states[key]
+            return True
+
+    def expire(
+        self, workspace_id: str, call_sid: str, recording_sid: str, *,
+        expected_status: VoicemailRecordingStatus,
+    ) -> bool:
+        """Replace matching metadata with a tombstone that blocks recreation."""
+        key = _key(workspace_id, call_sid, recording_sid)
+        expected_status = _validate_status(expected_status)
+        if expected_status.recording_sid != key[2]:
+            raise ValueError("expected status is for an unexpected recording")
+        with self._lock:
+            if key in self._expired:
+                return False
+            current = self._states.get(key)
+            if current is None:
+                return False
+            if current != expected_status:
+                raise VoicemailStatusConflictError(
+                    "voicemail recording status conflict"
+                )
+            del self._states[key]
+            self._expired.add(key)
             return True
