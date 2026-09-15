@@ -206,9 +206,12 @@ class VoicemailStatusStoreTests(unittest.TestCase):
             "workspace", "call", RECORDING_SID,
             expected_status=self.available,
         )
+        expired = self.store.inspect("workspace", "call", RECORDING_SID)
         self.assertEqual(
-            self.store.inspect("workspace", "call", RECORDING_SID),
-            VoicemailRecordingStatusSnapshot(expired=True),
+            expired,
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1,
+            ),
         )
 
     def test_tombstone_remains_inside_the_configured_capacity_bound(self):
@@ -248,11 +251,14 @@ class VoicemailStatusStoreTests(unittest.TestCase):
             "workspace", "call", RECORDING_SID,
             expected_status=self.available,
         )
+        expired = store.inspect("workspace", "call", RECORDING_SID)
         self.assertTrue(store.purge_expired(
             "workspace", "call", RECORDING_SID,
+            expected_version=expired.expiry_version,
         ))
         self.assertFalse(store.purge_expired(
             "workspace", "call", RECORDING_SID,
+            expected_version=expired.expiry_version,
         ))
         self.assertFalse(store.is_expired(
             "workspace", "call", RECORDING_SID,
@@ -263,15 +269,33 @@ class VoicemailStatusStoreTests(unittest.TestCase):
 
     def test_purging_missing_or_active_state_never_removes_metadata(self):
         self.assertFalse(self.store.purge_expired(
-            "workspace", "call", RECORDING_SID,
+            "workspace", "call", RECORDING_SID, expected_version=1,
         ))
         self.store.record("workspace", "call", self.available)
         self.assertFalse(self.store.purge_expired(
-            "workspace", "call", RECORDING_SID,
+            "workspace", "call", RECORDING_SID, expected_version=1,
         ))
         self.assertEqual(
             self.store.load("workspace", "call", RECORDING_SID), self.available,
         )
+
+    def test_purge_version_must_be_a_positive_integer(self):
+        self.store.record("workspace", "call", self.available)
+        self.store.expire(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.available,
+        )
+        snapshot = self.store.inspect("workspace", "call", RECORDING_SID)
+        for version in (None, True, False, 0, -1, 1.0, "1"):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                self.store.purge_expired(
+                    "workspace", "call", RECORDING_SID,
+                    expected_version=version,
+                )
+            self.assertEqual(
+                self.store.inspect("workspace", "call", RECORDING_SID),
+                snapshot,
+            )
 
 
 class LoadVoicemailRecordingStatusTests(unittest.TestCase):
@@ -549,9 +573,12 @@ class InspectVoicemailRecordingStatusTests(unittest.TestCase):
             "workspace", "call", RECORDING_SID,
             expected_status=self.status,
         )
+        expired = self.store.inspect("workspace", "call", RECORDING_SID)
         self.assertEqual(
-            self.inspect(), VoicemailRecordingStatusSnapshot(expired=True),
+            self.inspect(), expired,
         )
+        self.assertTrue(expired.expired)
+        self.assertIsInstance(expired.expiry_version, int)
 
     def test_invalid_adapter_or_key_fails_before_inspection(self):
         for overrides in (
@@ -572,8 +599,16 @@ class InspectVoicemailRecordingStatusTests(unittest.TestCase):
         returned_values = (
             {"status": None, "expired": False},
             VoicemailRecordingStatusSnapshot(expired=1),
+            VoicemailRecordingStatusSnapshot(expired=True),
+            VoicemailRecordingStatusSnapshot(expiry_version=1),
             VoicemailRecordingStatusSnapshot(
-                status=self.status, expired=True,
+                expired=True, expiry_version=True,
+            ),
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=0,
+            ),
+            VoicemailRecordingStatusSnapshot(
+                status=self.status, expired=True, expiry_version=1,
             ),
             VoicemailRecordingStatusSnapshot(
                 status=VoicemailRecordingStatus(
@@ -614,6 +649,9 @@ class PurgeVoicemailRecordingStatusExpiryTests(unittest.TestCase):
             "workspace_id": "workspace",
             "call_sid": "call",
             "recording_sid": RECORDING_SID,
+            "expected_snapshot": VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1,
+            ),
             "store": self.store,
         }
         config.update(overrides)
@@ -627,8 +665,49 @@ class PurgeVoicemailRecordingStatusExpiryTests(unittest.TestCase):
             "workspace", "call", RECORDING_SID,
             expected_status=self.status,
         )
-        self.assertTrue(self.purge())
+        snapshot = self.store.inspect("workspace", "call", RECORDING_SID)
+        self.assertTrue(self.purge(expected_snapshot=snapshot))
         self.assertFalse(self.purge())
+
+    def test_stale_snapshot_cannot_purge_a_newer_tombstone(self):
+        self.store.record("workspace", "call", self.status)
+        self.store.expire(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.status,
+        )
+        stale = self.store.inspect("workspace", "call", RECORDING_SID)
+        self.assertTrue(self.purge(expected_snapshot=stale))
+        self.store.record("workspace", "call", self.status)
+        self.store.expire(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.status,
+        )
+        current = self.store.inspect("workspace", "call", RECORDING_SID)
+        self.assertNotEqual(stale.expiry_version, current.expiry_version)
+        with self.assertRaisesRegex(
+            VoicemailStatusConflictError,
+            "^voicemail expiry tombstone conflict$",
+        ):
+            self.purge(expected_snapshot=stale)
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID), current,
+        )
+
+    def test_expected_snapshot_must_be_a_valid_expiry_observation(self):
+        for snapshot in (
+            None,
+            VoicemailRecordingStatusSnapshot(),
+            VoicemailRecordingStatusSnapshot(status=self.status),
+            VoicemailRecordingStatusSnapshot(expired=True),
+            VoicemailRecordingStatusSnapshot(expiry_version=1),
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=0,
+            ),
+        ):
+            store = Mock()
+            with self.subTest(snapshot=snapshot), self.assertRaises(ValueError):
+                self.purge(expected_snapshot=snapshot, store=store)
+            store.purge_expired.assert_not_called()
 
     def test_invalid_adapter_or_key_fails_before_purge(self):
         for overrides in (
@@ -654,7 +733,7 @@ class PurgeVoicemailRecordingStatusExpiryTests(unittest.TestCase):
             ):
                 self.purge(store=store)
             store.purge_expired.assert_called_once_with(
-                "workspace", "call", RECORDING_SID,
+                "workspace", "call", RECORDING_SID, expected_version=1,
             )
 
     def test_adapter_errors_propagate(self):

@@ -803,15 +803,18 @@ state still require an atomic durable adapter operation.
 When one reader needs to distinguish all three states without racing two adapter
 lookups, `inspect_voicemail_recording_status` returns one validated atomic
 snapshot containing active metadata, an expiry marker, or neither for missing
-state. It never combines active and expired state or exposes deleted metadata.
-The snapshot is still only an observation; use a conditional durable write for
-any decision that must remain valid while storage changes.
+state. An expired snapshot includes a positive, adapter-issued version without
+exposing deleted metadata. It never combines active and expired state. The
+snapshot is still only an observation; use a conditional durable write for any
+decision that must remain valid while storage changes.
 After the provider replay window has elapsed, a separately authorized cleanup
 can call `purge_voicemail_recording_status_expiry` to remove only the matching
-tombstone and release adapter capacity. Missing or active state is left intact.
-Purging also releases the recreation guard, so a production adapter must verify
-its durable retention deadline atomically and must not use this helper as a
-clock, authorization, or provider-media operation.
+tombstone and release adapter capacity. It requires the previously inspected
+expiry snapshot so stale cleanup cannot remove a newer tombstone for the same
+key. Missing or active state is left intact, while a version mismatch is a
+conflict. Purging also releases the recreation guard, so a production adapter
+must verify its durable retention deadline atomically and must not use this
+helper as a clock, authorization, or provider-media operation.
 
 ### Offline speech collection renderer
 
