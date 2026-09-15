@@ -712,6 +712,35 @@ closed. Production requires a durable, workspace-authorized current-step claim
 and an independent deduplication lifecycle for the status callback. Neither
 helper fetches recordings, persists data, renders TwiML, or performs I/O.
 
+`resolve_voicemail_recording_status_event` provides that separate authenticated
+status boundary. It accepts only a `RecordVerb` source, one channel, a canonical
+duration within the trusted `max_length`, a Twilio `RE` recording identifier,
+and documented `completed` or `failed` status. The returned value exposes only
+availability, the recording identifier, and the final duration for available
+media. It never returns `RecordingUrl` or caller audio. A failed recording is
+unavailable even if the callback includes a duration.
+
+```python
+# example: compile-only
+from zentomic.voicemail_status_event import (
+    resolve_voicemail_recording_status_event,
+)
+
+status = resolve_voicemail_recording_status_event(
+    event,
+    public_url=configured_voicemail_status_url,
+    validator=trusted_request_validator.validate,
+    expected_account_sid=session_account_sid,
+    expected_call_sid=session_call_sid,
+    max_length=120,
+)
+```
+
+`resolve_claimed_voicemail_recording_status_event` additionally deduplicates a
+trusted status step after admission. Its `status_step_id` must be distinct from
+the Record action callback step. Production must durably authorize that step
+and apply storage, retention, and access policy outside these offline helpers.
+
 ### Offline speech collection renderer
 
 `render_speech_gather` prepares an English, speech-only collection for a future
@@ -1766,6 +1795,8 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/twiml.py`: offline collection, forwarding, voicemail, hangup, and pre-answer rejection rendering.
 - `zentomic/voicemail.py`: sanitized Record action result admission and bounded duration policy.
 - `zentomic/voicemail_event.py`: authenticated voicemail results with optional replay claims.
+- `zentomic/voicemail_status.py`: sanitized recording availability and final-duration admission.
+- `zentomic/voicemail_status_event.py`: authenticated recording status with optional replay claims.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.
@@ -1782,6 +1813,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_intent_confirmation.py`: bounded keypad confirmation and renderer composition.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_voicemail_event.py`: voicemail result admission, authentication, privacy, and replay claims.
+- `tests/test_voicemail_status.py`: recording-status admission, authentication, privacy, and replay claims.
 - `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
 - `tests/test_speech.py`: speech budgets, text limits, and confirmation separation.
 - `tests/test_classification.py`: classifier schema, byte limits, and confirmation separation.

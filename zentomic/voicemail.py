@@ -22,11 +22,16 @@ def _validate_voicemail_result_configuration(
     *, max_length: int, finish_on_key: str,
 ) -> None:
     """Validate the trusted policy that produced the corresponding Record."""
-    if type(max_length) is not int or not 2 <= max_length <= MAX_VOICEMAIL_SECONDS:
-        raise ValueError("max_length must be an integer from 2 to 600 seconds")
+    _validate_voicemail_max_length(max_length)
     if (not isinstance(finish_on_key, str) or len(finish_on_key) != 1
             or finish_on_key not in "0123456789*#"):
         raise ValueError("finish_on_key must be one DTMF character")
+
+
+def _validate_voicemail_max_length(max_length: int) -> None:
+    """Validate the shared trusted duration bound for voicemail callbacks."""
+    if type(max_length) is not int or not 2 <= max_length <= MAX_VOICEMAIL_SECONDS:
+        raise ValueError("max_length must be an integer from 2 to 600 seconds")
 
 
 def _resolve_validated_voicemail_result(
