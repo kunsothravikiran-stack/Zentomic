@@ -48,13 +48,16 @@ Optionally install the package to expose the same local runner as the
 ```sh
 python -m pip install --no-deps .
 zentomic
+zentomic --version
 ```
 
 The installed command has the same synthetic default event, replay options,
 privacy boundaries, and exit codes described below. CI installs the package
 without runtime dependencies and runs this command outside the checkout, which
-catches missing package files and broken console-entry-point metadata. Pip uses
-an isolated environment for the `setuptools` build requirement declared in
+catches missing package files and broken console-entry-point metadata.
+`zentomic --version` prints the distribution version from the package's single
+version source without reading an event or invoking the handler. Pip uses an
+isolated environment for the `setuptools` build requirement declared in
 `pyproject.toml`.
 
 On Windows PowerShell, create the environment with `py -3 -m venv .venv`

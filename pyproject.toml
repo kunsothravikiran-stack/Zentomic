@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zentomic"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Offline business IVR and AI call routing primitives"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,6 +18,9 @@ Repository = "https://github.com/kunsothravikiran-stack/Zentomic"
 
 [tool.setuptools]
 include-package-data = false
+
+[tool.setuptools.dynamic]
+version = {attr = "zentomic.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["zentomic", "zentomic.*"]

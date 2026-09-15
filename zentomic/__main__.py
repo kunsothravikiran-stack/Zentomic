@@ -5,6 +5,7 @@ import json
 import math
 import sys
 
+from zentomic import __version__
 from zentomic.handler import lambda_handler
 
 
@@ -49,7 +50,11 @@ def _validate_decoded_strings(event: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="zentomic", description=__doc__)
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
+        help="print the installed Zentomic version and exit",
+    )
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--stdin", action="store_true",
                         help="read one UTF-8 JSON proxy event from stdin (at most 64 KiB)")

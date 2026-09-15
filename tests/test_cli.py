@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from tests.__main__ import offline_guard
+from zentomic import __version__
 from zentomic.__main__ import MAX_EVENT_BYTES, main
 
 
@@ -24,6 +25,19 @@ class EventCliTests(unittest.TestCase):
         code, output, errors, consumed = self.invoke(b"invalid", [])
         self.assertEqual((code, errors, consumed), (0, "", 0))
         self.assertEqual(json.loads(output)["statusCode"], 200)
+
+    def test_version_is_available_without_reading_input_or_invoking_handler(self):
+        output, errors = io.StringIO(), io.StringIO()
+        stream = io.BytesIO(b"do not read")
+        with offline_guard(), patch("sys.stdin", SimpleNamespace(buffer=stream)), \
+                patch("zentomic.__main__.lambda_handler") as handler, \
+                redirect_stdout(output), redirect_stderr(errors), \
+                self.assertRaises(SystemExit) as error:
+            main(["--version"])
+        self.assertEqual(error.exception.code, 0)
+        self.assertEqual((output.getvalue(), errors.getvalue(), stream.tell()),
+                         (f"zentomic {__version__}\n", "", 0))
+        handler.assert_not_called()
 
     def test_replays_both_formats_and_preserves_http_error_responses(self):
         for version in ("1.0", "2.0"):
