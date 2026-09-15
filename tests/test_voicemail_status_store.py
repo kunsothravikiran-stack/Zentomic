@@ -3,12 +3,14 @@
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from unittest.mock import Mock
 
 from zentomic.voicemail_status import VoicemailRecordingStatus
 from zentomic.voicemail_status_store import (
     InMemoryVoicemailStatusStore,
     VoicemailStatusCapacityError,
     VoicemailStatusConflictError,
+    load_voicemail_recording_status,
 )
 
 
@@ -123,6 +125,66 @@ class VoicemailStatusStoreTests(unittest.TestCase):
         for limit in (None, True, False, 0, -1, 1.0, "1"):
             with self.subTest(limit=limit), self.assertRaises(ValueError):
                 InMemoryVoicemailStatusStore(max_entries=limit)
+
+
+class LoadVoicemailRecordingStatusTests(unittest.TestCase):
+    def setUp(self):
+        self.store = InMemoryVoicemailStatusStore()
+        self.status = VoicemailRecordingStatus(
+            "available", RECORDING_SID, 12,
+        )
+
+    def load(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "call_sid": "call",
+            "recording_sid": RECORDING_SID,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return load_voicemail_recording_status(**config)
+
+    def test_missing_and_present_statuses_are_loaded_without_mutation(self):
+        self.assertIsNone(self.load())
+        self.store.record("workspace", "call", self.status)
+        self.assertEqual(self.load(), self.status)
+
+    def test_invalid_adapter_or_key_fails_before_loading(self):
+        for overrides in (
+            {"store": object()},
+            {"workspace_id": ""},
+            {"call_sid": " "},
+            {"recording_sid": "CA" + "1" * 32},
+        ):
+            store = Mock()
+            if "store" not in overrides:
+                overrides["store"] = store
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.load(**overrides)
+            store.load.assert_not_called()
+
+    def test_malformed_or_cross_recording_adapter_values_fail_closed(self):
+        returned_values = (
+            {"availability": "available"},
+            VoicemailRecordingStatus("available", RECORDING_SID, True),
+            VoicemailRecordingStatus(
+                "available", "RE" + "b2" * 16, 12,
+            ),
+        )
+        for returned in returned_values:
+            store = Mock()
+            store.load.return_value = returned
+            with self.subTest(returned=returned), self.assertRaises(ValueError):
+                self.load(store=store)
+            store.load.assert_called_once_with(
+                "workspace", "call", RECORDING_SID,
+            )
+
+    def test_adapter_errors_propagate(self):
+        store = Mock()
+        store.load.side_effect = RuntimeError("synthetic adapter failure")
+        with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
+            self.load(store=store)
 
 
 if __name__ == "__main__":

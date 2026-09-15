@@ -761,6 +761,24 @@ never lets signed callback fields choose the key, and verifies that the adapter
 returns the admitted immutable result. Invalid callbacks never reach storage.
 The helper does not retrieve media, acknowledge callbacks, or perform provider I/O.
 
+After application authentication and workspace authorization,
+`load_voicemail_recording_status` provides the matching read boundary. It
+validates the adapter and trusted workspace/call/recording key before loading,
+preserves a missing result as `None`, and rejects malformed or cross-recording
+adapter values. It does not authorize a caller or expose recording media:
+
+```python
+# example: compile-only
+from zentomic.voicemail_status_store import load_voicemail_recording_status
+
+status = load_voicemail_recording_status(
+    authorized_workspace_id,
+    session_call_sid,
+    session_recording_sid,
+    store=trusted_voicemail_status_store,
+)
+```
+
 ### Offline speech collection renderer
 
 `render_speech_gather` prepares an English, speech-only collection for a future

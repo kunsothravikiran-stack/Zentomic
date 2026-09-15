@@ -58,6 +58,33 @@ def _key(
     return workspace_id, call_sid, _validate_recording_sid(recording_sid)
 
 
+def load_voicemail_recording_status(
+    workspace_id: str, call_sid: str, recording_sid: str, *,
+    store: VoicemailStatusStore,
+) -> VoicemailRecordingStatus | None:
+    """Load and validate one final status selected only by a trusted key.
+
+    Workspace authorization and every identifier must come from trusted
+    application state. The adapter shape and exact key are validated before the
+    load. Missing state remains ``None``; a present value must be an exact,
+    well-formed status for the requested recording. Adapter errors propagate.
+
+    This helper performs no authentication, authorization, media retrieval,
+    logging, network access, or provider operation.
+    """
+    load = getattr(store, "load", None)
+    if not callable(load):
+        raise ValueError("store must provide a trusted callable load method")
+    key = _key(workspace_id, call_sid, recording_sid)
+    status = load(*key)
+    if status is None:
+        return None
+    status = _validate_status(status)
+    if status.recording_sid != recording_sid:
+        raise ValueError("store returned a status for an unexpected recording")
+    return status
+
+
 class InMemoryVoicemailStatusStore:
     """Thread-safe, process-local test double for immutable final statuses.
 
