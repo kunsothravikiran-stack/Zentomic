@@ -52,9 +52,10 @@ zentomic
 
 The installed command has the same synthetic default event, replay options,
 privacy boundaries, and exit codes described below. CI installs the package
-without an index and runs this command outside the checkout, which catches
-missing package files and broken console-entry-point metadata without contacting
-an external service.
+without runtime dependencies and runs this command outside the checkout, which
+catches missing package files and broken console-entry-point metadata. Pip uses
+an isolated environment for the `setuptools` build requirement declared in
+`pyproject.toml`.
 
 On Windows PowerShell, create the environment with `py -3 -m venv .venv`
 and activate it with `.venv\Scripts\Activate.ps1`. The remaining `python`
