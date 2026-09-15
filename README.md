@@ -827,6 +827,16 @@ returns only the exact tombstone it removed, or `None` for missing or active
 state, so the worker does not need a racy read after releasing the recreation
 guard. The receipt must match the expected version; the same authorization,
 deadline, and provider-media boundaries still apply.
+For adapters that persist the replay-window deadline with the tombstone,
+`expire_voicemail_recording_status_snapshot` accepts `purge_after_ms` and returns
+a versioned snapshot carrying that exact trusted timestamp. Later,
+`purge_due_voicemail_recording_status_expiry` requires the same version and
+deadline, supplies a fresh trusted `now_ms`, and accepts only the exact removed
+tombstone as its receipt. The adapter must compare the durable values and the
+deadline in one conditional delete. A not-yet-due tombstone is left intact, and
+the legacy purge helpers reject scheduled tombstones so they cannot bypass that
+check. These helpers do not read a clock, choose a retention period, authorize
+cleanup, or delete provider media.
 
 ### Offline speech collection renderer
 

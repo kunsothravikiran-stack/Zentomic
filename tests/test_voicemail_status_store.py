@@ -15,6 +15,7 @@ from zentomic.voicemail_status_store import (
     is_voicemail_recording_status_expired,
     purge_voicemail_recording_status_expiry,
     purge_voicemail_recording_status_expiry_snapshot,
+    purge_due_voicemail_recording_status_expiry,
     VoicemailRecordingStatusSnapshot,
     VoicemailStatusCapacityError,
     VoicemailStatusConflictError,
@@ -986,6 +987,155 @@ class PurgeVoicemailRecordingStatusExpirySnapshotTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
             self.purge(store=store)
+
+
+class ScheduledVoicemailExpiryTests(unittest.TestCase):
+    def setUp(self):
+        self.status = VoicemailRecordingStatus(
+            "available", RECORDING_SID, 12,
+        )
+        self.store = InMemoryVoicemailStatusStore()
+
+    def expire(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "call_sid": "call",
+            "recording_sid": RECORDING_SID,
+            "expected_status": self.status,
+            "purge_after_ms": 10_000,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return expire_voicemail_recording_status_snapshot(**config)
+
+    def test_returns_the_new_deadline_bearing_tombstone(self):
+        self.store.record("workspace", "call", self.status)
+        expired = self.expire()
+        self.assertEqual(expired, VoicemailRecordingStatusSnapshot(
+            expired=True, expiry_version=1, purge_after_ms=10_000,
+        ))
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID), expired,
+        )
+        self.assertIsNone(self.expire())
+
+    def test_deadline_is_validated_before_the_adapter_call(self):
+        for value in (True, False, -1, 1.0, "10000"):
+            store = Mock()
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.expire(purge_after_ms=value, store=store)
+            store.expire_and_inspect.assert_not_called()
+
+    def test_adapter_must_return_the_requested_deadline(self):
+        for returned in (
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1,
+            ),
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1, purge_after_ms=10_001,
+            ),
+            VoicemailRecordingStatusSnapshot(
+                status=self.status, purge_after_ms=10_000,
+            ),
+        ):
+            store = Mock()
+            store.expire_and_inspect.return_value = returned
+            with self.subTest(returned=returned), self.assertRaises(ValueError):
+                self.expire(store=store)
+
+
+class PurgeDueVoicemailExpiryTests(unittest.TestCase):
+    def setUp(self):
+        self.status = VoicemailRecordingStatus(
+            "available", RECORDING_SID, 12,
+        )
+        self.store = InMemoryVoicemailStatusStore()
+        self.store.record("workspace", "call", self.status)
+        self.expected = self.store.expire_and_inspect(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.status, purge_after_ms=10_000,
+        )
+
+    def purge(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "call_sid": "call",
+            "recording_sid": RECORDING_SID,
+            "expected_snapshot": self.expected,
+            "now_ms": 10_000,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return purge_due_voicemail_recording_status_expiry(**config)
+
+    def test_not_due_is_a_noop_and_exact_deadline_returns_receipt(self):
+        self.assertIsNone(self.purge(now_ms=9_999))
+        with self.assertRaisesRegex(
+            ValueError, "^scheduled expiry requires a due-purge adapter$",
+        ):
+            self.store.purge_expired(
+                "workspace", "call", RECORDING_SID, expected_version=1,
+            )
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID),
+            self.expected,
+        )
+        self.assertEqual(self.purge(), self.expected)
+        self.assertIsNone(self.purge())
+
+    def test_now_and_expected_snapshot_are_strictly_validated(self):
+        invalid_snapshots = (
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1,
+            ),
+            VoicemailRecordingStatusSnapshot(),
+            VoicemailRecordingStatusSnapshot(status=self.status),
+        )
+        for snapshot in invalid_snapshots:
+            store = Mock()
+            with self.subTest(snapshot=snapshot), self.assertRaises(ValueError):
+                self.purge(expected_snapshot=snapshot, store=store)
+            store.purge_expired_if_due.assert_not_called()
+        for value in (None, True, False, -1, 1.0, "10000"):
+            store = Mock()
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.purge(now_ms=value, store=store)
+            store.purge_expired_if_due.assert_not_called()
+
+    def test_legacy_purge_helpers_cannot_bypass_a_stored_deadline(self):
+        for helper in (
+            purge_voicemail_recording_status_expiry,
+            purge_voicemail_recording_status_expiry_snapshot,
+        ):
+            store = Mock()
+            with self.subTest(helper=helper), self.assertRaisesRegex(
+                ValueError, "^scheduled expiry requires a due-purge adapter$",
+            ):
+                helper(
+                    "workspace", "call", RECORDING_SID,
+                    expected_snapshot=self.expected, store=store,
+                )
+            store.purge_expired.assert_not_called()
+            store.purge_expired_and_inspect.assert_not_called()
+
+    def test_adapter_result_must_match_the_expected_tombstone(self):
+        store = Mock()
+        store.purge_expired_if_due.return_value = (
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1, purge_after_ms=10_001,
+            )
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "^store due purge result must match the expected tombstone$",
+        ):
+            self.purge(store=store)
+        store.purge_expired_if_due.assert_called_once_with(
+            "workspace", "call", RECORDING_SID,
+            expected_version=1,
+            expected_purge_after_ms=10_000,
+            now_ms=10_000,
+        )
 
 
 if __name__ == "__main__":
