@@ -31,6 +31,9 @@ jobs:
       - name: Run guarded offline test suite
         run: python -m tests
 
+      - name: Run tests with Python assertions disabled
+        run: python -O -m tests
+
       - name: Compile Python sources
         run: python -m compileall -q zentomic tests
 
