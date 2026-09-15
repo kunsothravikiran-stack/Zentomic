@@ -17,6 +17,7 @@ from zentomic.voicemail_status_store import (
     purge_voicemail_recording_status_expiry,
     purge_voicemail_recording_status_expiry_snapshot,
     purge_due_voicemail_recording_status_expiry,
+    unschedule_voicemail_recording_status_expiry_deadline,
     VoicemailRecordingStatusSnapshot,
     VoicemailStatusCapacityError,
     VoicemailStatusConflictError,
@@ -1169,6 +1170,147 @@ class ExtendVoicemailExpiryDeadlineTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
             self.extend(store=store)
+
+
+class UnscheduleVoicemailExpiryTests(unittest.TestCase):
+    def setUp(self):
+        self.status = VoicemailRecordingStatus(
+            "available", RECORDING_SID, 12,
+        )
+        self.store = InMemoryVoicemailStatusStore()
+        self.store.record("workspace", "call", self.status)
+        self.expected = self.store.expire_and_inspect(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.status, purge_after_ms=10_000,
+        )
+
+    def unschedule(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "call_sid": "call",
+            "recording_sid": RECORDING_SID,
+            "expected_snapshot": self.expected,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return unschedule_voicemail_recording_status_expiry_deadline(**config)
+
+    def test_unschedule_atomically_removes_only_the_deadline(self):
+        held = self.unschedule()
+        self.assertEqual(held, VoicemailRecordingStatusSnapshot(
+            expired=True, expiry_version=1,
+        ))
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID), held,
+        )
+        with self.assertRaisesRegex(
+            VoicemailStatusConflictError,
+            "^voicemail expiry tombstone conflict$",
+        ):
+            purge_due_voicemail_recording_status_expiry(
+                "workspace", "call", RECORDING_SID,
+                expected_snapshot=self.expected, now_ms=10_000,
+                store=self.store,
+            )
+        self.assertEqual(
+            purge_voicemail_recording_status_expiry_snapshot(
+                "workspace", "call", RECORDING_SID,
+                expected_snapshot=held, store=self.store,
+            ),
+            held,
+        )
+
+    def test_expected_snapshot_and_adapter_are_validated_before_mutation(self):
+        invalid_snapshots = (
+            VoicemailRecordingStatusSnapshot(),
+            VoicemailRecordingStatusSnapshot(status=self.status),
+            VoicemailRecordingStatusSnapshot(expired=True, expiry_version=1),
+        )
+        for snapshot in invalid_snapshots:
+            store = Mock()
+            with self.subTest(snapshot=snapshot), self.assertRaises(ValueError):
+                self.unschedule(expected_snapshot=snapshot, store=store)
+            store.unschedule_expiry_deadline.assert_not_called()
+        for overrides in (
+            {"store": object()},
+            {"workspace_id": ""},
+            {"call_sid": " "},
+            {"recording_sid": "CA" + "1" * 32},
+        ):
+            store = Mock()
+            if "store" not in overrides:
+                overrides["store"] = store
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.unschedule(**overrides)
+            store.unschedule_expiry_deadline.assert_not_called()
+
+    def test_missing_or_active_state_is_a_noop_and_stale_snapshot_conflicts(self):
+        empty = InMemoryVoicemailStatusStore()
+        self.assertIsNone(self.unschedule(store=empty))
+        active = InMemoryVoicemailStatusStore()
+        active.record("workspace", "call", self.status)
+        self.assertIsNone(self.unschedule(store=active))
+        self.assertEqual(
+            active.load("workspace", "call", RECORDING_SID), self.status,
+        )
+        held = self.unschedule()
+        with self.assertRaisesRegex(
+            VoicemailStatusConflictError,
+            "^voicemail expiry tombstone conflict$",
+        ):
+            self.unschedule()
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID), held,
+        )
+
+    def test_local_store_rejects_invalid_expectations_without_mutation(self):
+        cases = (
+            {"expected_version": None, "expected_purge_after_ms": 10_000},
+            {"expected_version": True, "expected_purge_after_ms": 10_000},
+            {"expected_version": 0, "expected_purge_after_ms": 10_000},
+            {"expected_version": 1.0, "expected_purge_after_ms": 10_000},
+            {"expected_version": 1, "expected_purge_after_ms": None},
+            {"expected_version": 1, "expected_purge_after_ms": True},
+            {"expected_version": 1, "expected_purge_after_ms": -1},
+            {"expected_version": 1, "expected_purge_after_ms": 10_000.0},
+        )
+        for kwargs in cases:
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                self.store.unschedule_expiry_deadline(
+                    "workspace", "call", RECORDING_SID, **kwargs,
+                )
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID),
+            self.expected,
+        )
+
+    def test_adapter_result_must_match_the_unscheduled_tombstone(self):
+        invalid = (
+            False,
+            VoicemailRecordingStatusSnapshot(),
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=2,
+            ),
+            self.expected,
+        )
+        for returned in invalid:
+            store = Mock()
+            store.unschedule_expiry_deadline.return_value = returned
+            with self.subTest(returned=returned), self.assertRaises(ValueError):
+                self.unschedule(store=store)
+            store.unschedule_expiry_deadline.assert_called_once_with(
+                "workspace", "call", RECORDING_SID,
+                expected_version=1,
+                expected_purge_after_ms=10_000,
+            )
+
+    def test_adapter_errors_propagate(self):
+        store = Mock()
+        store.unschedule_expiry_deadline.side_effect = RuntimeError(
+            "synthetic adapter failure"
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
+            self.unschedule(store=store)
 
 
 class PurgeDueVoicemailExpiryTests(unittest.TestCase):

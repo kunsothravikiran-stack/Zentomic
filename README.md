@@ -849,6 +849,15 @@ rejected before the adapter call; the boundary deliberately cannot shorten an
 established recreation guard. The adapter must persist the comparison and
 update atomically. The helper does not choose policy, read a clock, or authorize
 the extension.
+To apply a retention hold that cancels scheduled cleanup,
+`unschedule_voicemail_recording_status_expiry_deadline` conditionally removes
+the exact tombstone's deadline while preserving its version and recreation
+guard. A stale
+due-purge worker then conflicts instead of deleting the tombstone. The hold does
+not make the tombstone permanently unpurgeable: releasing it requires a fresh
+unscheduled snapshot and the separately authorized unscheduled-purge boundary.
+The adapter must compare the version and prior deadline and update atomically;
+the helper does not authorize the hold or contact a provider.
 
 ### Offline speech collection renderer
 
@@ -1906,7 +1915,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/voicemail_event.py`: authenticated voicemail results with optional replay claims.
 - `zentomic/voicemail_status.py`: sanitized recording availability and final-duration admission.
 - `zentomic/voicemail_status_event.py`: authenticated recording status with optional replay claims.
-- `zentomic/voicemail_status_store.py`: bounded local final-status storage, atomic expiry and purge receipts, tri-state inspection, retention tombstones, deadline extension, and authorized purge boundaries for adapter tests.
+- `zentomic/voicemail_status_store.py`: bounded local final-status storage, atomic expiry and purge receipts, tri-state inspection, retention tombstones, deadline extension and unscheduling, and authorized purge boundaries for adapter tests.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.

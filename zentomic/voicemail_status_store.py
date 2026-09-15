@@ -139,6 +139,16 @@ class VoicemailStatusDeadlineExtensionStore(Protocol):
         """Extend and return the exact scheduled tombstone, if present."""
 
 
+class VoicemailStatusDeadlineUnscheduleStore(Protocol):
+    """Atomic scheduled-tombstone hold boundary supplied by an adapter."""
+
+    def unschedule_expiry_deadline(
+        self, workspace_id: str, call_sid: str, recording_sid: str, *,
+        expected_version: int, expected_purge_after_ms: int,
+    ) -> VoicemailRecordingStatusSnapshot | None:
+        """Remove the deadline and return the exact retained tombstone."""
+
+
 def _validate_status(status: VoicemailRecordingStatus) -> VoicemailRecordingStatus:
     """Reject values that could not have crossed the admission boundary."""
     if type(status) is not VoicemailRecordingStatus:
@@ -585,6 +595,63 @@ def extend_voicemail_recording_status_expiry_deadline(
     return receipt
 
 
+def unschedule_voicemail_recording_status_expiry_deadline(
+    workspace_id: str, call_sid: str, recording_sid: str, *,
+    expected_snapshot: VoicemailRecordingStatusSnapshot,
+    store: VoicemailStatusDeadlineUnscheduleStore,
+) -> VoicemailRecordingStatusSnapshot | None:
+    """Atomically remove one exact tombstone's scheduled purge deadline.
+
+    The adapter must compare the expected version and persisted deadline before
+    replacing the scheduled tombstone with an unscheduled tombstone and
+    returning it in the same operation. Missing or active state returns
+    ``None``; a different tombstone is a conflict. This lets an authorized
+    retention hold stop due-purge work without releasing the recreation guard.
+
+    A later purge requires a fresh unscheduled snapshot and separate
+    authorization. This helper performs no authentication, authorization,
+    clock check, media deletion, logging, network access, or provider operation.
+    """
+    unschedule_expiry_deadline = getattr(
+        store, "unschedule_expiry_deadline", None,
+    )
+    if not callable(unschedule_expiry_deadline):
+        raise ValueError(
+            "store must provide a trusted callable "
+            "unschedule_expiry_deadline method"
+        )
+    key = _key(workspace_id, call_sid, recording_sid)
+    expected_snapshot = _validate_snapshot(
+        expected_snapshot, recording_sid=key[2],
+    )
+    expected_version = expected_snapshot.expiry_version
+    expected_purge_after_ms = expected_snapshot.purge_after_ms
+    if (expected_snapshot.status is not None or expected_version is None
+            or expected_purge_after_ms is None):
+        raise ValueError(
+            "expected snapshot must identify a scheduled expiry tombstone"
+        )
+    receipt = unschedule_expiry_deadline(
+        *key,
+        expected_version=expected_version,
+        expected_purge_after_ms=expected_purge_after_ms,
+    )
+    if receipt is None:
+        return None
+    receipt = _validate_snapshot(
+        receipt, recording_sid=key[2], source="unschedule_expiry_deadline",
+    )
+    expected_receipt = VoicemailRecordingStatusSnapshot(
+        expired=True,
+        expiry_version=expected_version,
+    )
+    if receipt != expected_receipt:
+        raise ValueError(
+            "store deadline unschedule result must match the requested tombstone"
+        )
+    return receipt
+
+
 class InMemoryVoicemailStatusStore:
     """Thread-safe, process-local test double for immutable final statuses.
 
@@ -814,6 +881,35 @@ class InMemoryVoicemailStatusStore:
                 expired=True,
                 expiry_version=expected_version,
                 purge_after_ms=new_purge_after_ms,
+            )
+            self._expired[key] = updated
+            return updated
+
+    def unschedule_expiry_deadline(
+        self, workspace_id: str, call_sid: str, recording_sid: str, *,
+        expected_version: int, expected_purge_after_ms: int,
+    ) -> VoicemailRecordingStatusSnapshot | None:
+        """Remove one exact scheduled deadline under one local lock."""
+        key = _key(workspace_id, call_sid, recording_sid)
+        if type(expected_version) is not int or expected_version < 1:
+            raise ValueError("expected expiry version must be a positive integer")
+        if (type(expected_purge_after_ms) is not int
+                or expected_purge_after_ms < 0):
+            raise ValueError(
+                "expected purge deadline must be a nonnegative integer"
+            )
+        with self._lock:
+            current = self._expired.get(key)
+            if current is None:
+                return None
+            if (current.expiry_version != expected_version
+                    or current.purge_after_ms != expected_purge_after_ms):
+                raise VoicemailStatusConflictError(
+                    "voicemail expiry tombstone conflict"
+                )
+            updated = VoicemailRecordingStatusSnapshot(
+                expired=True,
+                expiry_version=expected_version,
             )
             self._expired[key] = updated
             return updated
