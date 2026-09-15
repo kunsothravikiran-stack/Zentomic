@@ -840,6 +840,15 @@ durable state can differ from the worker's previously observed snapshot. The
 legacy purge helpers reject scheduled tombstones so they cannot bypass that
 check. These helpers do not read a clock, choose a retention period, authorize
 cleanup, or delete provider media.
+If a provider replay window or retention hold grows after scheduling,
+`extend_voicemail_recording_status_expiry_deadline` conditionally moves the
+exact tombstone's deadline later and returns the updated snapshot in the same
+adapter operation. It compares both the version and prior deadline, so stale
+cleanup cannot overwrite a newer schedule. Equal or earlier deadlines are
+rejected before the adapter call; the boundary deliberately cannot shorten an
+established recreation guard. The adapter must persist the comparison and
+update atomically. The helper does not choose policy, read a clock, or authorize
+the extension.
 
 ### Offline speech collection renderer
 
@@ -1897,7 +1906,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/voicemail_event.py`: authenticated voicemail results with optional replay claims.
 - `zentomic/voicemail_status.py`: sanitized recording availability and final-duration admission.
 - `zentomic/voicemail_status_event.py`: authenticated recording status with optional replay claims.
-- `zentomic/voicemail_status_store.py`: bounded local final-status storage, atomic expiry and purge receipts, tri-state inspection, retention tombstones, and authorized purge boundaries for adapter tests.
+- `zentomic/voicemail_status_store.py`: bounded local final-status storage, atomic expiry and purge receipts, tri-state inspection, retention tombstones, deadline extension, and authorized purge boundaries for adapter tests.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.

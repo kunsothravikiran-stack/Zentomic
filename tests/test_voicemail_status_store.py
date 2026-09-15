@@ -10,6 +10,7 @@ from zentomic.voicemail_status_store import (
     delete_voicemail_recording_status,
     expire_voicemail_recording_status,
     expire_voicemail_recording_status_snapshot,
+    extend_voicemail_recording_status_expiry_deadline,
     InMemoryVoicemailStatusStore,
     inspect_voicemail_recording_status,
     is_voicemail_recording_status_expired,
@@ -1042,6 +1043,132 @@ class ScheduledVoicemailExpiryTests(unittest.TestCase):
             store.expire_and_inspect.return_value = returned
             with self.subTest(returned=returned), self.assertRaises(ValueError):
                 self.expire(store=store)
+
+
+class ExtendVoicemailExpiryDeadlineTests(unittest.TestCase):
+    def setUp(self):
+        self.status = VoicemailRecordingStatus(
+            "available", RECORDING_SID, 12,
+        )
+        self.store = InMemoryVoicemailStatusStore()
+        self.store.record("workspace", "call", self.status)
+        self.expected = self.store.expire_and_inspect(
+            "workspace", "call", RECORDING_SID,
+            expected_status=self.status, purge_after_ms=10_000,
+        )
+
+    def extend(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "call_sid": "call",
+            "recording_sid": RECORDING_SID,
+            "expected_snapshot": self.expected,
+            "new_purge_after_ms": 20_000,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return extend_voicemail_recording_status_expiry_deadline(**config)
+
+    def test_extension_atomically_updates_the_expected_tombstone(self):
+        updated = self.extend()
+        self.assertEqual(updated, VoicemailRecordingStatusSnapshot(
+            expired=True, expiry_version=1, purge_after_ms=20_000,
+        ))
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID), updated,
+        )
+        with self.assertRaisesRegex(
+            VoicemailStatusConflictError,
+            "^voicemail expiry tombstone conflict$",
+        ):
+            purge_due_voicemail_recording_status_expiry(
+                "workspace", "call", RECORDING_SID,
+                expected_snapshot=self.expected, now_ms=20_000,
+                store=self.store,
+            )
+        self.assertIsNone(purge_due_voicemail_recording_status_expiry(
+            "workspace", "call", RECORDING_SID,
+            expected_snapshot=updated, now_ms=19_999, store=self.store,
+        ))
+        self.assertEqual(purge_due_voicemail_recording_status_expiry(
+            "workspace", "call", RECORDING_SID,
+            expected_snapshot=updated, now_ms=20_000, store=self.store,
+        ), updated)
+
+    def test_only_a_later_strict_integer_deadline_is_accepted(self):
+        for value in (None, True, False, -1, 1.0, "20000", 9_999, 10_000):
+            store = Mock()
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.extend(new_purge_after_ms=value, store=store)
+            store.extend_expiry_deadline.assert_not_called()
+
+    def test_expected_snapshot_and_adapter_are_validated_before_mutation(self):
+        invalid_snapshots = (
+            VoicemailRecordingStatusSnapshot(),
+            VoicemailRecordingStatusSnapshot(status=self.status),
+            VoicemailRecordingStatusSnapshot(expired=True, expiry_version=1),
+        )
+        for snapshot in invalid_snapshots:
+            store = Mock()
+            with self.subTest(snapshot=snapshot), self.assertRaises(ValueError):
+                self.extend(expected_snapshot=snapshot, store=store)
+            store.extend_expiry_deadline.assert_not_called()
+        for overrides in (
+            {"store": object()},
+            {"workspace_id": ""},
+            {"call_sid": " "},
+            {"recording_sid": "CA" + "1" * 32},
+        ):
+            store = Mock()
+            if "store" not in overrides:
+                overrides["store"] = store
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.extend(**overrides)
+            store.extend_expiry_deadline.assert_not_called()
+
+    def test_missing_state_is_a_noop_and_stale_snapshot_conflicts(self):
+        empty = InMemoryVoicemailStatusStore()
+        self.assertIsNone(self.extend(store=empty))
+        updated = self.extend()
+        with self.assertRaisesRegex(
+            VoicemailStatusConflictError,
+            "^voicemail expiry tombstone conflict$",
+        ):
+            self.extend()
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID), updated,
+        )
+
+    def test_adapter_result_must_match_the_requested_tombstone(self):
+        invalid = (
+            False,
+            VoicemailRecordingStatusSnapshot(),
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=2, purge_after_ms=20_000,
+            ),
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1, purge_after_ms=20_001,
+            ),
+        )
+        for returned in invalid:
+            store = Mock()
+            store.extend_expiry_deadline.return_value = returned
+            with self.subTest(returned=returned), self.assertRaises(ValueError):
+                self.extend(store=store)
+            store.extend_expiry_deadline.assert_called_once_with(
+                "workspace", "call", RECORDING_SID,
+                expected_version=1,
+                expected_purge_after_ms=10_000,
+                new_purge_after_ms=20_000,
+            )
+
+    def test_adapter_errors_propagate(self):
+        store = Mock()
+        store.extend_expiry_deadline.side_effect = RuntimeError(
+            "synthetic adapter failure"
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
+            self.extend(store=store)
 
 
 class PurgeDueVoicemailExpiryTests(unittest.TestCase):
