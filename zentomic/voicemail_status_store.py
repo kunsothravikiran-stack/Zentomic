@@ -106,6 +106,16 @@ class VoicemailStatusExpiryPurgeStore(Protocol):
         """Conditionally remove the exact previously observed tombstone."""
 
 
+class VoicemailStatusSnapshotPurgeStore(Protocol):
+    """Atomic tombstone-purge receipt boundary supplied by an adapter."""
+
+    def purge_expired_and_inspect(
+        self, workspace_id: str, call_sid: str, recording_sid: str,
+        *, expected_version: int,
+    ) -> VoicemailRecordingStatusSnapshot | None:
+        """Remove and return only the exact matching tombstone."""
+
+
 def _validate_status(status: VoicemailRecordingStatus) -> VoicemailRecordingStatus:
     """Reject values that could not have crossed the admission boundary."""
     if type(status) is not VoicemailRecordingStatus:
@@ -364,6 +374,54 @@ def purge_voicemail_recording_status_expiry(
     return purged
 
 
+def purge_voicemail_recording_status_expiry_snapshot(
+    workspace_id: str, call_sid: str, recording_sid: str, *,
+    expected_snapshot: VoicemailRecordingStatusSnapshot,
+    store: VoicemailStatusSnapshotPurgeStore,
+) -> VoicemailRecordingStatusSnapshot | None:
+    """Atomically purge and return one exact retained tombstone.
+
+    Call this only after a separately authorized retention workflow establishes
+    that the provider replay window has elapsed. The adapter must atomically
+    remove the exact expected version and return that removed tombstone in the
+    same operation. Missing or active state returns ``None``; a newer version
+    is a conflict. This gives cleanup work a receipt without a racy follow-up
+    read after the recreation guard has been released.
+
+    The helper validates the adapter, trusted key, expected snapshot, and
+    returned receipt. It performs no authentication, authorization, clock
+    check, media deletion, logging, network access, or provider operation.
+    """
+    purge_expired_and_inspect = getattr(
+        store, "purge_expired_and_inspect", None,
+    )
+    if not callable(purge_expired_and_inspect):
+        raise ValueError(
+            "store must provide a trusted callable "
+            "purge_expired_and_inspect method"
+        )
+    key = _key(workspace_id, call_sid, recording_sid)
+    expected_snapshot = _validate_snapshot(
+        expected_snapshot, recording_sid=key[2],
+    )
+    expected_version = expected_snapshot.expiry_version
+    if expected_snapshot.status is not None or expected_version is None:
+        raise ValueError("expected snapshot must identify an expiry tombstone")
+    receipt = purge_expired_and_inspect(
+        *key, expected_version=expected_version,
+    )
+    if receipt is None:
+        return None
+    receipt = _validate_snapshot(
+        receipt, recording_sid=key[2], source="purge_expired_and_inspect",
+    )
+    if receipt.status is not None or receipt.expiry_version is None:
+        raise ValueError("store purge result must identify a tombstone")
+    if receipt != expected_snapshot:
+        raise ValueError("store purge result must match the expected tombstone")
+    return receipt
+
+
 class InMemoryVoicemailStatusStore:
     """Thread-safe, process-local test double for immutable final statuses.
 
@@ -504,16 +562,28 @@ class InMemoryVoicemailStatusStore:
         *, expected_version: int,
     ) -> bool:
         """Remove only the exact observed tombstone for one trusted key."""
+        return self.purge_expired_and_inspect(
+            workspace_id, call_sid, recording_sid,
+            expected_version=expected_version,
+        ) is not None
+
+    def purge_expired_and_inspect(
+        self, workspace_id: str, call_sid: str, recording_sid: str,
+        *, expected_version: int,
+    ) -> VoicemailRecordingStatusSnapshot | None:
+        """Remove and return the exact observed tombstone under one lock."""
         key = _key(workspace_id, call_sid, recording_sid)
         if type(expected_version) is not int or expected_version < 1:
             raise ValueError("expected expiry version must be a positive integer")
         with self._lock:
             current_version = self._expired.get(key)
             if current_version is None:
-                return False
+                return None
             if current_version != expected_version:
                 raise VoicemailStatusConflictError(
                     "voicemail expiry tombstone conflict"
                 )
             del self._expired[key]
-            return True
+            return VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=current_version,
+            )
