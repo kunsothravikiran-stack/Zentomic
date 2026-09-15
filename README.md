@@ -834,7 +834,10 @@ a versioned snapshot carrying that exact trusted timestamp. Later,
 deadline, supplies a fresh trusted `now_ms`, and accepts only the exact removed
 tombstone as its receipt. The adapter must compare the durable values and the
 deadline in one conditional delete. A not-yet-due tombstone is left intact, and
-the legacy purge helpers reject scheduled tombstones so they cannot bypass that
+an obviously early trusted timestamp is rejected before calling the adapter.
+The adapter must still enforce the persisted deadline atomically because its
+durable state can differ from the worker's previously observed snapshot. The
+legacy purge helpers reject scheduled tombstones so they cannot bypass that
 check. These helpers do not read a clock, choose a retention period, authorize
 cleanup, or delete provider media.
 

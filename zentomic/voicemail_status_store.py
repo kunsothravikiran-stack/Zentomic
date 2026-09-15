@@ -494,6 +494,8 @@ def purge_due_voicemail_recording_status_expiry(
         )
     if type(now_ms) is not int or now_ms < 0:
         raise ValueError("now_ms must be a nonnegative integer timestamp")
+    if now_ms < purge_after_ms:
+        return None
     receipt = purge_expired_if_due(
         *key,
         expected_version=expected_version,

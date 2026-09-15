@@ -1083,6 +1083,11 @@ class PurgeDueVoicemailExpiryTests(unittest.TestCase):
         self.assertEqual(self.purge(), self.expected)
         self.assertIsNone(self.purge())
 
+    def test_before_deadline_does_not_reach_the_adapter(self):
+        store = Mock()
+        self.assertIsNone(self.purge(now_ms=9_999, store=store))
+        store.purge_expired_if_due.assert_not_called()
+
     def test_now_and_expected_snapshot_are_strictly_validated(self):
         invalid_snapshots = (
             VoicemailRecordingStatusSnapshot(
