@@ -795,6 +795,11 @@ for that recording key. Tombstones count toward its configured capacity because
 dropping one would remove the recreation guard. A production adapter must make
 the replacement atomic and keep the tombstone for the required replay window;
 the helper still does not delete provider media or authorize retention work.
+`is_voicemail_recording_status_expired` provides a separate trusted-key lookup
+that distinguishes a retained tombstone from never-recorded metadata without
+revealing the deleted status. Its result is only an observation, not permission
+to accept a callback or remove a tombstone; decisions that depend on expiry
+state still require an atomic durable adapter operation.
 
 ### Offline speech collection renderer
 
@@ -1852,7 +1857,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/voicemail_event.py`: authenticated voicemail results with optional replay claims.
 - `zentomic/voicemail_status.py`: sanitized recording availability and final-duration admission.
 - `zentomic/voicemail_status_event.py`: authenticated recording status with optional replay claims.
-- `zentomic/voicemail_status_store.py`: bounded local final-status storage and retention tombstones for adapter tests.
+- `zentomic/voicemail_status_store.py`: bounded local final-status storage, retention tombstones, and expiry inspection for adapter tests.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.
@@ -1870,7 +1875,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_twiml.py`: collection/ending structure, XML escaping, and renderer limits.
 - `tests/test_voicemail_event.py`: voicemail result admission, authentication, privacy, and replay claims.
 - `tests/test_voicemail_status.py`: recording-status admission, authentication, privacy, and replay claims.
-- `tests/test_voicemail_status_store.py`: final-status idempotency, isolation, capacity, deletion, expiry tombstones, and contention.
+- `tests/test_voicemail_status_store.py`: final-status idempotency, isolation, capacity, deletion, expiry inspection, and contention.
 - `tests/test_voicemail_status_store_event.py`: authenticated final-status storage composition.
 - `tests/test_speech_gather.py`: speech-only XML, timeout bounds, and offline safety.
 - `tests/test_speech.py`: speech budgets, text limits, and confirmation separation.

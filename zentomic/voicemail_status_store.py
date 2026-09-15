@@ -58,6 +58,15 @@ class VoicemailStatusExpiryStore(Protocol):
         """Replace exact expected metadata with a durable tombstone."""
 
 
+class VoicemailStatusExpiryReader(Protocol):
+    """Read-only tombstone boundary supplied by a retention adapter."""
+
+    def is_expired(
+        self, workspace_id: str, call_sid: str, recording_sid: str,
+    ) -> bool:
+        """Return whether the exact trusted recording key has a tombstone."""
+
+
 def _validate_status(status: VoicemailRecordingStatus) -> VoicemailRecordingStatus:
     """Reject values that could not have crossed the admission boundary."""
     if type(status) is not VoicemailRecordingStatus:
@@ -167,12 +176,37 @@ def expire_voicemail_recording_status(
     return expired
 
 
+def is_voicemail_recording_status_expired(
+    workspace_id: str, call_sid: str, recording_sid: str, *,
+    store: VoicemailStatusExpiryReader,
+) -> bool:
+    """Inspect durable expiry state for one trusted recording key.
+
+    The adapter shape and exact key are validated before the lookup, and only
+    an exact boolean result is accepted. This distinguishes a tombstone from a
+    recording that never had status metadata without exposing deleted status.
+    Adapter errors propagate.
+
+    This observation is not authorization to accept a callback or remove a
+    tombstone. Production workflows still need an atomic durable write when
+    expiry state and another decision must remain consistent.
+    """
+    is_expired = getattr(store, "is_expired", None)
+    if not callable(is_expired):
+        raise ValueError("store must provide a trusted callable is_expired method")
+    expired = is_expired(*_key(workspace_id, call_sid, recording_sid))
+    if type(expired) is not bool:
+        raise ValueError("store is_expired must return an exact boolean")
+    return expired
+
+
 class InMemoryVoicemailStatusStore:
     """Thread-safe, process-local test double for immutable final statuses.
 
     Authenticate and bind the callback before recording its sanitized result.
-    This store performs no authentication, workspace authorization, expiry,
-    media retrieval, logging, network access, files, or provider operations.
+    This store performs no authentication, workspace authorization, timed
+    retention, media retrieval, logging, network access, files, or provider
+    operations.
     State is neither durable nor shared across processes or Lambda invocations.
     """
 
@@ -193,6 +227,14 @@ class InMemoryVoicemailStatusStore:
         key = _key(workspace_id, call_sid, recording_sid)
         with self._lock:
             return self._states.get(key)
+
+    def is_expired(
+        self, workspace_id: str, call_sid: str, recording_sid: str,
+    ) -> bool:
+        """Report whether one exact key has a retained expiry tombstone."""
+        key = _key(workspace_id, call_sid, recording_sid)
+        with self._lock:
+            return key in self._expired
 
     def record(
         self, workspace_id: str, call_sid: str,
