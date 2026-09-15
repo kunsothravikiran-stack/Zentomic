@@ -2,6 +2,7 @@
 
 import re
 from itertools import islice
+from typing import Literal
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 
@@ -166,4 +167,20 @@ def render_hangup(prompt: str | None = None) -> str:
     if prompt is not None:
         SubElement(response, "Say").text = prompt
     SubElement(response, "Hangup")
+    return _serialize(response)
+
+
+def render_reject(*, reason: Literal["rejected", "busy"] = "rejected") -> str:
+    """Render a pre-answer rejection for an authorized inbound call.
+
+    Reject is deliberately the only verb so Twilio can decline the call before
+    answering it. The default not-in-service response omits the optional reason
+    attribute; ``busy`` requests a busy signal. This does not authenticate the
+    request, classify spam, authorize a block, or contact a voice provider.
+    """
+    if not isinstance(reason, str) or reason not in ("rejected", "busy"):
+        raise ValueError("reason must be 'rejected' or 'busy'")
+    response = Element("Response")
+    attributes = {} if reason == "rejected" else {"reason": reason}
+    SubElement(response, "Reject", attributes)
     return _serialize(response)

@@ -6,7 +6,7 @@ from xml.etree.ElementTree import fromstring
 
 from zentomic.twiml import (
     render_dial, render_dtmf_gather, render_hangup, render_redirect,
-    render_speech_gather,
+    render_reject, render_speech_gather,
 )
 
 
@@ -159,6 +159,44 @@ class HangupTests(unittest.TestCase):
         ):
             self.assertEqual(render_hangup(), "<Response><Hangup /></Response>")
             self.assertEqual(render_hangup("Goodbye"), render_hangup("Goodbye"))
+
+
+class RejectTests(unittest.TestCase):
+    def test_default_rejection_is_the_only_verb(self):
+        root = fromstring(render_reject())
+        self.assertEqual(root.tag, "Response")
+        self.assertEqual(root.attrib, {})
+        self.assertEqual([child.tag for child in root], ["Reject"])
+        self.assertEqual(root[0].attrib, {})
+        self.assertEqual(len(root[0]), 0)
+        self.assertIsNone(root[0].text)
+        self.assertEqual(render_reject(reason="rejected"), render_reject())
+
+    def test_busy_rejection_uses_the_only_supported_attribute(self):
+        root = fromstring(render_reject(reason="busy"))
+        self.assertEqual([child.tag for child in root], ["Reject"])
+        self.assertEqual(root[0].attrib, {"reason": "busy"})
+        self.assertEqual(len(root[0]), 0)
+        self.assertIsNone(root[0].text)
+
+    def test_invalid_reasons_are_rejected_before_serialization(self):
+        reasons = (None, True, False, 1, [], {}, "", "Busy", " rejected ", "no-answer")
+        for reason in reasons:
+            with self.subTest(reason=repr(reason)), \
+                    patch("zentomic.twiml._serialize") as serialize:
+                with self.assertRaisesRegex(ValueError, "^reason must be 'rejected' or 'busy'$"):
+                    render_reject(reason=reason)
+                serialize.assert_not_called()
+
+    def test_rendering_is_deterministic_and_offline(self):
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "socket.socket", side_effect=AssertionError("Network forbidden")
+        ):
+            self.assertEqual(render_reject(), "<Response><Reject /></Response>")
+            self.assertEqual(
+                render_reject(reason="busy"),
+                '<Response><Reject reason="busy" /></Response>',
+            )
 
 
 if __name__ == "__main__":

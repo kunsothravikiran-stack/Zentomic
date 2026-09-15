@@ -624,6 +624,26 @@ into the separate terminal decision described above.
 A future authenticated adapter must decide when termination is appropriate;
 the renderer neither verifies caller intent nor changes persisted session state.
 
+For an authorized inbound call that must be declined before answer, use
+`render_reject`. It always emits `Reject` as the only verb:
+
+```python
+from zentomic.twiml import render_reject
+
+xml = render_reject(reason="busy")
+# <Response><Reject reason="busy" /></Response>
+```
+
+The default `reason="rejected"` omits the optional attribute and requests the
+provider's standard not-in-service response; `busy` requests a busy signal.
+These are the only accepted values. Twilio documents that `Reject` must be the
+first verb to avoid answering the call, and that later verbs are unreachable,
+so the renderer cannot include a greeting or farewell. It is intended for a
+future authenticated, workspace-authorized spam or policy decision, not direct
+caller/model input. Rendering is offline and does not classify a caller, block
+a number, change persisted state, expose an endpoint, or place/reject a call.
+See the [Twilio Reject reference](https://www.twilio.com/docs/voice/twiml/reject).
+
 ### Offline speech collection renderer
 
 `render_speech_gather` prepares an English, speech-only collection for a future
@@ -896,7 +916,7 @@ XML validity, allowed verbs, or destination safety. It does not sanitize
 caller/model XML.
 Authentication failures require a separate non-success response, not this
 success-only wrapper. Headers are newly allocated per invocation; no request
-headers are reflected. Offline tests cover all four renderers, Unicode and XML
+headers are reflected. Offline tests cover every renderer, Unicode and XML
 escaping, exact byte boundaries, early oversized rejection, JSON envelope round
 trips, invalid text, and independent headers.
 This adds no voice endpoint or live API Gateway/provider verification; the
@@ -1675,7 +1695,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/callback_claim_store.py`: bounded local replay claims for adapter tests.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/confirmation_event.py`: authenticated intent confirmation with optional replay claims.
-- `zentomic/twiml.py`: offline collection, forwarding, and terminal response rendering.
+- `zentomic/twiml.py`: offline collection, forwarding, hangup, and pre-answer rejection rendering.
 - `zentomic/webhook.py`: bounded form decoding with duplicate-field rejection.
 - `zentomic/webhook_event.py`: offline POST/form proxy transport validation.
 - `zentomic/authentication.py`: injected signature gate and trusted call-session binding.
