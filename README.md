@@ -864,8 +864,10 @@ atomically. The hold may instead be released through the separately authorized
 unscheduled-purge boundary when immediate removal is the intended policy. The
 unscheduling adapter must compare the version and prior deadline in one write;
 the scheduling adapter must likewise compare the version and absence of a
-deadline. Neither helper chooses policy, reads a clock, authorizes the
-transition, or contacts a provider.
+deadline. The local adapter also proves that concurrent hold-release workers
+cannot overwrite each other's chosen deadline: exactly one conditional update
+wins and the other observes a conflict. Neither helper chooses policy, reads a
+clock, authorizes the transition, or contacts a provider.
 
 ### Offline speech collection renderer
 

@@ -1399,6 +1399,27 @@ class ScheduleVoicemailExpiryTests(unittest.TestCase):
             expected_snapshot=scheduled, now_ms=20_000, store=self.store,
         ), scheduled)
 
+    def test_concurrent_hold_releases_cannot_overwrite_each_other(self):
+        barrier = Barrier(2)
+
+        def schedule(deadline):
+            barrier.wait(timeout=5)
+            try:
+                return self.schedule(new_purge_after_ms=deadline)
+            except VoicemailStatusConflictError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(schedule, (20_000, 30_000)))
+
+        winners = [result for result in results if result is not None]
+        self.assertEqual(len(winners), 1)
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID),
+            winners[0],
+        )
+        self.assertIn(winners[0].purge_after_ms, (20_000, 30_000))
+
     def test_deadline_is_validated_before_the_adapter_call(self):
         for value in (None, True, False, -1, 1.0, "20000"):
             store = Mock()
