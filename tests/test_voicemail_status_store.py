@@ -1274,6 +1274,48 @@ class UnscheduleVoicemailExpiryTests(unittest.TestCase):
             ),
         ))
 
+    def test_deadline_extension_and_retention_hold_cannot_both_win(self):
+        barrier = Barrier(2)
+
+        def unschedule():
+            barrier.wait(timeout=5)
+            try:
+                return self.unschedule()
+            except VoicemailStatusConflictError:
+                return None
+
+        def extend():
+            barrier.wait(timeout=5)
+            try:
+                return extend_voicemail_recording_status_expiry_deadline(
+                    "workspace", "call", RECORDING_SID,
+                    expected_snapshot=self.expected,
+                    new_purge_after_ms=20_000,
+                    store=self.store,
+                )
+            except VoicemailStatusConflictError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda operation: operation(), (
+                unschedule, extend,
+            )))
+
+        winners = [result for result in results if result is not None]
+        self.assertEqual(len(winners), 1)
+        self.assertEqual(
+            self.store.inspect("workspace", "call", RECORDING_SID),
+            winners[0],
+        )
+        self.assertIn(winners[0], (
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1,
+            ),
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1, purge_after_ms=20_000,
+            ),
+        ))
+
     def test_concurrent_retention_holds_issue_only_one_receipt(self):
         barrier = Barrier(2)
 
