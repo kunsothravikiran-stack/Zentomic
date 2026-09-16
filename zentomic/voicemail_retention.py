@@ -50,6 +50,20 @@ class VoicemailExpiryPurgeBatchCounts:
         """
         return self.missing
 
+    @property
+    def follow_up_recommended(self) -> bool:
+        """Return whether a worker should schedule another bounded pass.
+
+        Saturation may hide additional due work. Conflicts and missing
+        receipts leave the observed candidate unconfirmed, so a later pass is
+        also appropriate even when discovery did not fill the batch.
+        """
+        return (
+            self.discovery_limit_reached
+            or self.conflicted > 0
+            or self.no_receipt > 0
+        )
+
 
 @dataclass(frozen=True)
 class VoicemailExpiryPurgeBatchReport:
@@ -120,6 +134,11 @@ class VoicemailExpiryPurgeBatchReport:
             missing=len(self.missing),
             discovery_limit_reached=len(self.discovered) == self.limit,
         )
+
+    @property
+    def follow_up_recommended(self) -> bool:
+        """Return the scheduling hint derived from this batch's outcomes."""
+        return self.counts.follow_up_recommended
 
 
 def purge_due_voicemail_recording_status_expiry_batch_report(

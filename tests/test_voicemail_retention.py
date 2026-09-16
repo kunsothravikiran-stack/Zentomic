@@ -189,6 +189,38 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 VoicemailExpiryPurgeBatchCounts(**values)
 
+    def test_counts_recommend_follow_up_for_saturation_or_unconfirmed_work(self):
+        cases = (
+            ({"discovered": 1, "purged": 1, "conflicted": 0, "missing": 0,
+              "discovery_limit_reached": True}, True),
+            ({"discovered": 1, "purged": 0, "conflicted": 1, "missing": 0,
+              "discovery_limit_reached": False}, True),
+            ({"discovered": 1, "purged": 0, "conflicted": 0, "missing": 1,
+              "discovery_limit_reached": False}, True),
+            ({"discovered": 1, "purged": 1, "conflicted": 0, "missing": 0,
+              "discovery_limit_reached": False}, False),
+            ({"discovered": 0, "purged": 0, "conflicted": 0, "missing": 0,
+              "discovery_limit_reached": False}, False),
+        )
+        for values, expected in cases:
+            with self.subTest(values=values):
+                counts = VoicemailExpiryPurgeBatchCounts(**values)
+                self.assertIs(counts.follow_up_recommended, expected)
+
+    def test_report_exposes_follow_up_scheduling_hint(self):
+        candidate = self.add_expiry("call", "a", 8_000)
+        store = Mock()
+        store.list_due_expiries.return_value = (candidate,)
+        store.purge_expired_if_due.return_value = None
+
+        report = self.purge_batch_report(store=store)
+
+        self.assertTrue(report.follow_up_recommended)
+        self.assertEqual(
+            report.follow_up_recommended,
+            report.counts.follow_up_recommended,
+        )
+
     def test_report_rejects_incomplete_overlapping_or_reordered_outcomes(self):
         first = self.add_expiry("call-a", "a", 8_000)
         second = self.add_expiry("call-b", "b", 9_000)

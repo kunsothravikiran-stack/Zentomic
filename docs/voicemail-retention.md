@@ -16,6 +16,13 @@ means the bounded query filled its requested limit, so more due work may remain
 and the worker can schedule another pass without treating the flag as proof of
 backlog.
 
+The counts and report also expose a `follow_up_recommended` scheduling hint. It
+is true when discovery filled the batch, any candidate conflicted, or any purge
+returned no receipt. This gives workers one conservative retry decision without
+re-reading mutable state. It is only a scheduling hint: saturation does not
+prove a backlog, and an unconfirmed candidate may disappear before the next
+pass.
+
 Reports validate that every discovered candidate appears in exactly one outcome
 partition and that each partition preserves discovery order. Scalar summaries
 likewise require nonnegative exact integers whose outcomes total the discovered
