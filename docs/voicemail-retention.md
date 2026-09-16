@@ -16,6 +16,11 @@ means the bounded query filled its requested limit, so more due work may remain
 and the worker can schedule another pass without treating the flag as proof of
 backlog.
 
+Reports validate that every discovered candidate appears in exactly one outcome
+partition and that each partition preserves discovery order. Scalar summaries
+likewise require nonnegative exact integers whose outcomes total the discovered
+count, preventing malformed worker telemetry from being published silently.
+
 The worker skips candidates without receipts and conflicting candidates. This
 lets concurrent cleanup, deadline extension, and retention-hold work proceed
 without one stale observation blocking unrelated entries. Unexpected adapter

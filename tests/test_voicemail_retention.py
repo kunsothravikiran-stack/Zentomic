@@ -176,6 +176,35 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             ),
         )
 
+    def test_counts_reject_incomplete_or_malformed_telemetry(self):
+        invalid = (
+            {"discovered": 1, "purged": 0, "conflicted": 0, "missing": 0,
+             "discovery_limit_reached": False},
+            {"discovered": True, "purged": 1, "conflicted": 0, "missing": 0,
+             "discovery_limit_reached": False},
+            {"discovered": 0, "purged": 0, "conflicted": 0, "missing": 0,
+             "discovery_limit_reached": 0},
+        )
+        for values in invalid:
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                VoicemailExpiryPurgeBatchCounts(**values)
+
+    def test_report_rejects_incomplete_overlapping_or_reordered_outcomes(self):
+        first = self.add_expiry("call-a", "a", 8_000)
+        second = self.add_expiry("call-b", "b", 9_000)
+        discovered = (first, second)
+        invalid = (
+            {"purged": (first,), "conflicted": (), "missing": ()},
+            {"purged": (first,), "conflicted": (first,), "missing": (second,)},
+            {"purged": (second, first), "conflicted": (), "missing": ()},
+        )
+        for outcomes in invalid:
+            with self.subTest(outcomes=outcomes), self.assertRaises(ValueError):
+                VoicemailExpiryPurgeBatchReport(
+                    discovered=discovered,
+                    **outcomes,
+                )
+
     def test_unexpected_purge_errors_propagate(self):
         candidate = self.add_expiry("call", "a", 8_000)
         store = Mock()

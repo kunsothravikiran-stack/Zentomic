@@ -29,6 +29,17 @@ class VoicemailExpiryPurgeBatchCounts:
     missing: int
     discovery_limit_reached: bool
 
+    def __post_init__(self) -> None:
+        """Reject telemetry values that cannot describe one complete batch."""
+        for name in ("discovered", "purged", "conflicted", "missing"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} count must be a nonnegative integer")
+        if type(self.discovery_limit_reached) is not bool:
+            raise ValueError("discovery_limit_reached must be an exact boolean")
+        if self.purged + self.conflicted + self.missing != self.discovered:
+            raise ValueError("outcome counts must classify every discovered candidate")
+
     @property
     def no_receipt(self) -> int:
         """Return candidates for which no atomic purge receipt was returned.
@@ -49,6 +60,45 @@ class VoicemailExpiryPurgeBatchReport:
     conflicted: tuple[DueVoicemailExpiry, ...]
     missing: tuple[DueVoicemailExpiry, ...]
     limit: int = 100
+
+    def __post_init__(self) -> None:
+        """Keep outcome partitions complete, disjoint, and discovery ordered."""
+        if type(self.limit) is not int or not 1 <= self.limit <= 1000:
+            raise ValueError("limit must be an integer from 1 through 1000")
+
+        partitions = (
+            ("discovered", self.discovered),
+            ("purged", self.purged),
+            ("conflicted", self.conflicted),
+            ("missing", self.missing),
+        )
+        for name, candidates in partitions:
+            if type(candidates) is not tuple:
+                raise ValueError(f"{name} candidates must be an exact tuple")
+            if any(type(candidate) is not DueVoicemailExpiry
+                   for candidate in candidates):
+                raise ValueError(
+                    f"{name} candidates must be exact DueVoicemailExpiry values"
+                )
+        if len(self.discovered) > self.limit:
+            raise ValueError("discovered candidates must not exceed the batch limit")
+
+        positions = {candidate: index for index, candidate in enumerate(
+            self.discovered
+        )}
+        if len(positions) != len(self.discovered):
+            raise ValueError("discovered candidates must be unique")
+        outcomes = self.purged + self.conflicted + self.missing
+        if len(set(outcomes)) != len(outcomes):
+            raise ValueError("outcome partitions must be disjoint")
+        if set(outcomes) != set(self.discovered):
+            raise ValueError(
+                "outcome partitions must classify every discovered candidate"
+            )
+        for name, candidates in partitions[1:]:
+            indices = tuple(positions[candidate] for candidate in candidates)
+            if indices != tuple(sorted(indices)):
+                raise ValueError(f"{name} candidates must preserve discovery order")
 
     @property
     def no_receipt(self) -> tuple[DueVoicemailExpiry, ...]:
