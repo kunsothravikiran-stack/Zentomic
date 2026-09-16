@@ -21,7 +21,10 @@ is true when discovery filled the batch, any candidate conflicted, or any purge
 returned no receipt. This gives workers one conservative retry decision without
 re-reading mutable state. It is only a scheduling hint: saturation does not
 prove a backlog, and an unconfirmed candidate may disappear before the next
-pass.
+pass. The companion `follow_up_reasons` tuple identifies those conditions with
+stable `discovery_limit_reached`, `conflicted`, and `no_receipt` reason codes in
+that order. Workers can use the codes for metrics or choose different retry
+delays without inspecting mutable candidate state.
 
 Reports validate that every discovered candidate appears in exactly one outcome
 partition and that each partition preserves discovery order. Scalar summaries

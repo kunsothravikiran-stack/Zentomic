@@ -58,11 +58,19 @@ class VoicemailExpiryPurgeBatchCounts:
         receipts leave the observed candidate unconfirmed, so a later pass is
         also appropriate even when discovery did not fill the batch.
         """
-        return (
-            self.discovery_limit_reached
-            or self.conflicted > 0
-            or self.no_receipt > 0
-        )
+        return bool(self.follow_up_reasons)
+
+    @property
+    def follow_up_reasons(self) -> tuple[str, ...]:
+        """Return stable reason codes for the conservative scheduling hint."""
+        reasons: list[str] = []
+        if self.discovery_limit_reached:
+            reasons.append("discovery_limit_reached")
+        if self.conflicted > 0:
+            reasons.append("conflicted")
+        if self.no_receipt > 0:
+            reasons.append("no_receipt")
+        return tuple(reasons)
 
 
 @dataclass(frozen=True)
@@ -139,6 +147,11 @@ class VoicemailExpiryPurgeBatchReport:
     def follow_up_recommended(self) -> bool:
         """Return the scheduling hint derived from this batch's outcomes."""
         return self.counts.follow_up_recommended
+
+    @property
+    def follow_up_reasons(self) -> tuple[str, ...]:
+        """Return stable reason codes derived from this batch's outcomes."""
+        return self.counts.follow_up_reasons
 
 
 def purge_due_voicemail_recording_status_expiry_batch_report(
