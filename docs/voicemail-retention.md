@@ -3,6 +3,10 @@
 `purge_due_voicemail_recording_status_expiry_batch` composes bounded discovery
 with conditional deletion for one retention-worker pass. It returns only
 entries with confirmed atomic purge receipts and preserves discovery order.
+The companion
+`purge_due_voicemail_recording_status_expiry_batch_report` returns immutable
+`discovered`, `purged`, `conflicted`, and `missing` partitions. Workers can use
+those partitions for metrics without re-reading state that may have changed.
 
 The worker skips missing or conflicting candidates. This lets concurrent
 cleanup, deadline extension, and retention-hold work proceed without one stale

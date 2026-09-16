@@ -5,6 +5,8 @@ from unittest.mock import Mock
 
 from zentomic.voicemail_retention import (
     purge_due_voicemail_recording_status_expiry_batch,
+    purge_due_voicemail_recording_status_expiry_batch_report,
+    VoicemailExpiryPurgeBatchReport,
 )
 from zentomic.voicemail_status import VoicemailRecordingStatus
 from zentomic.voicemail_status_store import (
@@ -12,6 +14,7 @@ from zentomic.voicemail_status_store import (
     InMemoryVoicemailStatusStore,
     list_due_voicemail_recording_status_expiries,
     VoicemailRecordingStatusSnapshot,
+    VoicemailStatusConflictError,
 )
 
 
@@ -43,6 +46,18 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         }
         config.update(overrides)
         return purge_due_voicemail_recording_status_expiry_batch(**config)
+
+    def purge_batch_report(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "now_ms": 10_000,
+            "limit": 100,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return purge_due_voicemail_recording_status_expiry_batch_report(
+            **config
+        )
 
     def test_purges_a_bounded_batch_in_discovery_order(self):
         last = self.add_expiry("call-b", "b", 9_000)
@@ -104,6 +119,31 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
 
         self.assertEqual(self.purge_batch(store=store), ())
         store.purge_expired_if_due.assert_called_once()
+
+    def test_report_classifies_each_candidate_in_discovery_order(self):
+        purged = self.add_expiry("call-a", "a", 8_000)
+        conflicted = self.add_expiry("call-b", "b", 9_000)
+        missing = self.add_expiry("call-c", "c", 9_500)
+        store = Mock()
+        store.list_due_expiries.return_value = (
+            purged, conflicted, missing,
+        )
+        store.purge_expired_if_due.side_effect = (
+            purged.snapshot,
+            VoicemailStatusConflictError("synthetic contention"),
+            None,
+        )
+
+        self.assertEqual(
+            self.purge_batch_report(store=store),
+            VoicemailExpiryPurgeBatchReport(
+                discovered=(purged, conflicted, missing),
+                purged=(purged,),
+                conflicted=(conflicted,),
+                missing=(missing,),
+            ),
+        )
+        self.assertEqual(store.purge_expired_if_due.call_count, 3)
 
     def test_unexpected_purge_errors_propagate(self):
         candidate = self.add_expiry("call", "a", 8_000)

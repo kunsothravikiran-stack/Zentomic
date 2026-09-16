@@ -1,5 +1,6 @@
 """Bounded voicemail retention-worker orchestration."""
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from zentomic.voicemail_status_store import (
@@ -16,6 +17,63 @@ class VoicemailStatusDueExpiryPurgeStore(
     VoicemailStatusDueExpiryStore, VoicemailStatusDuePurgeStore, Protocol,
 ):
     """Discovery and conditional cleanup boundaries supplied by an adapter."""
+
+
+@dataclass(frozen=True)
+class VoicemailExpiryPurgeBatchReport:
+    """Immutable outcome partitions for one bounded cleanup pass."""
+
+    discovered: tuple[DueVoicemailExpiry, ...]
+    purged: tuple[DueVoicemailExpiry, ...]
+    conflicted: tuple[DueVoicemailExpiry, ...]
+    missing: tuple[DueVoicemailExpiry, ...]
+
+
+def purge_due_voicemail_recording_status_expiry_batch_report(
+    workspace_id: str, *, now_ms: int, limit: int = 100,
+    store: VoicemailStatusDueExpiryPurgeStore,
+) -> VoicemailExpiryPurgeBatchReport:
+    """Purge one bounded due batch and classify every discovered candidate.
+
+    Missing tombstones and expected conflicts are reported separately so a
+    retention worker can publish useful metrics without re-reading mutable
+    state. Unexpected adapter and validation errors still propagate; this
+    helper is deliberately not a transaction across the batch.
+    """
+    purge_expired_if_due = getattr(store, "purge_expired_if_due", None)
+    if not callable(purge_expired_if_due):
+        raise ValueError(
+            "store must provide a trusted callable purge_expired_if_due method"
+        )
+    candidates = list_due_voicemail_recording_status_expiries(
+        workspace_id, now_ms=now_ms, limit=limit, store=store,
+    )
+    purged: list[DueVoicemailExpiry] = []
+    conflicted: list[DueVoicemailExpiry] = []
+    missing: list[DueVoicemailExpiry] = []
+    for candidate in candidates:
+        try:
+            receipt = purge_due_voicemail_recording_status_expiry(
+                workspace_id,
+                candidate.call_sid,
+                candidate.recording_sid,
+                expected_snapshot=candidate.snapshot,
+                now_ms=now_ms,
+                store=store,
+            )
+        except VoicemailStatusConflictError:
+            conflicted.append(candidate)
+            continue
+        if receipt is None:
+            missing.append(candidate)
+        else:
+            purged.append(candidate)
+    return VoicemailExpiryPurgeBatchReport(
+        discovered=candidates,
+        purged=tuple(purged),
+        conflicted=tuple(conflicted),
+        missing=tuple(missing),
+    )
 
 
 def purge_due_voicemail_recording_status_expiry_batch(
@@ -36,27 +94,6 @@ def purge_due_voicemail_recording_status_expiry_batch(
     authentication, authorization, media deletion, logging, network access, or
     provider operation.
     """
-    purge_expired_if_due = getattr(store, "purge_expired_if_due", None)
-    if not callable(purge_expired_if_due):
-        raise ValueError(
-            "store must provide a trusted callable purge_expired_if_due method"
-        )
-    candidates = list_due_voicemail_recording_status_expiries(
+    return purge_due_voicemail_recording_status_expiry_batch_report(
         workspace_id, now_ms=now_ms, limit=limit, store=store,
-    )
-    purged: list[DueVoicemailExpiry] = []
-    for candidate in candidates:
-        try:
-            receipt = purge_due_voicemail_recording_status_expiry(
-                workspace_id,
-                candidate.call_sid,
-                candidate.recording_sid,
-                expected_snapshot=candidate.snapshot,
-                now_ms=now_ms,
-                store=store,
-            )
-        except VoicemailStatusConflictError:
-            continue
-        if receipt is not None:
-            purged.append(candidate)
-    return tuple(purged)
+    ).purged
