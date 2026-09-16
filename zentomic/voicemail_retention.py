@@ -20,6 +20,17 @@ class VoicemailStatusDueExpiryPurgeStore(
 
 
 @dataclass(frozen=True)
+class VoicemailExpiryPurgeBatchCounts:
+    """Stable scalar metrics for one bounded cleanup pass."""
+
+    discovered: int
+    purged: int
+    conflicted: int
+    missing: int
+    discovery_limit_reached: bool
+
+
+@dataclass(frozen=True)
 class VoicemailExpiryPurgeBatchReport:
     """Immutable outcome partitions for one bounded cleanup pass."""
 
@@ -27,6 +38,18 @@ class VoicemailExpiryPurgeBatchReport:
     purged: tuple[DueVoicemailExpiry, ...]
     conflicted: tuple[DueVoicemailExpiry, ...]
     missing: tuple[DueVoicemailExpiry, ...]
+    limit: int = 100
+
+    @property
+    def counts(self) -> VoicemailExpiryPurgeBatchCounts:
+        """Return immutable metrics without exposing mutable worker state."""
+        return VoicemailExpiryPurgeBatchCounts(
+            discovered=len(self.discovered),
+            purged=len(self.purged),
+            conflicted=len(self.conflicted),
+            missing=len(self.missing),
+            discovery_limit_reached=len(self.discovered) == self.limit,
+        )
 
 
 def purge_due_voicemail_recording_status_expiry_batch_report(
@@ -73,6 +96,7 @@ def purge_due_voicemail_recording_status_expiry_batch_report(
         purged=tuple(purged),
         conflicted=tuple(conflicted),
         missing=tuple(missing),
+        limit=limit,
     )
 
 

@@ -7,6 +7,10 @@ The companion
 `purge_due_voicemail_recording_status_expiry_batch_report` returns immutable
 `discovered`, `purged`, `conflicted`, and `missing` partitions. Workers can use
 those partitions for metrics without re-reading state that may have changed.
+Its immutable `counts` summary exposes scalar values for telemetry and a
+`discovery_limit_reached` flag. A true flag means the bounded query filled its
+requested limit, so more due work may remain and the worker can schedule
+another pass without treating the flag as proof of backlog.
 
 The worker skips missing or conflicting candidates. This lets concurrent
 cleanup, deadline extension, and retention-hold work proceed without one stale

@@ -6,6 +6,7 @@ from unittest.mock import Mock
 from zentomic.voicemail_retention import (
     purge_due_voicemail_recording_status_expiry_batch,
     purge_due_voicemail_recording_status_expiry_batch_report,
+    VoicemailExpiryPurgeBatchCounts,
     VoicemailExpiryPurgeBatchReport,
 )
 from zentomic.voicemail_status import VoicemailRecordingStatus
@@ -144,6 +145,30 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             ),
         )
         self.assertEqual(store.purge_expired_if_due.call_count, 3)
+
+    def test_report_exposes_scalar_counts_and_discovery_saturation(self):
+        purged = self.add_expiry("call-a", "a", 8_000)
+        conflicted = self.add_expiry("call-b", "b", 9_000)
+        store = Mock()
+        store.list_due_expiries.return_value = (purged, conflicted)
+        store.purge_expired_if_due.side_effect = (
+            purged.snapshot,
+            VoicemailStatusConflictError("synthetic contention"),
+        )
+
+        report = self.purge_batch_report(store=store, limit=2)
+
+        self.assertEqual(report.limit, 2)
+        self.assertEqual(
+            report.counts,
+            VoicemailExpiryPurgeBatchCounts(
+                discovered=2,
+                purged=1,
+                conflicted=1,
+                missing=0,
+                discovery_limit_reached=True,
+            ),
+        )
 
     def test_unexpected_purge_errors_propagate(self):
         candidate = self.add_expiry("call", "a", 8_000)
