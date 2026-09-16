@@ -852,12 +852,18 @@ the extension.
 To apply a retention hold that cancels scheduled cleanup,
 `unschedule_voicemail_recording_status_expiry_deadline` conditionally removes
 the exact tombstone's deadline while preserving its version and recreation
-guard. A stale
-due-purge worker then conflicts instead of deleting the tombstone. The hold does
-not make the tombstone permanently unpurgeable: releasing it requires a fresh
-unscheduled snapshot and the separately authorized unscheduled-purge boundary.
-The adapter must compare the version and prior deadline and update atomically;
-the helper does not authorize the hold or contact a provider.
+guard. A stale due-purge worker then conflicts instead of deleting the
+tombstone. The hold does not make the tombstone permanently unpurgeable:
+releasing it requires a fresh unscheduled snapshot. To restore timed cleanup
+without briefly releasing the recreation guard,
+`schedule_voicemail_recording_status_expiry_deadline` conditionally adds a new
+trusted deadline to that exact version and returns the updated tombstone
+atomically. The hold may instead be released through the separately authorized
+unscheduled-purge boundary when immediate removal is the intended policy. The
+unscheduling adapter must compare the version and prior deadline in one write;
+the scheduling adapter must likewise compare the version and absence of a
+deadline. Neither helper chooses policy, reads a clock, authorizes the
+transition, or contacts a provider.
 
 ### Offline speech collection renderer
 
