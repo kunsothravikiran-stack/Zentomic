@@ -34,6 +34,15 @@ class VoicemailRecordingStatusSnapshot:
     purge_after_ms: int | None = None
 
 
+@dataclass(frozen=True)
+class DueVoicemailExpiry:
+    """One workspace-scoped scheduled tombstone ready for conditional purge."""
+
+    call_sid: str
+    recording_sid: str
+    snapshot: VoicemailRecordingStatusSnapshot
+
+
 class VoicemailStatusStore(Protocol):
     """Minimal immutable final-status boundary supplied by an adapter."""
 
@@ -126,6 +135,15 @@ class VoicemailStatusDuePurgeStore(Protocol):
         expected_version: int, expected_purge_after_ms: int, now_ms: int,
     ) -> VoicemailRecordingStatusSnapshot | None:
         """Remove and return the exact tombstone only after its deadline."""
+
+
+class VoicemailStatusDueExpiryStore(Protocol):
+    """Bounded due-tombstone discovery supplied by a retention adapter."""
+
+    def list_due_expiries(
+        self, workspace_id: str, *, now_ms: int, limit: int,
+    ) -> tuple[DueVoicemailExpiry, ...]:
+        """Return an ordered workspace-scoped batch due by ``now_ms``."""
 
 
 class VoicemailStatusDeadlineExtensionStore(Protocol):
@@ -543,6 +561,72 @@ def purge_due_voicemail_recording_status_expiry(
     return receipt
 
 
+def list_due_voicemail_recording_status_expiries(
+    workspace_id: str, *, now_ms: int, limit: int = 100,
+    store: VoicemailStatusDueExpiryStore,
+) -> tuple[DueVoicemailExpiry, ...]:
+    """Discover a bounded batch of scheduled tombstones ready for cleanup.
+
+    The adapter must scope results to the trusted workspace, return only
+    tombstones whose durable deadlines are at or before ``now_ms``, and order
+    them by deadline, call identifier, then recording identifier. Results are
+    observations, not cleanup authorization. Pass each candidate's exact
+    snapshot to the conditional due-purge boundary so concurrent extensions,
+    holds, or newer lifecycles fail closed.
+
+    The helper validates the adapter, trusted workspace, clock value, bound,
+    ordering, uniqueness, identifiers, and snapshots. It reads no clock and
+    performs no authentication, authorization, mutation, media deletion,
+    logging, network access, or provider operation.
+    """
+    list_due_expiries = getattr(store, "list_due_expiries", None)
+    if not callable(list_due_expiries):
+        raise ValueError(
+            "store must provide a trusted callable list_due_expiries method"
+        )
+    workspace_id = _call_key(workspace_id, "_")[0]
+    if type(now_ms) is not int or now_ms < 0:
+        raise ValueError("now_ms must be a nonnegative integer timestamp")
+    if type(limit) is not int or not 1 <= limit <= 1000:
+        raise ValueError("limit must be an integer from 1 through 1000")
+    candidates = list_due_expiries(
+        workspace_id, now_ms=now_ms, limit=limit,
+    )
+    if type(candidates) is not tuple:
+        raise ValueError("store list_due_expiries must return an exact tuple")
+    if len(candidates) > limit:
+        raise ValueError("store returned more due expiries than requested")
+
+    validated: list[DueVoicemailExpiry] = []
+    seen: set[tuple[str, str]] = set()
+    prior_order: tuple[int, str, str] | None = None
+    for candidate in candidates:
+        if type(candidate) is not DueVoicemailExpiry:
+            raise ValueError(
+                "store due expiry must be an exact DueVoicemailExpiry"
+            )
+        key = _key(workspace_id, candidate.call_sid, candidate.recording_sid)
+        snapshot = _validate_snapshot(
+            candidate.snapshot,
+            recording_sid=key[2],
+            source="list_due_expiries",
+        )
+        if (snapshot.status is not None or snapshot.expiry_version is None
+                or snapshot.purge_after_ms is None
+                or snapshot.purge_after_ms > now_ms):
+            raise ValueError("store due expiry must identify a due tombstone")
+        candidate_key = key[1], key[2]
+        if candidate_key in seen:
+            raise ValueError("store returned a duplicate due expiry")
+        seen.add(candidate_key)
+        order = snapshot.purge_after_ms, key[1], key[2]
+        if prior_order is not None and order < prior_order:
+            raise ValueError("store due expiries must use deterministic order")
+        prior_order = order
+        validated.append(candidate)
+    return tuple(validated)
+
+
 def extend_voicemail_recording_status_expiry_deadline(
     workspace_id: str, call_sid: str, recording_sid: str, *,
     expected_snapshot: VoicemailRecordingStatusSnapshot,
@@ -771,6 +855,31 @@ class InMemoryVoicemailStatusStore:
             if status is not None:
                 return VoicemailRecordingStatusSnapshot(status=status)
             return expiry or VoicemailRecordingStatusSnapshot()
+
+    def list_due_expiries(
+        self, workspace_id: str, *, now_ms: int, limit: int,
+    ) -> tuple[DueVoicemailExpiry, ...]:
+        """Return a deterministic bounded due batch under one local lock."""
+        workspace_id = _call_key(workspace_id, "_")[0]
+        if type(now_ms) is not int or now_ms < 0:
+            raise ValueError("now_ms must be a nonnegative integer timestamp")
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("limit must be an integer from 1 through 1000")
+        with self._lock:
+            due = [
+                DueVoicemailExpiry(call_sid, recording_sid, snapshot)
+                for (workspace, call_sid, recording_sid), snapshot
+                in self._expired.items()
+                if (workspace == workspace_id
+                    and snapshot.purge_after_ms is not None
+                    and snapshot.purge_after_ms <= now_ms)
+            ]
+            due.sort(key=lambda candidate: (
+                candidate.snapshot.purge_after_ms,
+                candidate.call_sid,
+                candidate.recording_sid,
+            ))
+            return tuple(due[:limit])
 
     def record(
         self, workspace_id: str, call_sid: str,

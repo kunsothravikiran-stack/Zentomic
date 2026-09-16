@@ -8,12 +8,14 @@ from unittest.mock import Mock
 from zentomic.voicemail_status import VoicemailRecordingStatus
 from zentomic.voicemail_status_store import (
     delete_voicemail_recording_status,
+    DueVoicemailExpiry,
     expire_voicemail_recording_status,
     expire_voicemail_recording_status_snapshot,
     extend_voicemail_recording_status_expiry_deadline,
     InMemoryVoicemailStatusStore,
     inspect_voicemail_recording_status,
     is_voicemail_recording_status_expired,
+    list_due_voicemail_recording_status_expiries,
     purge_voicemail_recording_status_expiry,
     purge_voicemail_recording_status_expiry_snapshot,
     purge_due_voicemail_recording_status_expiry,
@@ -1750,6 +1752,142 @@ class PurgeDueVoicemailExpiryTests(unittest.TestCase):
             expected_purge_after_ms=10_000,
             now_ms=10_000,
         )
+
+
+class ListDueVoicemailExpiriesTests(unittest.TestCase):
+    def setUp(self):
+        self.store = InMemoryVoicemailStatusStore()
+
+    def add_expiry(
+        self, call_sid, recording_byte, deadline, *, workspace="workspace",
+    ):
+        recording_sid = "RE" + recording_byte * 32
+        status = VoicemailRecordingStatus("available", recording_sid, 12)
+        self.store.record(workspace, call_sid, status)
+        snapshot = self.store.expire_and_inspect(
+            workspace, call_sid, recording_sid,
+            expected_status=status, purge_after_ms=deadline,
+        )
+        return DueVoicemailExpiry(call_sid, recording_sid, snapshot)
+
+    def list_due(self, **overrides):
+        config = {
+            "workspace_id": "workspace",
+            "now_ms": 10_000,
+            "limit": 100,
+            "store": self.store,
+        }
+        config.update(overrides)
+        return list_due_voicemail_recording_status_expiries(**config)
+
+    def test_returns_only_due_workspace_tombstones_in_stable_order(self):
+        later_key = self.add_expiry("call-b", "b", 9_000)
+        first_key = self.add_expiry("call-b", "a", 8_000)
+        second_key = self.add_expiry("call-a", "c", 9_000)
+        self.add_expiry("call-a", "d", 10_001)
+        self.add_expiry("call-a", "e", 1, workspace="other")
+        unscheduled = self.add_expiry("call-z", "f", 1)
+        self.store.unschedule_expiry_deadline(
+            "workspace", unscheduled.call_sid, unscheduled.recording_sid,
+            expected_version=unscheduled.snapshot.expiry_version,
+            expected_purge_after_ms=unscheduled.snapshot.purge_after_ms,
+        )
+
+        self.assertEqual(
+            self.list_due(),
+            (first_key, second_key, later_key),
+        )
+        self.assertEqual(self.list_due(limit=2), (first_key, second_key))
+
+    def test_candidates_remain_conditional_purge_observations(self):
+        candidate = self.add_expiry("call", "a", 10_000)
+        self.assertEqual(self.list_due(limit=1), (candidate,))
+        held = self.store.unschedule_expiry_deadline(
+            "workspace", candidate.call_sid, candidate.recording_sid,
+            expected_version=candidate.snapshot.expiry_version,
+            expected_purge_after_ms=candidate.snapshot.purge_after_ms,
+        )
+        with self.assertRaisesRegex(
+            VoicemailStatusConflictError,
+            "^voicemail expiry tombstone conflict$",
+        ):
+            purge_due_voicemail_recording_status_expiry(
+                "workspace", candidate.call_sid, candidate.recording_sid,
+                expected_snapshot=candidate.snapshot,
+                now_ms=10_000,
+                store=self.store,
+            )
+        self.assertEqual(
+            self.store.inspect(
+                "workspace", candidate.call_sid, candidate.recording_sid,
+            ),
+            held,
+        )
+
+    def test_inputs_are_validated_before_the_adapter_call(self):
+        for overrides in (
+            {"workspace_id": ""},
+            {"now_ms": None},
+            {"now_ms": True},
+            {"now_ms": -1},
+            {"limit": 0},
+            {"limit": True},
+            {"limit": 1001},
+        ):
+            store = Mock()
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.list_due(store=store, **overrides)
+            store.list_due_expiries.assert_not_called()
+
+    def test_adapter_must_return_a_bounded_exact_tuple(self):
+        valid = DueVoicemailExpiry(
+            "call", RECORDING_SID,
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1, purge_after_ms=10_000,
+            ),
+        )
+        for returned in ([valid], (valid, valid)):
+            store = Mock()
+            store.list_due_expiries.return_value = returned
+            with self.subTest(returned=returned), self.assertRaises(ValueError):
+                self.list_due(limit=1, store=store)
+
+    def test_adapter_candidates_must_be_due_and_deterministically_ordered(self):
+        due = VoicemailRecordingStatusSnapshot(
+            expired=True, expiry_version=1, purge_after_ms=9_000,
+        )
+        cases = (
+            (object(),),
+            (
+                DueVoicemailExpiry("call", RECORDING_SID, due),
+                DueVoicemailExpiry("call", RECORDING_SID, due),
+            ),
+            (DueVoicemailExpiry("call", RECORDING_SID,
+                                VoicemailRecordingStatusSnapshot()),),
+            (DueVoicemailExpiry(
+                "call", RECORDING_SID,
+                VoicemailRecordingStatusSnapshot(
+                    expired=True, expiry_version=1, purge_after_ms=10_001,
+                ),
+            ),),
+            (
+                DueVoicemailExpiry("call-b", "RE" + "b" * 32, due),
+                DueVoicemailExpiry("call-a", "RE" + "a" * 32, due),
+            ),
+        )
+        for returned in cases:
+            store = Mock()
+            store.list_due_expiries.return_value = returned
+            with self.subTest(returned=returned), self.assertRaises(ValueError):
+                self.list_due(store=store)
+
+    def test_adapter_errors_propagate(self):
+        store = Mock()
+        store.list_due_expiries.side_effect = RuntimeError(
+            "synthetic adapter failure"
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthetic adapter failure"):
+            self.list_due(store=store)
 
 
 if __name__ == "__main__":

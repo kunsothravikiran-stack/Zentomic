@@ -878,6 +878,16 @@ safely with an authorized immediate purge: only one transition succeeds, so
 the tombstone is either retained with its new deadline or removed completely,
 never both scheduled and reported as purged. Neither helper chooses policy,
 reads a clock, authorizes the transition, or contacts a provider.
+Retention workers can discover cleanup work through
+`list_due_voicemail_recording_status_expiries`. The adapter returns a bounded,
+workspace-scoped tuple containing only scheduled tombstones due by the trusted
+`now_ms`, ordered by deadline and opaque identifiers for deterministic paging.
+Every result carries the exact immutable snapshot required by the conditional
+due-purge boundary. Discovery is only an observation: an extension, hold, or
+newer lifecycle between listing and deletion causes the later conditional purge
+to conflict or no-op instead of deleting changed state. The helper validates
+the bound, ordering, uniqueness, identifiers, and snapshots, but does not read
+a clock, authorize cleanup, mutate storage, or contact a provider.
 
 ### Offline speech collection renderer
 
