@@ -873,8 +873,11 @@ unscheduling adapter must compare the version and prior deadline in one write;
 the scheduling adapter must likewise compare the version and absence of a
 deadline. The local adapter also proves that concurrent hold-release workers
 cannot overwrite each other's chosen deadline: exactly one conditional update
-wins and the other observes a conflict. Neither helper chooses policy, reads a
-clock, authorizes the transition, or contacts a provider.
+wins and the other observes a conflict. Scheduling a released hold also races
+safely with an authorized immediate purge: only one transition succeeds, so
+the tombstone is either retained with its new deadline or removed completely,
+never both scheduled and reported as purged. Neither helper chooses policy,
+reads a clock, authorizes the transition, or contacts a provider.
 
 ### Offline speech collection renderer
 

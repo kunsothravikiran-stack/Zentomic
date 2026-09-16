@@ -1509,6 +1509,46 @@ class ScheduleVoicemailExpiryTests(unittest.TestCase):
         )
         self.assertIn(winners[0].purge_after_ms, (20_000, 30_000))
 
+    def test_scheduling_and_unscheduled_purge_cannot_both_win(self):
+        barrier = Barrier(2)
+
+        def schedule():
+            barrier.wait(timeout=5)
+            return self.schedule()
+
+        def purge():
+            barrier.wait(timeout=5)
+            try:
+                return purge_voicemail_recording_status_expiry_snapshot(
+                    "workspace", "call", RECORDING_SID,
+                    expected_snapshot=self.expected,
+                    store=self.store,
+                )
+            except ValueError as exc:
+                if str(exc) != "scheduled expiry requires a due-purge adapter":
+                    raise
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            schedule_future = pool.submit(schedule)
+            purge_future = pool.submit(purge)
+            scheduled = schedule_future.result()
+            purged = purge_future.result()
+
+        self.assertEqual(sum(result is not None for result in (scheduled, purged)), 1)
+        if scheduled is not None:
+            self.assertEqual(
+                self.store.inspect("workspace", "call", RECORDING_SID),
+                scheduled,
+            )
+            self.assertEqual(scheduled.purge_after_ms, 20_000)
+        else:
+            self.assertEqual(purged, self.expected)
+            self.assertEqual(
+                self.store.inspect("workspace", "call", RECORDING_SID),
+                VoicemailRecordingStatusSnapshot(),
+            )
+
     def test_deadline_is_validated_before_the_adapter_call(self):
         for value in (None, True, False, -1, 1.0, "20000"):
             store = Mock()
