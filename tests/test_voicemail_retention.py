@@ -123,34 +123,40 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         self.assertEqual(report.purged, ())
         self.assertEqual(report.no_receipt, (candidate,))
         self.assertEqual(report.missing, report.no_receipt)
+        self.assertEqual(report.unconfirmed, (candidate,))
         self.assertEqual(report.counts.no_receipt, 1)
         self.assertEqual(report.counts.missing, report.counts.no_receipt)
+        self.assertEqual(report.counts.unconfirmed, 1)
         store.purge_expired_if_due.assert_called_once()
 
     def test_report_classifies_each_candidate_in_discovery_order(self):
         purged = self.add_expiry("call-a", "a", 8_000)
-        conflicted = self.add_expiry("call-b", "b", 9_000)
-        missing = self.add_expiry("call-c", "c", 9_500)
+        missing = self.add_expiry("call-b", "b", 9_000)
+        conflicted = self.add_expiry("call-c", "c", 9_500)
         store = Mock()
         store.list_due_expiries.return_value = (
-            purged, conflicted, missing,
+            purged, missing, conflicted,
         )
         store.purge_expired_if_due.side_effect = (
             purged.snapshot,
-            VoicemailStatusConflictError("synthetic contention"),
             None,
+            VoicemailStatusConflictError("synthetic contention"),
         )
 
+        report = self.purge_batch_report(store=store)
+
         self.assertEqual(
-            self.purge_batch_report(store=store),
+            report,
             VoicemailExpiryPurgeBatchReport(
-                discovered=(purged, conflicted, missing),
+                discovered=(purged, missing, conflicted),
                 purged=(purged,),
                 conflicted=(conflicted,),
                 missing=(missing,),
             ),
         )
         self.assertEqual(store.purge_expired_if_due.call_count, 3)
+        self.assertEqual(report.unconfirmed, (missing, conflicted))
+        self.assertEqual(report.counts.unconfirmed, 2)
 
     def test_report_exposes_scalar_counts_and_discovery_saturation(self):
         purged = self.add_expiry("call-a", "a", 8_000)

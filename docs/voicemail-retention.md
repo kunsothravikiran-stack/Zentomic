@@ -10,6 +10,9 @@ those partitions for metrics without re-reading state that may have changed.
 The clearer `no_receipt` alias exposes the legacy `missing` partition without
 claiming that storage was observed to be absent. A `None` purge result provides
 no atomic receipt, and the batch deliberately does not perform a follow-up read.
+The `unconfirmed` view combines conflicted and no-receipt candidates while
+restoring their original discovery order. Its matching scalar count lets a
+worker publish the total unresolved work without merging outcome metrics itself.
 Its immutable `counts` summary exposes scalar values for telemetry and a
 matching `no_receipt` alias, plus a `discovery_limit_reached` flag. A true flag
 means the bounded query filled its requested limit, so more due work may remain

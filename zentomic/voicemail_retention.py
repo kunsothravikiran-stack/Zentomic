@@ -51,6 +51,11 @@ class VoicemailExpiryPurgeBatchCounts:
         return self.missing
 
     @property
+    def unconfirmed(self) -> int:
+        """Return candidates that did not produce a confirmed purge receipt."""
+        return self.conflicted + self.no_receipt
+
+    @property
     def follow_up_recommended(self) -> bool:
         """Return whether a worker should schedule another bounded pass.
 
@@ -131,6 +136,15 @@ class VoicemailExpiryPurgeBatchReport:
         membership in this partition.
         """
         return self.missing
+
+    @property
+    def unconfirmed(self) -> tuple[DueVoicemailExpiry, ...]:
+        """Return unconfirmed candidates in their original discovery order."""
+        unconfirmed = set(self.conflicted) | set(self.no_receipt)
+        return tuple(
+            candidate for candidate in self.discovered
+            if candidate in unconfirmed
+        )
 
     @property
     def counts(self) -> VoicemailExpiryPurgeBatchCounts:
