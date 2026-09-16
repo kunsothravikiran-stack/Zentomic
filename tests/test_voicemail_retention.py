@@ -112,13 +112,19 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             ),
         )
 
-    def test_missing_candidate_is_skipped(self):
+    def test_candidate_without_receipt_is_skipped(self):
         candidate = self.add_expiry("call", "a", 8_000)
         store = Mock()
         store.list_due_expiries.return_value = (candidate,)
         store.purge_expired_if_due.return_value = None
 
-        self.assertEqual(self.purge_batch(store=store), ())
+        report = self.purge_batch_report(store=store)
+
+        self.assertEqual(report.purged, ())
+        self.assertEqual(report.no_receipt, (candidate,))
+        self.assertEqual(report.missing, report.no_receipt)
+        self.assertEqual(report.counts.no_receipt, 1)
+        self.assertEqual(report.counts.missing, report.counts.no_receipt)
         store.purge_expired_if_due.assert_called_once()
 
     def test_report_classifies_each_candidate_in_discovery_order(self):
