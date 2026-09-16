@@ -853,7 +853,9 @@ To apply a retention hold that cancels scheduled cleanup,
 `unschedule_voicemail_recording_status_expiry_deadline` conditionally removes
 the exact tombstone's deadline while preserving its version and recreation
 guard. A stale due-purge worker then conflicts instead of deleting the
-tombstone. The hold does not make the tombstone permanently unpurgeable:
+tombstone. The included local adapter exercises the same race under one lock,
+so a due purge and a retention hold cannot both succeed. The hold does not make
+the tombstone permanently unpurgeable:
 releasing it requires a fresh unscheduled snapshot. To restore timed cleanup
 without briefly releasing the recreation guard,
 `schedule_voicemail_recording_status_expiry_deadline` conditionally adds a new

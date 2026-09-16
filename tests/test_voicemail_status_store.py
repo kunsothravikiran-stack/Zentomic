@@ -1221,6 +1221,38 @@ class UnscheduleVoicemailExpiryTests(unittest.TestCase):
             held,
         )
 
+    def test_due_purge_and_retention_hold_cannot_both_win(self):
+        barrier = Barrier(2)
+
+        def unschedule():
+            barrier.wait(timeout=5)
+            return self.unschedule()
+
+        def purge():
+            barrier.wait(timeout=5)
+            try:
+                return purge_due_voicemail_recording_status_expiry(
+                    "workspace", "call", RECORDING_SID,
+                    expected_snapshot=self.expected, now_ms=10_000,
+                    store=self.store,
+                )
+            except VoicemailStatusConflictError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda operation: operation(), (
+                unschedule, purge,
+            )))
+
+        self.assertEqual(sum(result is not None for result in results), 1)
+        state = self.store.inspect("workspace", "call", RECORDING_SID)
+        self.assertIn(state, (
+            VoicemailRecordingStatusSnapshot(),
+            VoicemailRecordingStatusSnapshot(
+                expired=True, expiry_version=1,
+            ),
+        ))
+
     def test_expected_snapshot_and_adapter_are_validated_before_mutation(self):
         invalid_snapshots = (
             VoicemailRecordingStatusSnapshot(),
