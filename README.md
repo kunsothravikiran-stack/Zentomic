@@ -847,8 +847,10 @@ adapter operation. It compares both the version and prior deadline, so stale
 cleanup cannot overwrite a newer schedule. Equal or earlier deadlines are
 rejected before the adapter call; the boundary deliberately cannot shorten an
 established recreation guard. The adapter must persist the comparison and
-update atomically. The helper does not choose policy, read a clock, or authorize
-the extension.
+update atomically. The local adapter also proves that concurrent extension
+workers cannot overwrite each other's chosen deadline: exactly one conditional
+update wins and the other observes a conflict. The helper does not choose
+policy, read a clock, or authorize the extension.
 To apply a retention hold that cancels scheduled cleanup,
 `unschedule_voicemail_recording_status_expiry_deadline` conditionally removes
 the exact tombstone's deadline while preserving its version and recreation
