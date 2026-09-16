@@ -854,8 +854,10 @@ To apply a retention hold that cancels scheduled cleanup,
 the exact tombstone's deadline while preserving its version and recreation
 guard. A stale due-purge worker then conflicts instead of deleting the
 tombstone. The included local adapter exercises the same race under one lock,
-so a due purge and a retention hold cannot both succeed. The hold does not make
-the tombstone permanently unpurgeable:
+so a due purge and a retention hold cannot both succeed. It also proves that
+concurrent workers applying the same hold issue exactly one transition receipt;
+the stale worker conflicts and the unscheduled tombstone remains intact. The
+hold does not make the tombstone permanently unpurgeable:
 releasing it requires a fresh unscheduled snapshot. To restore timed cleanup
 without briefly releasing the recreation guard,
 `schedule_voicemail_recording_status_expiry_deadline` conditionally adds a new
