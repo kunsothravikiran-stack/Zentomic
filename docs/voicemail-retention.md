@@ -29,6 +29,13 @@ stable `discovery_limit_reached`, `conflicted`, and `no_receipt` reason codes in
 that order. Workers can use the codes for metrics or choose different retry
 delays without inspecting mutable candidate state.
 
+The stable `follow_up_action` scheduling class saves workers from reimplementing
+that decision. It is `none` when no follow-up is needed, `drain` when a fully
+confirmed batch filled the discovery limit, and `retry` when any candidate is
+unconfirmed. Retry takes precedence over saturation so a worker can apply
+backoff instead of repeatedly selecting the same stale prefix. The helper does
+not choose a delay or schedule work itself.
+
 Reports validate that every discovered candidate appears in exactly one outcome
 partition and that each partition preserves discovery order. Scalar summaries
 likewise require nonnegative exact integers whose outcomes total the discovered

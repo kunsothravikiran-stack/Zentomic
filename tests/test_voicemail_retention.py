@@ -197,27 +197,29 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 VoicemailExpiryPurgeBatchCounts(**values)
 
-    def test_counts_recommend_follow_up_for_saturation_or_unconfirmed_work(self):
+    def test_counts_classify_follow_up_for_saturation_or_unconfirmed_work(self):
         cases = (
             ({"discovered": 1, "purged": 1, "conflicted": 0, "missing": 0,
               "discovery_limit_reached": True},
-             ("discovery_limit_reached",)),
+             ("discovery_limit_reached",), "drain"),
             ({"discovered": 1, "purged": 0, "conflicted": 1, "missing": 0,
-              "discovery_limit_reached": False}, ("conflicted",)),
+              "discovery_limit_reached": False}, ("conflicted",), "retry"),
             ({"discovered": 1, "purged": 0, "conflicted": 0, "missing": 1,
-              "discovery_limit_reached": False}, ("no_receipt",)),
+              "discovery_limit_reached": False}, ("no_receipt",), "retry"),
             ({"discovered": 3, "purged": 0, "conflicted": 2, "missing": 1,
               "discovery_limit_reached": True},
-             ("discovery_limit_reached", "conflicted", "no_receipt")),
+             ("discovery_limit_reached", "conflicted", "no_receipt"),
+             "retry"),
             ({"discovered": 1, "purged": 1, "conflicted": 0,
-              "missing": 0, "discovery_limit_reached": False}, ()),
+              "missing": 0, "discovery_limit_reached": False}, (), "none"),
             ({"discovered": 0, "purged": 0, "conflicted": 0, "missing": 0,
-              "discovery_limit_reached": False}, ()),
+              "discovery_limit_reached": False}, (), "none"),
         )
-        for values, expected_reasons in cases:
+        for values, expected_reasons, expected_action in cases:
             with self.subTest(values=values):
                 counts = VoicemailExpiryPurgeBatchCounts(**values)
                 self.assertEqual(counts.follow_up_reasons, expected_reasons)
+                self.assertEqual(counts.follow_up_action, expected_action)
                 self.assertIs(
                     counts.follow_up_recommended, bool(expected_reasons)
                 )
@@ -240,6 +242,8 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             report.follow_up_reasons,
             report.counts.follow_up_reasons,
         )
+        self.assertEqual(report.follow_up_action, "retry")
+        self.assertEqual(report.follow_up_action, report.counts.follow_up_action)
 
     def test_report_rejects_incomplete_overlapping_or_reordered_outcomes(self):
         first = self.add_expiry("call-a", "a", 8_000)

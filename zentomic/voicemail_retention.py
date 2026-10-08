@@ -1,7 +1,7 @@
 """Bounded voicemail retention-worker orchestration."""
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from zentomic.voicemail_status_store import (
     DueVoicemailExpiry,
@@ -11,6 +11,9 @@ from zentomic.voicemail_status_store import (
     VoicemailStatusDueExpiryStore,
     VoicemailStatusDuePurgeStore,
 )
+
+
+VoicemailExpiryPurgeFollowUpAction = Literal["none", "drain", "retry"]
 
 
 class VoicemailStatusDueExpiryPurgeStore(
@@ -65,7 +68,21 @@ class VoicemailExpiryPurgeBatchCounts:
         receipts leave the observed candidate unconfirmed, so a later pass is
         also appropriate even when discovery did not fill the batch.
         """
-        return bool(self.follow_up_reasons)
+        return self.follow_up_action != "none"
+
+    @property
+    def follow_up_action(self) -> VoicemailExpiryPurgeFollowUpAction:
+        """Return the worker scheduling class for this batch.
+
+        Unconfirmed candidates take precedence over saturation so a worker can
+        apply its retry backoff instead of repeatedly selecting the same stale
+        prefix. A fully confirmed saturated batch can be drained immediately.
+        """
+        if self.unconfirmed > 0:
+            return "retry"
+        if self.discovery_limit_reached:
+            return "drain"
+        return "none"
 
     @property
     def follow_up_reasons(self) -> tuple[str, ...]:
@@ -163,6 +180,11 @@ class VoicemailExpiryPurgeBatchReport:
     def follow_up_recommended(self) -> bool:
         """Return the scheduling hint derived from this batch's outcomes."""
         return self.counts.follow_up_recommended
+
+    @property
+    def follow_up_action(self) -> VoicemailExpiryPurgeFollowUpAction:
+        """Return the scheduling class derived from this batch's outcomes."""
+        return self.counts.follow_up_action
 
     @property
     def follow_up_reasons(self) -> tuple[str, ...]:
