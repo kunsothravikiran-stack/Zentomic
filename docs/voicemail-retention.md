@@ -32,7 +32,9 @@ delays without inspecting mutable candidate state.
 Reports validate that every discovered candidate appears in exactly one outcome
 partition and that each partition preserves discovery order. Scalar summaries
 likewise require nonnegative exact integers whose outcomes total the discovered
-count, preventing malformed worker telemetry from being published silently.
+count. They also reject an empty batch marked as having reached a positive
+discovery limit, preventing impossible worker telemetry from being published
+silently.
 
 The worker skips candidates without receipts and conflicting candidates. This
 lets concurrent cleanup, deadline extension, and retention-hold work proceed

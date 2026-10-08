@@ -190,6 +190,8 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
              "discovery_limit_reached": False},
             {"discovered": 0, "purged": 0, "conflicted": 0, "missing": 0,
              "discovery_limit_reached": 0},
+            {"discovered": 0, "purged": 0, "conflicted": 0, "missing": 0,
+             "discovery_limit_reached": True},
         )
         for values in invalid:
             with self.subTest(values=values), self.assertRaises(ValueError):

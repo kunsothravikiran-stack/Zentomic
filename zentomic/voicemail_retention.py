@@ -37,6 +37,8 @@ class VoicemailExpiryPurgeBatchCounts:
                 raise ValueError(f"{name} count must be a nonnegative integer")
         if type(self.discovery_limit_reached) is not bool:
             raise ValueError("discovery_limit_reached must be an exact boolean")
+        if self.discovery_limit_reached and self.discovered == 0:
+            raise ValueError("an empty batch cannot reach the discovery limit")
         if self.purged + self.conflicted + self.missing != self.discovered:
             raise ValueError("outcome counts must classify every discovered candidate")
 
