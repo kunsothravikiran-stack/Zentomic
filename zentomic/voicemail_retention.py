@@ -17,6 +17,7 @@ VoicemailExpiryPurgeFollowUpAction = Literal["none", "drain", "retry"]
 VoicemailExpiryPurgeTelemetryValue = (
     int | bool | str | tuple[str, ...]
 )
+VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION = 1
 
 
 class VoicemailStatusDueExpiryPurgeStore(
@@ -110,6 +111,7 @@ class VoicemailExpiryPurgeBatchCounts:
         every call so consumers cannot mutate the immutable count summary.
         """
         return {
+            "schema_version": VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION,
             "discovered": self.discovered,
             "purged": self.purged,
             "conflicted": self.conflicted,

@@ -43,6 +43,12 @@ uses the canonical `no_receipt` name and deliberately omits the legacy
 performed a storage read. Mutating the returned dictionary cannot change the
 immutable report or counts.
 
+Every telemetry dictionary includes `schema_version`. Consumers should branch
+on that value before interpreting fields, allowing the telemetry contract to
+evolve without silently changing the meaning of existing dashboards or worker
+integrations. Version 1 is available as the
+`VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION` constant.
+
 Reports validate that every discovered candidate appears in exactly one outcome
 partition and that each partition preserves discovery order. Scalar summaries
 likewise require nonnegative exact integers whose outcomes total the discovered

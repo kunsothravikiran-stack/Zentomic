@@ -7,6 +7,7 @@ from unittest.mock import Mock
 from zentomic.voicemail_retention import (
     purge_due_voicemail_recording_status_expiry_batch,
     purge_due_voicemail_recording_status_expiry_batch_report,
+    VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION,
     VoicemailExpiryPurgeBatchCounts,
     VoicemailExpiryPurgeBatchReport,
 )
@@ -258,6 +259,7 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
 
         report = self.purge_batch_report(store=store, limit=2)
         expected = {
+            "schema_version": 1,
             "discovered": 2,
             "purged": 1,
             "conflicted": 1,
@@ -272,6 +274,10 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         telemetry = report.as_telemetry()
         self.assertEqual(telemetry, expected)
         self.assertEqual(telemetry, report.counts.as_telemetry())
+        self.assertEqual(
+            telemetry["schema_version"],
+            VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION,
+        )
         self.assertNotIn("missing", telemetry)
         self.assertEqual(json.loads(json.dumps(telemetry))["no_receipt"], 0)
         telemetry["purged"] = 99
