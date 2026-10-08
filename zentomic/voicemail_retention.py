@@ -14,6 +14,9 @@ from zentomic.voicemail_status_store import (
 
 
 VoicemailExpiryPurgeFollowUpAction = Literal["none", "drain", "retry"]
+VoicemailExpiryPurgeTelemetryValue = (
+    int | bool | str | tuple[str, ...]
+)
 
 
 class VoicemailStatusDueExpiryPurgeStore(
@@ -95,6 +98,28 @@ class VoicemailExpiryPurgeBatchCounts:
         if self.no_receipt > 0:
             reasons.append("no_receipt")
         return tuple(reasons)
+
+    def as_telemetry(
+        self,
+    ) -> dict[str, VoicemailExpiryPurgeTelemetryValue]:
+        """Return canonical JSON-compatible fields for worker telemetry.
+
+        The legacy ``missing`` name is intentionally omitted in favor of
+        ``no_receipt`` so structured logs do not claim a storage observation
+        that the batch never performed. A fresh dictionary is returned on
+        every call so consumers cannot mutate the immutable count summary.
+        """
+        return {
+            "discovered": self.discovered,
+            "purged": self.purged,
+            "conflicted": self.conflicted,
+            "no_receipt": self.no_receipt,
+            "unconfirmed": self.unconfirmed,
+            "discovery_limit_reached": self.discovery_limit_reached,
+            "follow_up_recommended": self.follow_up_recommended,
+            "follow_up_action": self.follow_up_action,
+            "follow_up_reasons": self.follow_up_reasons,
+        }
 
 
 @dataclass(frozen=True)
@@ -190,6 +215,12 @@ class VoicemailExpiryPurgeBatchReport:
     def follow_up_reasons(self) -> tuple[str, ...]:
         """Return stable reason codes derived from this batch's outcomes."""
         return self.counts.follow_up_reasons
+
+    def as_telemetry(
+        self,
+    ) -> dict[str, VoicemailExpiryPurgeTelemetryValue]:
+        """Return canonical JSON-compatible fields for worker telemetry."""
+        return self.counts.as_telemetry()
 
 
 def purge_due_voicemail_recording_status_expiry_batch_report(

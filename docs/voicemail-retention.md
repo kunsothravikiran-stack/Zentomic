@@ -36,6 +36,13 @@ unconfirmed. Retry takes precedence over saturation so a worker can apply
 backoff instead of repeatedly selecting the same stale prefix. The helper does
 not choose a delay or schedule work itself.
 
+`as_telemetry()` on either the report or its counts returns a fresh,
+JSON-compatible dictionary with the scalar outcomes and follow-up fields. It
+uses the canonical `no_receipt` name and deliberately omits the legacy
+`missing` alias, preventing new structured logs from implying that the worker
+performed a storage read. Mutating the returned dictionary cannot change the
+immutable report or counts.
+
 Reports validate that every discovered candidate appears in exactly one outcome
 partition and that each partition preserves discovery order. Scalar summaries
 likewise require nonnegative exact integers whose outcomes total the discovered

@@ -1,5 +1,6 @@
 """Bounded voicemail tombstone cleanup using synthetic identifiers only."""
 
+import json
 import unittest
 from unittest.mock import Mock
 
@@ -244,6 +245,37 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         )
         self.assertEqual(report.follow_up_action, "retry")
         self.assertEqual(report.follow_up_action, report.counts.follow_up_action)
+
+    def test_report_exposes_canonical_json_telemetry(self):
+        purged = self.add_expiry("call-a", "a", 8_000)
+        conflicted = self.add_expiry("call-b", "b", 9_000)
+        store = Mock()
+        store.list_due_expiries.return_value = (purged, conflicted)
+        store.purge_expired_if_due.side_effect = (
+            purged.snapshot,
+            VoicemailStatusConflictError("synthetic contention"),
+        )
+
+        report = self.purge_batch_report(store=store, limit=2)
+        expected = {
+            "discovered": 2,
+            "purged": 1,
+            "conflicted": 1,
+            "no_receipt": 0,
+            "unconfirmed": 1,
+            "discovery_limit_reached": True,
+            "follow_up_recommended": True,
+            "follow_up_action": "retry",
+            "follow_up_reasons": ("discovery_limit_reached", "conflicted"),
+        }
+
+        telemetry = report.as_telemetry()
+        self.assertEqual(telemetry, expected)
+        self.assertEqual(telemetry, report.counts.as_telemetry())
+        self.assertNotIn("missing", telemetry)
+        self.assertEqual(json.loads(json.dumps(telemetry))["no_receipt"], 0)
+        telemetry["purged"] = 99
+        self.assertEqual(report.as_telemetry(), expected)
 
     def test_report_rejects_incomplete_overlapping_or_reordered_outcomes(self):
         first = self.add_expiry("call-a", "a", 8_000)
