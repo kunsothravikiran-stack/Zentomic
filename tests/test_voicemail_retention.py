@@ -283,6 +283,37 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         telemetry["purged"] = 99
         self.assertEqual(report.as_telemetry(), expected)
 
+        payload = report.to_telemetry_json()
+        self.assertNotIn(" ", payload)
+        self.assertEqual(payload, report.counts.to_telemetry_json())
+        self.assertEqual(
+            VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload),
+            report.counts,
+        )
+
+    def test_counts_export_deterministic_compact_json_telemetry(self):
+        counts = VoicemailExpiryPurgeBatchCounts(
+            discovered=3,
+            purged=1,
+            conflicted=1,
+            missing=1,
+            discovery_limit_reached=True,
+        )
+
+        payload = counts.to_telemetry_json()
+
+        self.assertEqual(payload, counts.to_telemetry_json())
+        self.assertEqual(payload, json.dumps(
+            counts.as_telemetry(),
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ))
+        self.assertEqual(
+            VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload),
+            counts,
+        )
+
     def test_counts_restore_direct_and_json_round_tripped_telemetry(self):
         counts = VoicemailExpiryPurgeBatchCounts(
             discovered=3,

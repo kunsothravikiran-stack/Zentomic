@@ -125,6 +125,21 @@ class VoicemailExpiryPurgeBatchCounts:
             "follow_up_reasons": self.follow_up_reasons,
         }
 
+    def to_telemetry_json(self) -> str:
+        """Return deterministic compact JSON for logs and queue records.
+
+        Sorting fields and removing insignificant whitespace makes equivalent
+        batches byte-for-byte comparable without changing the versioned
+        telemetry schema. ``allow_nan=False`` keeps the producer strict even
+        if a future schema adds numeric values that JSON cannot represent.
+        """
+        return json.dumps(
+            self.as_telemetry(),
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
     @classmethod
     def from_telemetry(
         cls, telemetry: Mapping[str, object],
@@ -324,6 +339,10 @@ class VoicemailExpiryPurgeBatchReport:
     ) -> dict[str, VoicemailExpiryPurgeTelemetryValue]:
         """Return canonical JSON-compatible fields for worker telemetry."""
         return self.counts.as_telemetry()
+
+    def to_telemetry_json(self) -> str:
+        """Return deterministic compact JSON for worker output."""
+        return self.counts.to_telemetry_json()
 
 
 def purge_due_voicemail_recording_status_expiry_batch_report(
