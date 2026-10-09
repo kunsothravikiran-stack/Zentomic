@@ -287,6 +287,9 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         self.assertNotIn(" ", payload)
         self.assertEqual(payload, report.counts.to_telemetry_json())
         self.assertEqual(
+            report.to_telemetry_json_bytes(), payload.encode("utf-8"),
+        )
+        self.assertEqual(
             VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload),
             report.counts,
         )
@@ -309,8 +312,15 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             separators=(",", ":"),
             sort_keys=True,
         ))
+        byte_payload = counts.to_telemetry_json_bytes()
+        self.assertIs(type(byte_payload), bytes)
+        self.assertEqual(byte_payload, payload.encode("utf-8"))
         self.assertEqual(
             VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload),
+            counts,
+        )
+        self.assertEqual(
+            VoicemailExpiryPurgeBatchCounts.from_telemetry_json(byte_payload),
             counts,
         )
 

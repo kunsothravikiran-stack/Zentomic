@@ -140,6 +140,16 @@ class VoicemailExpiryPurgeBatchCounts:
             sort_keys=True,
         )
 
+    def to_telemetry_json_bytes(self) -> bytes:
+        """Return the deterministic telemetry JSON encoded as UTF-8 bytes.
+
+        Queue and object-storage adapters commonly require bytes. Keeping the
+        encoding beside the canonical serializer prevents adapters from
+        choosing an incompatible encoding or maintaining their own JSON
+        settings.
+        """
+        return self.to_telemetry_json().encode("utf-8")
+
     @classmethod
     def from_telemetry(
         cls, telemetry: Mapping[str, object],
@@ -343,6 +353,10 @@ class VoicemailExpiryPurgeBatchReport:
     def to_telemetry_json(self) -> str:
         """Return deterministic compact JSON for worker output."""
         return self.counts.to_telemetry_json()
+
+    def to_telemetry_json_bytes(self) -> bytes:
+        """Return deterministic UTF-8 JSON bytes for worker output."""
+        return self.counts.to_telemetry_json_bytes()
 
 
 def purge_due_voicemail_recording_status_expiry_batch_report(

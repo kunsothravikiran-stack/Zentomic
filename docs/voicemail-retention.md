@@ -61,7 +61,9 @@ The matching `to_telemetry_json()` producer is available on both counts and
 reports. It emits deterministic compact JSON with sorted fields, making
 equivalent batches byte-for-byte comparable while preserving the versioned
 schema. Producers can use it instead of maintaining their own serialization
-settings.
+settings. Queue and object-storage adapters can use
+`to_telemetry_json_bytes()` to receive that exact payload encoded as UTF-8
+bytes without choosing an encoding themselves.
 
 Reports validate that every discovered candidate appears in exactly one outcome
 partition and that each partition preserves discovery order. Scalar summaries
