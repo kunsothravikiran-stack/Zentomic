@@ -302,6 +302,51 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             counts,
         )
 
+    def test_counts_restore_strict_json_telemetry(self):
+        counts = VoicemailExpiryPurgeBatchCounts(
+            discovered=3,
+            purged=1,
+            conflicted=1,
+            missing=1,
+            discovery_limit_reached=True,
+        )
+        payload = json.dumps(counts.as_telemetry())
+
+        for encoded in (payload, payload.encode(), bytearray(payload, "utf-8")):
+            with self.subTest(payload_type=type(encoded).__name__):
+                self.assertEqual(
+                    VoicemailExpiryPurgeBatchCounts.from_telemetry_json(encoded),
+                    counts,
+                )
+
+    def test_counts_reject_ambiguous_or_nonstandard_json_telemetry(self):
+        valid = json.dumps(
+            VoicemailExpiryPurgeBatchCounts(
+                discovered=0,
+                purged=0,
+                conflicted=0,
+                missing=0,
+                discovery_limit_reached=False,
+            ).as_telemetry()
+        )
+        duplicate = valid.replace(
+            '"schema_version": 1',
+            '"schema_version": 1, "schema_version": 1',
+        )
+
+        for payload, message in (
+            (duplicate, "duplicate field"),
+            (valid.replace('"discovered": 0', '"discovered": NaN'),
+             "non-standard constant"),
+            ("[]", "must be a mapping"),
+            (b"\xff", "utf-8"),
+            ({}, "text or bytes"),
+        ):
+            with self.subTest(payload=payload), self.assertRaisesRegex(
+                ValueError, message,
+            ):
+                VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload)
+
     def test_counts_reject_invalid_or_inconsistent_telemetry(self):
         valid = VoicemailExpiryPurgeBatchCounts(
             discovered=1,

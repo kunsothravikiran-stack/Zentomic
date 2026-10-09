@@ -54,6 +54,9 @@ ingress path for telemetry consumers. It accepts both direct telemetry and a
 JSON-decoded object, rejects unknown schema versions or field sets, and verifies
 that all derived follow-up fields agree with the scalar outcomes. This prevents
 workers from scheduling against a corrupted or partially upgraded record.
+For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
+decoding: it accepts text or bytes while rejecting duplicate object fields and
+non-standard constants such as `NaN` before applying the same schema checks.
 
 Reports validate that every discovered candidate appears in exactly one outcome
 partition and that each partition preserves discovery order. Scalar summaries

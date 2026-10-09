@@ -1,5 +1,6 @@
 """Bounded voicemail retention-worker orchestration."""
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -185,6 +186,43 @@ class VoicemailExpiryPurgeBatchCounts:
                 "telemetry follow_up_reasons does not match scalar outcomes"
             )
         return counts
+
+    @classmethod
+    def from_telemetry_json(
+        cls, payload: str | bytes | bytearray,
+    ) -> "VoicemailExpiryPurgeBatchCounts":
+        """Validate and restore counts from a strict JSON telemetry object.
+
+        Duplicate object fields are rejected instead of silently taking the
+        last value. Non-standard JSON constants such as ``NaN`` and
+        ``Infinity`` are also rejected before the versioned schema is checked.
+        """
+        if not isinstance(payload, (str, bytes, bytearray)):
+            raise ValueError("telemetry JSON must be text or bytes")
+
+        def reject_duplicate_fields(
+            pairs: list[tuple[str, object]],
+        ) -> dict[str, object]:
+            restored: dict[str, object] = {}
+            for key, value in pairs:
+                if key in restored:
+                    raise ValueError(
+                        f"telemetry JSON contains duplicate field {key!r}"
+                    )
+                restored[key] = value
+            return restored
+
+        def reject_nonstandard_constant(value: str) -> object:
+            raise ValueError(
+                f"telemetry JSON contains non-standard constant {value!r}"
+            )
+
+        telemetry = json.loads(
+            payload,
+            object_pairs_hook=reject_duplicate_fields,
+            parse_constant=reject_nonstandard_constant,
+        )
+        return cls.from_telemetry(telemetry)
 
 
 @dataclass(frozen=True)
