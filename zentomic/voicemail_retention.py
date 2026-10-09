@@ -1,5 +1,6 @@
 """Bounded voicemail retention-worker orchestration."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -122,6 +123,68 @@ class VoicemailExpiryPurgeBatchCounts:
             "follow_up_action": self.follow_up_action,
             "follow_up_reasons": self.follow_up_reasons,
         }
+
+    @classmethod
+    def from_telemetry(
+        cls, telemetry: Mapping[str, object],
+    ) -> "VoicemailExpiryPurgeBatchCounts":
+        """Validate and restore counts from a versioned telemetry object.
+
+        Both the tuple emitted directly by :meth:`as_telemetry` and the list
+        produced by a JSON round trip are accepted for ``follow_up_reasons``.
+        Derived fields must agree with the scalar outcomes so consumers do not
+        act on a corrupted or partially upgraded telemetry record.
+        """
+        if not isinstance(telemetry, Mapping):
+            raise ValueError("telemetry must be a mapping")
+        fields = {
+            "schema_version",
+            "discovered",
+            "purged",
+            "conflicted",
+            "no_receipt",
+            "unconfirmed",
+            "discovery_limit_reached",
+            "follow_up_recommended",
+            "follow_up_action",
+            "follow_up_reasons",
+        }
+        if any(type(key) is not str for key in telemetry) or set(telemetry) != fields:
+            raise ValueError("telemetry fields must exactly match schema version 1")
+        schema_version = telemetry["schema_version"]
+        if (
+            type(schema_version) is not int
+            or schema_version != VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION
+        ):
+            raise ValueError("unsupported voicemail purge telemetry schema version")
+
+        counts = cls(
+            discovered=telemetry["discovered"],
+            purged=telemetry["purged"],
+            conflicted=telemetry["conflicted"],
+            missing=telemetry["no_receipt"],
+            discovery_limit_reached=telemetry["discovery_limit_reached"],
+        )
+        expected = counts.as_telemetry()
+        for field in (
+            "unconfirmed",
+            "follow_up_recommended",
+            "follow_up_action",
+        ):
+            actual = telemetry[field]
+            if type(actual) is not type(expected[field]) or actual != expected[field]:
+                raise ValueError(f"telemetry {field} does not match scalar outcomes")
+
+        reasons = telemetry["follow_up_reasons"]
+        if (
+            type(reasons) not in (list, tuple)
+            or any(type(reason) is not str for reason in reasons)
+            or tuple(reasons) != expected["follow_up_reasons"]
+        ):
+            raise ValueError(
+                "telemetry follow_up_reasons does not match scalar outcomes"
+            )
+        return counts
 
 
 @dataclass(frozen=True)

@@ -283,6 +283,55 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         telemetry["purged"] = 99
         self.assertEqual(report.as_telemetry(), expected)
 
+    def test_counts_restore_direct_and_json_round_tripped_telemetry(self):
+        counts = VoicemailExpiryPurgeBatchCounts(
+            discovered=3,
+            purged=1,
+            conflicted=1,
+            missing=1,
+            discovery_limit_reached=True,
+        )
+        direct = counts.as_telemetry()
+        round_tripped = json.loads(json.dumps(direct))
+
+        self.assertEqual(
+            VoicemailExpiryPurgeBatchCounts.from_telemetry(direct), counts,
+        )
+        self.assertEqual(
+            VoicemailExpiryPurgeBatchCounts.from_telemetry(round_tripped),
+            counts,
+        )
+
+    def test_counts_reject_invalid_or_inconsistent_telemetry(self):
+        valid = VoicemailExpiryPurgeBatchCounts(
+            discovered=1,
+            purged=0,
+            conflicted=1,
+            missing=0,
+            discovery_limit_reached=False,
+        ).as_telemetry()
+        invalid = []
+        for field, value in (
+            ("schema_version", 2),
+            ("unconfirmed", 0),
+            ("follow_up_recommended", False),
+            ("follow_up_action", "none"),
+            ("follow_up_reasons", ("no_receipt",)),
+        ):
+            payload = dict(valid)
+            payload[field] = value
+            invalid.append(payload)
+        missing_field = dict(valid)
+        missing_field.pop("purged")
+        invalid.append(missing_field)
+        extra_field = dict(valid)
+        extra_field["missing"] = 0
+        invalid.append(extra_field)
+
+        for telemetry in invalid:
+            with self.subTest(telemetry=telemetry), self.assertRaises(ValueError):
+                VoicemailExpiryPurgeBatchCounts.from_telemetry(telemetry)
+
     def test_report_rejects_incomplete_overlapping_or_reordered_outcomes(self):
         first = self.add_expiry("call-a", "a", 8_000)
         second = self.add_expiry("call-b", "b", 9_000)

@@ -49,6 +49,12 @@ evolve without silently changing the meaning of existing dashboards or worker
 integrations. Version 1 is available as the
 `VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION` constant.
 
+`VoicemailExpiryPurgeBatchCounts.from_telemetry()` provides the matching safe
+ingress path for telemetry consumers. It accepts both direct telemetry and a
+JSON-decoded object, rejects unknown schema versions or field sets, and verifies
+that all derived follow-up fields agree with the scalar outcomes. This prevents
+workers from scheduling against a corrupted or partially upgraded record.
+
 Reports validate that every discovered candidate appears in exactly one outcome
 partition and that each partition preserves discovery order. Scalar summaries
 likewise require nonnegative exact integers whose outcomes total the discovered
