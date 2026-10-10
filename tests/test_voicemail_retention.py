@@ -7,6 +7,7 @@ from unittest.mock import Mock
 from zentomic.voicemail_retention import (
     purge_due_voicemail_recording_status_expiry_batch,
     purge_due_voicemail_recording_status_expiry_batch_report,
+    VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES,
     VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION,
     VoicemailExpiryPurgeBatchCounts,
     VoicemailExpiryPurgeBatchReport,
@@ -387,6 +388,52 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
                 ValueError, message,
             ):
                 VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload)
+
+    def test_counts_bound_json_telemetry_before_decoding(self):
+        counts = VoicemailExpiryPurgeBatchCounts(
+            discovered=0,
+            purged=0,
+            conflicted=0,
+            missing=0,
+            discovery_limit_reached=False,
+        )
+        payload = counts.to_telemetry_json()
+        padding = " " * (
+            VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES
+            - len(payload.encode("utf-8"))
+        )
+        maximum = padding + payload
+        self.assertEqual(
+            len(maximum.encode("utf-8")),
+            VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES,
+        )
+
+        for encoded in (
+            maximum,
+            maximum.encode("utf-8"),
+            bytearray(maximum, "utf-8"),
+        ):
+            with self.subTest(payload_type=type(encoded).__name__):
+                self.assertEqual(
+                    VoicemailExpiryPurgeBatchCounts.from_telemetry_json(encoded),
+                    counts,
+                )
+
+        for oversized in (
+            " " + maximum,
+            b" " + maximum.encode("utf-8"),
+            bytearray(b" " + maximum.encode("utf-8")),
+        ):
+            with self.subTest(payload_type=type(oversized).__name__):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes",
+                ):
+                    VoicemailExpiryPurgeBatchCounts.from_telemetry_json(oversized)
+
+    def test_counts_reject_non_utf8_text_before_decoding(self):
+        with self.assertRaisesRegex(ValueError, "text must be valid UTF-8"):
+            VoicemailExpiryPurgeBatchCounts.from_telemetry_json("\ud800")
 
     def test_counts_reject_invalid_or_inconsistent_telemetry(self):
         valid = VoicemailExpiryPurgeBatchCounts(

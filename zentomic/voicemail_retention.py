@@ -20,6 +20,7 @@ VoicemailExpiryPurgeTelemetryValue = (
     int | bool | str | tuple[str, ...]
 )
 VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION = 1
+VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES = 4096
 
 
 class VoicemailStatusDueExpiryPurgeStore(
@@ -221,9 +222,28 @@ class VoicemailExpiryPurgeBatchCounts:
         Duplicate object fields are rejected instead of silently taking the
         last value. Non-standard JSON constants such as ``NaN`` and
         ``Infinity`` are also rejected before the versioned schema is checked.
+        Input is bounded before decoding so an untrusted queue record cannot
+        make this small telemetry parser consume unbounded memory.
         """
         if not isinstance(payload, (str, bytes, bytearray)):
             raise ValueError("telemetry JSON must be text or bytes")
+        if len(payload) > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
+            raise ValueError(
+                "telemetry JSON must not exceed "
+                f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"
+            )
+        if isinstance(payload, str):
+            try:
+                payload_size = len(payload.encode("utf-8"))
+            except UnicodeEncodeError as exc:
+                raise ValueError(
+                    "telemetry JSON text must be valid UTF-8"
+                ) from exc
+            if payload_size > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
+                raise ValueError(
+                    "telemetry JSON must not exceed "
+                    f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"
+                )
 
         def reject_duplicate_fields(
             pairs: list[tuple[str, object]],

@@ -57,6 +57,11 @@ workers from scheduling against a corrupted or partially upgraded record.
 For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
 decoding: it accepts text or bytes while rejecting duplicate object fields and
 non-standard constants such as `NaN` before applying the same schema checks.
+It rejects inputs larger than 4,096 UTF-8 bytes before JSON decoding, keeping
+malformed or hostile queue records from turning this small fixed-schema parser
+into an unbounded memory consumer. The exported
+`VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES` constant lets adapters apply the
+same limit before handing records to the parser.
 The matching `to_telemetry_json()` producer is available on both counts and
 reports. It emits deterministic compact JSON with sorted fields, making
 equivalent batches byte-for-byte comparable while preserving the versioned
