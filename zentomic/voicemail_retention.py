@@ -215,7 +215,7 @@ class VoicemailExpiryPurgeBatchCounts:
 
     @classmethod
     def from_telemetry_json(
-        cls, payload: str | bytes | bytearray,
+        cls, payload: str | bytes | bytearray | memoryview,
     ) -> "VoicemailExpiryPurgeBatchCounts":
         """Validate and restore counts from a strict JSON telemetry object.
 
@@ -225,9 +225,12 @@ class VoicemailExpiryPurgeBatchCounts:
         Input is bounded before decoding so an untrusted queue record cannot
         make this small telemetry parser consume unbounded memory.
         """
-        if not isinstance(payload, (str, bytes, bytearray)):
-            raise ValueError("telemetry JSON must be text or bytes")
-        if len(payload) > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
+        if not isinstance(payload, (str, bytes, bytearray, memoryview)):
+            raise ValueError("telemetry JSON must be text or a byte buffer")
+        payload_size = (
+            payload.nbytes if isinstance(payload, memoryview) else len(payload)
+        )
+        if payload_size > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
             raise ValueError(
                 "telemetry JSON must not exceed "
                 f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"

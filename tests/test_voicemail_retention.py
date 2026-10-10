@@ -354,7 +354,12 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         )
         payload = json.dumps(counts.as_telemetry())
 
-        for encoded in (payload, payload.encode(), bytearray(payload, "utf-8")):
+        for encoded in (
+            payload,
+            payload.encode(),
+            bytearray(payload, "utf-8"),
+            memoryview(payload.encode()),
+        ):
             with self.subTest(payload_type=type(encoded).__name__):
                 self.assertEqual(
                     VoicemailExpiryPurgeBatchCounts.from_telemetry_json(encoded),
@@ -382,7 +387,7 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
              "non-standard constant"),
             ("[]", "must be a mapping"),
             (b"\xff", "utf-8"),
-            ({}, "text or bytes"),
+            ({}, "text or a byte buffer"),
         ):
             with self.subTest(payload=payload), self.assertRaisesRegex(
                 ValueError, message,
@@ -412,6 +417,7 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             maximum,
             maximum.encode("utf-8"),
             bytearray(maximum, "utf-8"),
+            memoryview(maximum.encode("utf-8")),
         ):
             with self.subTest(payload_type=type(encoded).__name__):
                 self.assertEqual(
@@ -423,6 +429,7 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             " " + maximum,
             b" " + maximum.encode("utf-8"),
             bytearray(b" " + maximum.encode("utf-8")),
+            memoryview(b" " + maximum.encode("utf-8")),
         ):
             with self.subTest(payload_type=type(oversized).__name__):
                 with self.assertRaisesRegex(
@@ -446,7 +453,7 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
 
         for encoding in ("utf-16", "utf-32"):
             encoded = payload.encode(encoding)
-            for value in (encoded, bytearray(encoded)):
+            for value in (encoded, bytearray(encoded), memoryview(encoded)):
                 with self.subTest(encoding=encoding, value_type=type(value)):
                     with self.assertRaisesRegex(
                         ValueError, "bytes must be valid utf-8",

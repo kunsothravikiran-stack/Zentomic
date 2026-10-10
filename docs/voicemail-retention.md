@@ -55,10 +55,13 @@ JSON-decoded object, rejects unknown schema versions or field sets, and verifies
 that all derived follow-up fields agree with the scalar outcomes. This prevents
 workers from scheduling against a corrupted or partially upgraded record.
 For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
-decoding: it accepts text or bytes while rejecting duplicate object fields and
-non-standard constants such as `NaN` before applying the same schema checks.
-Byte and bytearray inputs must contain UTF-8 JSON; alternate encodings are
-rejected instead of relying on the standard decoder's encoding auto-detection.
+decoding: it accepts text or byte buffers while rejecting duplicate object
+fields and non-standard constants such as `NaN` before applying the same schema
+checks.
+Bytes, bytearray, and memoryview inputs must contain UTF-8 JSON; alternate
+encodings are rejected instead of relying on the standard decoder's encoding
+auto-detection. Accepting memoryview lets adapters pass buffer-backed records
+without maintaining a separate conversion path.
 It rejects inputs larger than 4,096 UTF-8 bytes before JSON decoding, keeping
 malformed or hostile queue records from turning this small fixed-schema parser
 into an unbounded memory consumer. The exported
