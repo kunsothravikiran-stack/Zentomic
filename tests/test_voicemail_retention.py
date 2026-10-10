@@ -325,6 +325,26 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             counts,
         )
 
+    def test_counts_refuse_to_emit_oversized_json_telemetry(self):
+        oversized_count = 10 ** 2_000
+        counts = VoicemailExpiryPurgeBatchCounts(
+            discovered=oversized_count,
+            purged=oversized_count,
+            conflicted=0,
+            missing=0,
+            discovery_limit_reached=False,
+        )
+
+        for producer in (
+            counts.to_telemetry_json,
+            counts.to_telemetry_json_bytes,
+        ):
+            with self.subTest(producer=producer.__name__), self.assertRaisesRegex(
+                ValueError,
+                f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes",
+            ):
+                producer()
+
     def test_counts_restore_direct_and_json_round_tripped_telemetry(self):
         counts = VoicemailExpiryPurgeBatchCounts(
             discovered=3,

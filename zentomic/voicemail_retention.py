@@ -134,12 +134,18 @@ class VoicemailExpiryPurgeBatchCounts:
         telemetry schema. ``allow_nan=False`` keeps the producer strict even
         if a future schema adds numeric values that JSON cannot represent.
         """
-        return json.dumps(
+        payload = json.dumps(
             self.as_telemetry(),
             allow_nan=False,
             separators=(",", ":"),
             sort_keys=True,
         )
+        if len(payload.encode("utf-8")) > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
+            raise ValueError(
+                "telemetry JSON must not exceed "
+                f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"
+            )
+        return payload
 
     def to_telemetry_json_bytes(self) -> bytes:
         """Return the deterministic telemetry JSON encoded as UTF-8 bytes.
