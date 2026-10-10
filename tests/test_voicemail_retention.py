@@ -435,6 +435,26 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "text must be valid UTF-8"):
             VoicemailExpiryPurgeBatchCounts.from_telemetry_json("\ud800")
 
+    def test_counts_reject_non_utf8_byte_encodings_before_json_decoding(self):
+        payload = VoicemailExpiryPurgeBatchCounts(
+            discovered=0,
+            purged=0,
+            conflicted=0,
+            missing=0,
+            discovery_limit_reached=False,
+        ).to_telemetry_json()
+
+        for encoding in ("utf-16", "utf-32"):
+            encoded = payload.encode(encoding)
+            for value in (encoded, bytearray(encoded)):
+                with self.subTest(encoding=encoding, value_type=type(value)):
+                    with self.assertRaisesRegex(
+                        ValueError, "bytes must be valid utf-8",
+                    ):
+                        VoicemailExpiryPurgeBatchCounts.from_telemetry_json(
+                            value
+                        )
+
     def test_counts_reject_invalid_or_inconsistent_telemetry(self):
         valid = VoicemailExpiryPurgeBatchCounts(
             discovered=1,

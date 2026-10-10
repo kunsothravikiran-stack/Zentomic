@@ -244,6 +244,13 @@ class VoicemailExpiryPurgeBatchCounts:
                     "telemetry JSON must not exceed "
                     f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"
                 )
+        else:
+            try:
+                payload = bytes(payload).decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError(
+                    "telemetry JSON bytes must be valid utf-8"
+                ) from exc
 
         def reject_duplicate_fields(
             pairs: list[tuple[str, object]],

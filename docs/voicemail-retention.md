@@ -57,6 +57,8 @@ workers from scheduling against a corrupted or partially upgraded record.
 For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
 decoding: it accepts text or bytes while rejecting duplicate object fields and
 non-standard constants such as `NaN` before applying the same schema checks.
+Byte and bytearray inputs must contain UTF-8 JSON; alternate encodings are
+rejected instead of relying on the standard decoder's encoding auto-detection.
 It rejects inputs larger than 4,096 UTF-8 bytes before JSON decoding, keeping
 malformed or hostile queue records from turning this small fixed-schema parser
 into an unbounded memory consumer. The exported
