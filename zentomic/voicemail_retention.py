@@ -248,9 +248,15 @@ class VoicemailExpiryPurgeBatchCounts:
         """
         if not isinstance(payload, (str, bytes, bytearray, memoryview)):
             raise ValueError("telemetry JSON must be text or a byte buffer")
-        payload_size = (
-            payload.nbytes if isinstance(payload, memoryview) else len(payload)
-        )
+        if isinstance(payload, memoryview):
+            try:
+                payload_size = payload.nbytes
+            except ValueError:
+                raise ValueError(
+                    "telemetry JSON byte buffer is unavailable"
+                ) from None
+        else:
+            payload_size = len(payload)
         if payload_size > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
             raise ValueError(
                 "telemetry JSON must not exceed "
@@ -274,6 +280,10 @@ class VoicemailExpiryPurgeBatchCounts:
             except UnicodeDecodeError:
                 raise ValueError(
                     "telemetry JSON bytes must be valid utf-8"
+                ) from None
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "telemetry JSON byte buffer is unavailable"
                 ) from None
 
         def reject_duplicate_fields(

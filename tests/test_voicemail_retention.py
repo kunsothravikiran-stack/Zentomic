@@ -461,6 +461,18 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
                 self.assertTrue(raised.exception.__suppress_context__)
                 self.assertNotIn("customer-secret-reference", str(raised.exception))
 
+    def test_counts_normalize_unavailable_memoryview_errors(self):
+        payload = memoryview(b"{}")
+        payload.release()
+
+        with self.assertRaisesRegex(
+            ValueError, "^telemetry JSON byte buffer is unavailable$",
+        ) as raised:
+            VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload)
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertTrue(raised.exception.__suppress_context__)
+
     def test_counts_do_not_echo_duplicate_telemetry_field_names(self):
         sensitive_field = "customer-secret-reference"
         payload = json.dumps({sensitive_field: "first"})[:-1]
