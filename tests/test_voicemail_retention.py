@@ -402,7 +402,7 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         )
 
         for payload, message in (
-            (duplicate, "duplicate field"),
+            (duplicate, "duplicate object field"),
             (valid.replace('"discovered": 0', '"discovered": NaN'),
              "non-standard constant"),
             ("[]", "must be a mapping"),
@@ -413,6 +413,18 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
                 ValueError, message,
             ):
                 VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload)
+
+    def test_counts_do_not_echo_duplicate_telemetry_field_names(self):
+        sensitive_field = "customer-secret-reference"
+        payload = json.dumps({sensitive_field: "first"})[:-1]
+        payload += f', "{sensitive_field}": "second"}}'
+
+        with self.assertRaisesRegex(
+            ValueError, "duplicate object field",
+        ) as raised:
+            VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload)
+
+        self.assertNotIn(sensitive_field, str(raised.exception))
 
     def test_counts_bound_json_telemetry_before_decoding(self):
         counts = VoicemailExpiryPurgeBatchCounts(

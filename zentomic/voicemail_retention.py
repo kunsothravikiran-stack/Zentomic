@@ -268,7 +268,7 @@ class VoicemailExpiryPurgeBatchCounts:
             for key, value in pairs:
                 if key in restored:
                     raise ValueError(
-                        f"telemetry JSON contains duplicate field {key!r}"
+                        "telemetry JSON contains a duplicate object field"
                     )
                 restored[key] = value
             return restored
