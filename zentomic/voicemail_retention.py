@@ -21,6 +21,11 @@ VoicemailExpiryPurgeTelemetryValue = (
 )
 VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION = 1
 VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES = 4096
+# 10 / 3 is slightly greater than log2(10), making this a conservative
+# pre-conversion guard for a decimal integer that cannot fit the byte limit.
+_TELEMETRY_INTEGER_CONVERSION_MAX_BITS = (
+    VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES * 10 + 2
+) // 3
 
 
 class VoicemailStatusDueExpiryPurgeStore(
@@ -134,6 +139,16 @@ class VoicemailExpiryPurgeBatchCounts:
         telemetry schema. ``allow_nan=False`` keeps the producer strict even
         if a future schema adds numeric values that JSON cannot represent.
         """
+        if max(
+            self.discovered,
+            self.purged,
+            self.conflicted,
+            self.missing,
+        ).bit_length() > _TELEMETRY_INTEGER_CONVERSION_MAX_BITS:
+            raise ValueError(
+                "telemetry JSON must not exceed "
+                f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"
+            )
         payload = json.dumps(
             self.as_telemetry(),
             allow_nan=False,

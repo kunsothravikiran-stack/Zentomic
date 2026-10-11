@@ -73,8 +73,9 @@ reports. It emits deterministic compact JSON with sorted fields, making
 equivalent batches byte-for-byte comparable while preserving the versioned
 schema. Producers can use it instead of maintaining their own serialization
 settings. It applies the same 4,096-byte limit as the consumer, so an extreme
-value cannot produce a record that the matching parser would reject. Queue and
-object-storage adapters can use
+integer is rejected before decimal conversion and cannot expose an
+interpreter-specific conversion failure or produce a record that the matching
+parser would reject. Queue and object-storage adapters can use
 `to_telemetry_json_bytes()` to receive that exact payload encoded as UTF-8
 bytes without choosing an encoding themselves.
 
