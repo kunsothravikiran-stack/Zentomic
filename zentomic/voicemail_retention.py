@@ -259,10 +259,10 @@ class VoicemailExpiryPurgeBatchCounts:
         if isinstance(payload, str):
             try:
                 payload_size = len(payload.encode("utf-8"))
-            except UnicodeEncodeError as exc:
+            except UnicodeEncodeError:
                 raise ValueError(
                     "telemetry JSON text must be valid UTF-8"
-                ) from exc
+                ) from None
             if payload_size > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
                 raise ValueError(
                     "telemetry JSON must not exceed "
@@ -271,10 +271,10 @@ class VoicemailExpiryPurgeBatchCounts:
         else:
             try:
                 payload = bytes(payload).decode("utf-8")
-            except UnicodeDecodeError as exc:
+            except UnicodeDecodeError:
                 raise ValueError(
                     "telemetry JSON bytes must be valid utf-8"
-                ) from exc
+                ) from None
 
         def reject_duplicate_fields(
             pairs: list[tuple[str, object]],
@@ -293,11 +293,14 @@ class VoicemailExpiryPurgeBatchCounts:
                 f"telemetry JSON contains non-standard constant {value!r}"
             )
 
-        telemetry = json.loads(
-            payload,
-            object_pairs_hook=reject_duplicate_fields,
-            parse_constant=reject_nonstandard_constant,
-        )
+        try:
+            telemetry = json.loads(
+                payload,
+                object_pairs_hook=reject_duplicate_fields,
+                parse_constant=reject_nonstandard_constant,
+            )
+        except json.JSONDecodeError:
+            raise ValueError("telemetry JSON is invalid") from None
         return cls.from_telemetry(telemetry)
 
 

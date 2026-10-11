@@ -58,7 +58,10 @@ For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
 decoding: it accepts text or byte buffers while rejecting duplicate object
 fields and non-standard constants such as `NaN` before applying the same schema
 checks. Duplicate-field diagnostics do not echo attacker-controlled field
-names, keeping malformed queue contents out of worker error logs.
+names, keeping malformed queue contents out of worker error logs. Malformed JSON
+is normalized to a stable validation error instead of exposing parser details.
+Invalid Unicode errors also suppress their original exception context so byte
+fragments cannot appear in chained worker logs.
 Bytes, bytearray, and memoryview inputs must contain UTF-8 JSON; alternate
 encodings are rejected instead of relying on the standard decoder's encoding
 auto-detection. Accepting memoryview lets adapters pass buffer-backed records

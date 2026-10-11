@@ -436,6 +436,31 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             ):
                 VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload)
 
+    def test_counts_normalize_malformed_json_errors(self):
+        malformed = '{"customer-secret-reference":'
+
+        for payload in (malformed, malformed.encode("utf-8")):
+            with self.subTest(payload_type=type(payload).__name__):
+                with self.assertRaisesRegex(
+                    ValueError, "^telemetry JSON is invalid$",
+                ) as raised:
+                    VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload)
+                self.assertIsNone(raised.exception.__cause__)
+                self.assertTrue(raised.exception.__suppress_context__)
+                self.assertNotIn("customer-secret-reference", str(raised.exception))
+
+    def test_counts_hide_invalid_unicode_decoder_details(self):
+        for payload, message in (
+            ("\ud800", "text must be valid UTF-8"),
+            (b"customer-secret-reference:\xff", "bytes must be valid utf-8"),
+        ):
+            with self.subTest(payload_type=type(payload).__name__):
+                with self.assertRaisesRegex(ValueError, message) as raised:
+                    VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload)
+                self.assertIsNone(raised.exception.__cause__)
+                self.assertTrue(raised.exception.__suppress_context__)
+                self.assertNotIn("customer-secret-reference", str(raised.exception))
+
     def test_counts_do_not_echo_duplicate_telemetry_field_names(self):
         sensitive_field = "customer-secret-reference"
         payload = json.dumps({sensitive_field: "first"})[:-1]
