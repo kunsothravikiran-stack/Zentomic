@@ -512,6 +512,51 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
                     counts,
                 )
 
+    def test_counts_use_actual_byte_buffer_size_and_contents(self):
+        counts = VoicemailExpiryPurgeBatchCounts(
+            discovered=0,
+            purged=0,
+            conflicted=0,
+            missing=0,
+            discovery_limit_reached=False,
+        )
+
+        class MisleadingBytes(bytes):
+            def __len__(self):
+                return 0
+
+            def __bytes__(self):
+                raise AssertionError("byte conversion hook must not run")
+
+        class MisleadingBytearray(bytearray):
+            def __len__(self):
+                return 0
+
+            def __bytes__(self):
+                raise AssertionError("byte conversion hook must not run")
+
+        for buffer_type in (MisleadingBytes, MisleadingBytearray):
+            with self.subTest(buffer_type=buffer_type.__name__):
+                payload = buffer_type(counts.to_telemetry_json_bytes())
+                self.assertEqual(
+                    VoicemailExpiryPurgeBatchCounts.from_telemetry_json(
+                        payload
+                    ),
+                    counts,
+                )
+                oversized = buffer_type(
+                    b" " * (
+                        VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES + 1
+                    )
+                )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes",
+                ):
+                    VoicemailExpiryPurgeBatchCounts.from_telemetry_json(
+                        oversized
+                    )
+
     def test_counts_reject_ambiguous_or_nonstandard_json_telemetry(self):
         valid = json.dumps(
             VoicemailExpiryPurgeBatchCounts(

@@ -73,7 +73,10 @@ Bytes, bytearray, and memoryview inputs must contain UTF-8 JSON; alternate
 encodings are rejected instead of relying on the standard decoder's encoding
 auto-detection. Accepting memoryview lets adapters pass buffer-backed records
 without maintaining a separate conversion path. Released or otherwise
-unavailable memoryviews are rejected with a stable validation error.
+unavailable memoryviews are rejected with a stable validation error. Byte
+buffer size and contents are read from the underlying buffer itself, so a
+subclass cannot bypass the limit or replace the parsed data through Python
+conversion hooks.
 It rejects inputs larger than 4,096 UTF-8 bytes before JSON decoding, keeping
 malformed or hostile queue records from turning this small fixed-schema parser
 into an unbounded memory consumer. The exported
