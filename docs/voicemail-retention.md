@@ -53,7 +53,10 @@ integrations. Version 1 is available as the
 ingress path for telemetry consumers. It accepts both direct telemetry and a
 JSON-decoded object, rejects unknown schema versions or field sets, and verifies
 that all derived follow-up fields agree with the scalar outcomes. This prevents
-workers from scheduling against a corrupted or partially upgraded record.
+workers from scheduling against a corrupted or partially upgraded record. A
+direct mapping is snapshotted only after its field iteration is bounded to one
+entry beyond the schema, so a malformed adapter mapping cannot force an
+unbounded field scan before rejection.
 For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
 decoding: it accepts text or byte buffers while rejecting duplicate object
 fields and non-standard constants such as `NaN` before applying the same schema

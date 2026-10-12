@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from collections.abc import Mapping
 from unittest.mock import Mock
 
 from zentomic.voicemail_retention import (
@@ -385,6 +386,35 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
             VoicemailExpiryPurgeBatchCounts.from_telemetry(round_tripped),
             counts,
         )
+
+    def test_counts_bound_direct_telemetry_field_iteration(self):
+        valid = VoicemailExpiryPurgeBatchCounts(
+            discovered=0,
+            purged=0,
+            conflicted=0,
+            missing=0,
+            discovery_limit_reached=False,
+        ).as_telemetry()
+
+        class OversizedTelemetry(Mapping):
+            def __getitem__(self, key):
+                raise AssertionError("oversized mapping values must not be read")
+
+            def __iter__(self):
+                yield from valid
+                yield "extra"
+                raise AssertionError("field validation must stop after one extra key")
+
+            def __len__(self):
+                return len(valid)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^telemetry fields must exactly match schema version 1$",
+        ):
+            VoicemailExpiryPurgeBatchCounts.from_telemetry(
+                OversizedTelemetry()
+            )
 
     def test_counts_restore_strict_json_telemetry(self):
         counts = VoicemailExpiryPurgeBatchCounts(

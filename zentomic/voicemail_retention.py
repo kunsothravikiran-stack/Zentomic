@@ -3,6 +3,7 @@
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from itertools import islice
 from typing import Literal, Protocol
 
 from zentomic.voicemail_status_store import (
@@ -26,6 +27,18 @@ VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES = 4096
 _TELEMETRY_INTEGER_CONVERSION_MAX_BITS = (
     VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES * 10 + 2
 ) // 3
+_TELEMETRY_FIELDS = frozenset({
+    "schema_version",
+    "discovered",
+    "purged",
+    "conflicted",
+    "no_receipt",
+    "unconfirmed",
+    "discovery_limit_reached",
+    "follow_up_recommended",
+    "follow_up_action",
+    "follow_up_reasons",
+})
 
 
 class VoicemailStatusDueExpiryPurgeStore(
@@ -185,20 +198,14 @@ class VoicemailExpiryPurgeBatchCounts:
         """
         if not isinstance(telemetry, Mapping):
             raise ValueError("telemetry must be a mapping")
-        fields = {
-            "schema_version",
-            "discovered",
-            "purged",
-            "conflicted",
-            "no_receipt",
-            "unconfirmed",
-            "discovery_limit_reached",
-            "follow_up_recommended",
-            "follow_up_action",
-            "follow_up_reasons",
-        }
-        if any(type(key) is not str for key in telemetry) or set(telemetry) != fields:
+        keys = tuple(islice(telemetry, len(_TELEMETRY_FIELDS) + 1))
+        if (
+            len(keys) != len(_TELEMETRY_FIELDS)
+            or any(type(key) is not str for key in keys)
+            or set(keys) != _TELEMETRY_FIELDS
+        ):
             raise ValueError("telemetry fields must exactly match schema version 1")
+        telemetry = {key: telemetry[key] for key in keys}
         schema_version = telemetry["schema_version"]
         if (
             type(schema_version) is not int
