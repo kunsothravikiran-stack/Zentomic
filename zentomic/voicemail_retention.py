@@ -199,7 +199,10 @@ class VoicemailExpiryPurgeBatchCounts:
         """
         if not isinstance(telemetry, Mapping):
             raise ValueError("telemetry must be a mapping")
-        keys = tuple(islice(telemetry, len(_TELEMETRY_FIELDS) + 1))
+        try:
+            keys = tuple(islice(telemetry, len(_TELEMETRY_FIELDS) + 1))
+        except Exception:
+            raise ValueError("telemetry mapping is unavailable") from None
         if (
             len(keys) != len(_TELEMETRY_FIELDS)
             or any(
@@ -210,7 +213,10 @@ class VoicemailExpiryPurgeBatchCounts:
             or set(keys) != _TELEMETRY_FIELDS
         ):
             raise ValueError("telemetry fields must exactly match schema version 1")
-        telemetry = {key: telemetry[key] for key in keys}
+        try:
+            telemetry = {key: telemetry[key] for key in keys}
+        except Exception:
+            raise ValueError("telemetry mapping is unavailable") from None
         schema_version = telemetry["schema_version"]
         if (
             type(schema_version) is not int

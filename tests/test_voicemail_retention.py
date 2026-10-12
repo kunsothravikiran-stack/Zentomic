@@ -449,6 +449,47 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
                 OversizedFieldTelemetry()
             )
 
+    def test_counts_normalize_unavailable_direct_telemetry_mappings(self):
+        valid = VoicemailExpiryPurgeBatchCounts(
+            discovered=0,
+            purged=0,
+            conflicted=0,
+            missing=0,
+            discovery_limit_reached=False,
+        ).as_telemetry()
+
+        class UnreadableFields(Mapping):
+            def __getitem__(self, key):
+                return valid[key]
+
+            def __iter__(self):
+                raise RuntimeError("customer-secret-reference")
+
+            def __len__(self):
+                return len(valid)
+
+        class UnreadableValues(Mapping):
+            def __getitem__(self, key):
+                raise RuntimeError("customer-secret-reference")
+
+            def __iter__(self):
+                return iter(valid)
+
+            def __len__(self):
+                return len(valid)
+
+        for telemetry in (UnreadableFields(), UnreadableValues()):
+            with self.subTest(mapping_type=type(telemetry).__name__):
+                with self.assertRaisesRegex(
+                    ValueError, "^telemetry mapping is unavailable$",
+                ) as raised:
+                    VoicemailExpiryPurgeBatchCounts.from_telemetry(telemetry)
+                self.assertIsNone(raised.exception.__cause__)
+                self.assertTrue(raised.exception.__suppress_context__)
+                self.assertNotIn(
+                    "customer-secret-reference", str(raised.exception),
+                )
+
     def test_counts_restore_strict_json_telemetry(self):
         counts = VoicemailExpiryPurgeBatchCounts(
             discovered=3,

@@ -58,6 +58,9 @@ direct mapping is snapshotted only after its field iteration is bounded to one
 entry beyond the schema, so a malformed adapter mapping cannot force an
 unbounded field scan before rejection. Field names longer than the longest
 versioned name are rejected before set hashing, also bounding work per field.
+Iteration or value-access failures from a direct mapping are normalized to a
+stable validation error without exposing adapter exception details in worker
+logs.
 For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
 decoding: it accepts text or byte buffers while rejecting duplicate object
 fields and non-standard constants such as `NaN` before applying the same schema
