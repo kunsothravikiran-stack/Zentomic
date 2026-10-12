@@ -39,6 +39,7 @@ _TELEMETRY_FIELDS = frozenset({
     "follow_up_action",
     "follow_up_reasons",
 })
+_TELEMETRY_FIELD_MAX_CHARACTERS = max(map(len, _TELEMETRY_FIELDS))
 
 
 class VoicemailStatusDueExpiryPurgeStore(
@@ -201,7 +202,11 @@ class VoicemailExpiryPurgeBatchCounts:
         keys = tuple(islice(telemetry, len(_TELEMETRY_FIELDS) + 1))
         if (
             len(keys) != len(_TELEMETRY_FIELDS)
-            or any(type(key) is not str for key in keys)
+            or any(
+                type(key) is not str
+                or len(key) > _TELEMETRY_FIELD_MAX_CHARACTERS
+                for key in keys
+            )
             or set(keys) != _TELEMETRY_FIELDS
         ):
             raise ValueError("telemetry fields must exactly match schema version 1")

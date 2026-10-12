@@ -56,7 +56,8 @@ that all derived follow-up fields agree with the scalar outcomes. This prevents
 workers from scheduling against a corrupted or partially upgraded record. A
 direct mapping is snapshotted only after its field iteration is bounded to one
 entry beyond the schema, so a malformed adapter mapping cannot force an
-unbounded field scan before rejection.
+unbounded field scan before rejection. Field names longer than the longest
+versioned name are rejected before set hashing, also bounding work per field.
 For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
 decoding: it accepts text or byte buffers while rejecting duplicate object
 fields and non-standard constants such as `NaN` before applying the same schema
