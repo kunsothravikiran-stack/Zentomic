@@ -60,7 +60,9 @@ unbounded field scan before rejection. Field names longer than the longest
 versioned name are rejected before set hashing, also bounding work per field.
 Iteration or value-access failures from a direct mapping are normalized to a
 stable validation error without exposing adapter exception details in worker
-logs.
+logs. A direct `follow_up_reasons` sequence is length-checked against the
+derived reasons before its elements are scanned, keeping validation work
+bounded when an adapter supplies an oversized sequence.
 For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
 decoding: it accepts text or byte buffers while rejecting duplicate object
 fields and non-standard constants such as `NaN` before applying the same schema

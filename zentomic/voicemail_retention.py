@@ -244,6 +244,7 @@ class VoicemailExpiryPurgeBatchCounts:
         reasons = telemetry["follow_up_reasons"]
         if (
             type(reasons) not in (list, tuple)
+            or len(reasons) > len(expected["follow_up_reasons"])
             or any(type(reason) is not str for reason in reasons)
             or tuple(reasons) != expected["follow_up_reasons"]
         ):

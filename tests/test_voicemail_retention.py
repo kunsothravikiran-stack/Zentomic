@@ -490,6 +490,29 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
                     "customer-secret-reference", str(raised.exception),
                 )
 
+    def test_counts_bound_direct_telemetry_follow_up_reasons(self):
+        telemetry = VoicemailExpiryPurgeBatchCounts(
+            discovered=0,
+            purged=0,
+            conflicted=0,
+            missing=0,
+            discovery_limit_reached=False,
+        ).as_telemetry()
+        telemetry["follow_up_reasons"] = ["extra"]
+
+        with patch(
+            "zentomic.voicemail_retention.any",
+            side_effect=(
+                False,
+                AssertionError("oversized reasons must not be scanned"),
+            ),
+            create=True,
+        ), self.assertRaisesRegex(
+            ValueError,
+            "^telemetry follow_up_reasons does not match scalar outcomes$",
+        ):
+            VoicemailExpiryPurgeBatchCounts.from_telemetry(telemetry)
+
     def test_counts_restore_strict_json_telemetry(self):
         counts = VoicemailExpiryPurgeBatchCounts(
             discovered=3,
