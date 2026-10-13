@@ -631,6 +631,22 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
                 self.assertTrue(raised.exception.__suppress_context__)
                 self.assertNotIn("customer-secret-reference", str(raised.exception))
 
+    def test_counts_normalize_json_recursion_errors(self):
+        payload = '{"customer-secret-reference": true}'
+
+        for encoded in (payload, payload.encode("utf-8")):
+            with self.subTest(payload_type=type(encoded).__name__), patch(
+                "zentomic.voicemail_retention.json.loads",
+                side_effect=RecursionError("customer-secret-reference"),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError, "^telemetry JSON is invalid$",
+                ) as raised:
+                    VoicemailExpiryPurgeBatchCounts.from_telemetry_json(encoded)
+                self.assertIsNone(raised.exception.__cause__)
+                self.assertTrue(raised.exception.__suppress_context__)
+                self.assertNotIn("customer-secret-reference", str(raised.exception))
+
     def test_counts_hide_invalid_unicode_decoder_details(self):
         for payload, message in (
             ("\ud800", "text must be valid UTF-8"),

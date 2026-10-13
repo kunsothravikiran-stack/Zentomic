@@ -334,7 +334,7 @@ class VoicemailExpiryPurgeBatchCounts:
                 object_pairs_hook=reject_duplicate_fields,
                 parse_constant=reject_nonstandard_constant,
             )
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
             raise ValueError("telemetry JSON is invalid") from None
         return cls.from_telemetry(telemetry)
 
