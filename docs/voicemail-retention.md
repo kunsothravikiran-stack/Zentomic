@@ -76,7 +76,9 @@ without maintaining a separate conversion path. Released or otherwise
 unavailable memoryviews are rejected with a stable validation error. Byte
 buffer size and contents are read from the underlying buffer itself, so a
 subclass cannot bypass the limit or replace the parsed data through Python
-conversion hooks.
+conversion hooks. Text inputs are likewise normalized through the built-in
+string implementation before size checks and parsing, preventing a string
+subclass from substituting alternate length, encoding, or conversion behavior.
 It rejects inputs larger than 4,096 UTF-8 bytes before JSON decoding, keeping
 malformed or hostile queue records from turning this small fixed-schema parser
 into an unbounded memory consumer. The exported

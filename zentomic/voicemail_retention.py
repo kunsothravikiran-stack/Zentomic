@@ -267,6 +267,9 @@ class VoicemailExpiryPurgeBatchCounts:
         if not isinstance(payload, (str, bytes, bytearray, memoryview)):
             raise ValueError("telemetry JSON must be text or a byte buffer")
         if isinstance(payload, str):
+            # Read the built-in string value instead of overridable subclass
+            # hooks so validation and parsing inspect the same text.
+            payload = str.__str__(payload)
             payload_size = len(payload)
         else:
             try:

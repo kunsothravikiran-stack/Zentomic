@@ -557,6 +557,39 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
                         oversized
                     )
 
+    def test_counts_use_actual_text_size_and_contents(self):
+        counts = VoicemailExpiryPurgeBatchCounts(
+            discovered=0,
+            purged=0,
+            conflicted=0,
+            missing=0,
+            discovery_limit_reached=False,
+        )
+
+        class MisleadingText(str):
+            def __len__(self):
+                return 0
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("text encoding hook must not run")
+
+            def __str__(self):
+                raise AssertionError("text conversion hook must not run")
+
+        payload = MisleadingText(counts.to_telemetry_json())
+        self.assertEqual(
+            VoicemailExpiryPurgeBatchCounts.from_telemetry_json(payload),
+            counts,
+        )
+        oversized = MisleadingText(
+            " " * (VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES + 1)
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes",
+        ):
+            VoicemailExpiryPurgeBatchCounts.from_telemetry_json(oversized)
+
     def test_counts_reject_ambiguous_or_nonstandard_json_telemetry(self):
         valid = json.dumps(
             VoicemailExpiryPurgeBatchCounts(
