@@ -62,7 +62,9 @@ Iteration or value-access failures from a direct mapping are normalized to a
 stable validation error without exposing adapter exception details in worker
 logs. A direct `follow_up_reasons` sequence is length-checked against the
 derived reasons before its elements are scanned, keeping validation work
-bounded when an adapter supplies an oversized sequence.
+bounded when an adapter supplies an oversized sequence. Direct count values
+that cannot fit the serialized telemetry contract are rejected before outcome
+arithmetic, preventing oversized adapter integers from driving unbounded work.
 For serialized logs or queue records, `from_telemetry_json()` adds strict JSON
 decoding: it accepts text or byte buffers while rejecting duplicate object
 fields and non-standard constants such as `NaN` before applying the same schema

@@ -224,6 +224,15 @@ class VoicemailExpiryPurgeBatchCounts:
         ):
             raise ValueError("unsupported voicemail purge telemetry schema version")
 
+        for field in ("discovered", "purged", "conflicted", "no_receipt"):
+            value = telemetry[field]
+            if (
+                type(value) is int
+                and value >= 0
+                and value.bit_length() > _TELEMETRY_INTEGER_CONVERSION_MAX_BITS
+            ):
+                raise ValueError("telemetry count exceeds the supported size")
+
         counts = cls(
             discovered=telemetry["discovered"],
             purged=telemetry["purged"],

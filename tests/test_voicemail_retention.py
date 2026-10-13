@@ -513,6 +513,29 @@ class PurgeDueVoicemailExpiryBatchTests(unittest.TestCase):
         ):
             VoicemailExpiryPurgeBatchCounts.from_telemetry(telemetry)
 
+    def test_counts_bound_direct_telemetry_integers_before_arithmetic(self):
+        oversized_count = 10 ** (
+            VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES + 500
+        )
+        telemetry = VoicemailExpiryPurgeBatchCounts(
+            discovered=0,
+            purged=0,
+            conflicted=0,
+            missing=0,
+            discovery_limit_reached=False,
+        ).as_telemetry()
+        telemetry["discovered"] = oversized_count
+        telemetry["purged"] = oversized_count
+
+        with patch.object(
+            VoicemailExpiryPurgeBatchCounts,
+            "__post_init__",
+            side_effect=AssertionError("oversized counts must not be added"),
+        ), self.assertRaisesRegex(
+            ValueError, "^telemetry count exceeds the supported size$",
+        ):
+            VoicemailExpiryPurgeBatchCounts.from_telemetry(telemetry)
+
     def test_counts_restore_strict_json_telemetry(self):
         counts = VoicemailExpiryPurgeBatchCounts(
             discovered=3,
