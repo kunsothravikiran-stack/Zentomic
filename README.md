@@ -554,6 +554,37 @@ budget cannot extend the persisted call deadline. `None` means do not start the
 operation, not that the runtime has enough time left to persist or send a
 terminal response. This adds no runtime integration or cancellation mechanism.
 
+For a Lambda handler, `resolve_lambda_operation_timeout` supplies that runtime
+bound directly from the trusted handler `context` using AWS's
+[`get_remaining_time_in_millis()` method](https://docs.aws.amazon.com/lambda/latest/dg/python-context.html).
+It samples the method once per decision and reuses the same call-deadline,
+reserve, maximum, minimum, and granularity policy. This local example needs no
+AWS SDK or credentials:
+
+```python
+from zentomic.lambda_budget import resolve_lambda_operation_timeout
+
+class SyntheticContext:
+    def get_remaining_time_in_millis(self):
+        return 2_000
+
+timeout_ms = resolve_lambda_operation_timeout(
+    context=SyntheticContext(),
+    deadline_ms=601_000, now_ms=598_000,
+    maximum_ms=5_000, minimum_ms=1_000, reserve_ms=500,
+)
+assert timeout_ms == 1_500
+```
+
+Use the real handler context in an adapter, never a request field. Missing or
+unreadable runtime time, non-integer values (including booleans), negative time,
+and `None` raise `ValueError` rather than silently reverting to call-only limits.
+Runtime exceptions produce a stable diagnostic without context details. Zero
+remaining time returns `None`, meaning skip the operation. Call the helper again
+before each operation or retry and provide a fresh trusted `now_ms`; it does
+not read a wall clock or cache invocation time. No other context properties are
+read, and a new invocation cannot extend the persisted call deadline.
+
 The adapter must actually apply the returned timeout, recheck on retries, and
 include any delay before execution in its margin. This pure helper neither
 cancels work nor guarantees cleanup fits in the reserve. Convert units without
@@ -1930,6 +1961,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
 - `zentomic/gather_event.py`: authenticated keypad decisions with optional replay claims.
 - `zentomic/budget.py`: individual and combined whole-call time/count admission and timeouts.
+- `zentomic/lambda_budget.py`: timeout admission from a fresh trusted Lambda context reading.
 - `zentomic/speech.py`: bounded speech result admission before classification.
 - `zentomic/speech_event.py`: authenticated speech admission with optional replay claims.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
@@ -1955,6 +1987,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_budget.py`: shared deadlines, exact boundaries, and offline validation.
+- `tests/test_lambda_budget.py`: synthetic runtime caps, fresh readings, and fail-closed context validation.
 - `tests/test_voice_step_budget.py`: combined time/count admission without spending denied steps.
 - `tests/test_voice_admission_flow.py`: authenticated multi-step redirect admission contracts.
 - `tests/test_budget_flow.py`: authenticated classifier timeout and late-result contracts.
