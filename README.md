@@ -585,6 +585,38 @@ before each operation or retry and provide a fresh trusted `now_ms`; it does
 not read a wall clock or cache invocation time. No other context properties are
 read, and a new invocation cannot extend the persisted call deadline.
 
+For repeated operation admission within one invocation, bind the fixed policy
+and trusted clock once with `make_lambda_operation_timeout_resolver`. It checks
+configuration without reading either clock, then samples both for each decision:
+
+```python
+from zentomic.lambda_budget import make_lambda_operation_timeout_resolver
+
+class SyntheticContext:
+    remaining_ms = 2_000
+    current_ms = 7_000
+
+    def get_remaining_time_in_millis(self):
+        return self.remaining_ms
+
+context = SyntheticContext()
+resolve_timeout = make_lambda_operation_timeout_resolver(
+    context=context, deadline_ms=10_000, now_ms=lambda: context.current_ms,
+    maximum_ms=5_000, minimum_ms=1_000, reserve_ms=500,
+)
+assert resolve_timeout() == 1_500  # First operation admission.
+context.remaining_ms, context.current_ms = 1_499, 8_000
+assert resolve_timeout() is None  # Skip the next operation or retry.
+```
+
+The bound resolver rejects clock rollback and increasing runtime readings
+independently, so one clock cannot conceal a reset in the other. Equal readings
+are allowed. Build a new resolver for each invocation, retaining the persisted
+call deadline. This history is local, not persisted call state. It checks first
+attempts as well as retries but does not wait, check terminal status, or enforce
+dependency timeouts. `None` means skip work; clock failures raise safe
+`ValueError` diagnostics. The single-decision helper remains unchanged.
+
 The adapter must actually apply the returned timeout, recheck on retries, and
 include any delay before execution in its margin. This pure helper neither
 cancels work nor guarantees cleanup fits in the reserve. Convert units without

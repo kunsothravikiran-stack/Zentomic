@@ -37,6 +37,78 @@ def _lambda_time_reader(context: LambdaTimeContext) -> Callable[[], int]:
     return read
 
 
+def _call_remaining_time_reader(
+    *, runtime_reader: Callable[[], int], deadline_ms: int,
+    now_ms: Callable[[], int],
+) -> Callable[[], int]:
+    """Keep independent clock histories for one fixed call and invocation."""
+    resolve_call_budget(deadline_ms=deadline_ms, now_ms=0)
+    if not callable(now_ms):
+        raise ValueError("now_ms must be a trusted callable")
+    last_runtime_ms: int | None = None
+    last_now_ms: int | None = None
+
+    def read() -> int:
+        nonlocal last_runtime_ms, last_now_ms
+        runtime_ms = runtime_reader()
+        try:
+            current_ms = now_ms()
+        except Exception:
+            raise ValueError("call budget clock is unavailable") from None
+        if type(current_ms) is not int or current_ms < 0:
+            raise ValueError("call budget clock must be a nonnegative integer")
+        if last_now_ms is not None and current_ms < last_now_ms:
+            raise ValueError("call budget clock must not move backwards")
+        if last_runtime_ms is not None and runtime_ms > last_runtime_ms:
+            raise ValueError("Lambda invocation time must not increase")
+        call_remaining_ms = resolve_call_budget(
+            deadline_ms=deadline_ms, now_ms=current_ms,
+        ).remaining_ms
+        last_runtime_ms, last_now_ms = runtime_ms, current_ms
+        return min(runtime_ms, call_remaining_ms)
+
+    return read
+
+
+def make_lambda_operation_timeout_resolver(
+    *, context: LambdaTimeContext, deadline_ms: int,
+    now_ms: Callable[[], int], maximum_ms: int, minimum_ms: int = 1,
+    reserve_ms: int = 0, granularity_ms: int = 1,
+) -> Callable[[], int | None]:
+    """Bind timeout admission to one invocation and a fixed call deadline.
+
+    Validate the policy without sampling either clock. Each decision reads
+    fresh trusted time and rejects wall-clock rollback or runtime increases
+    independently, even when the other clock would hide the reset. Use a new
+    resolver per invocation, retaining the persisted call deadline. This bounds
+    first attempts as well as retries; unlike a retry hook it performs no wait.
+
+    The result is milliseconds, or None to skip work. The adapter must apply
+    the timeout immediately and handle denial/failure. This does not persist
+    admission, check terminal status, cancel work, or contact any service.
+    """
+    remaining_time = _call_remaining_time_reader(
+        runtime_reader=_lambda_time_reader(context),
+        deadline_ms=deadline_ms, now_ms=now_ms,
+    )
+    # Use synthetic exhausted time solely to validate every static limit.
+    resolve_operation_timeout(
+        deadline_ms=0, now_ms=0, maximum_ms=maximum_ms,
+        minimum_ms=minimum_ms, reserve_ms=reserve_ms,
+        granularity_ms=granularity_ms, invocation_remaining_ms=0,
+    )
+
+    def resolve() -> int | None:
+        remaining_ms = remaining_time()
+        return resolve_operation_timeout(
+            deadline_ms=remaining_ms, now_ms=0, maximum_ms=maximum_ms,
+            minimum_ms=minimum_ms, reserve_ms=reserve_ms,
+            granularity_ms=granularity_ms,
+        )
+
+    return resolve
+
+
 def resolve_lambda_operation_timeout(
     *, context: LambdaTimeContext, deadline_ms: int, now_ms: int,
     maximum_ms: int, minimum_ms: int = 1, reserve_ms: int = 0,
@@ -91,33 +163,9 @@ def make_lambda_status_conflict_retry_hook(
     if (deadline_ms is None) != (now_ms is None):
         raise ValueError("deadline_ms and now_ms must be supplied together")
     if deadline_ms is not None:
-        resolve_call_budget(deadline_ms=deadline_ms, now_ms=0)
-        if not callable(now_ms):
-            raise ValueError("now_ms must be a trusted callable")
-        runtime_reader = remaining_time
-        last_runtime_ms: int | None = None
-        last_now_ms: int | None = None
-
-        def read_call_remaining_time() -> int:
-            nonlocal last_runtime_ms, last_now_ms
-            runtime_ms = runtime_reader()
-            try:
-                current_ms = now_ms()
-            except Exception:
-                raise ValueError("call budget clock is unavailable") from None
-            if type(current_ms) is not int or current_ms < 0:
-                raise ValueError("call budget clock must be a nonnegative integer")
-            if last_now_ms is not None and current_ms < last_now_ms:
-                raise ValueError("call budget clock must not move backwards")
-            if last_runtime_ms is not None and runtime_ms > last_runtime_ms:
-                raise ValueError("Lambda invocation time must not increase")
-            call_remaining_ms = resolve_call_budget(
-                deadline_ms=deadline_ms, now_ms=current_ms,
-            ).remaining_ms
-            last_runtime_ms, last_now_ms = runtime_ms, current_ms
-            return min(runtime_ms, call_remaining_ms)
-
-        remaining_time = read_call_remaining_time
+        remaining_time = _call_remaining_time_reader(
+            runtime_reader=remaining_time, deadline_ms=deadline_ms, now_ms=now_ms,
+        )
 
     return make_budgeted_status_conflict_retry_hook(
         invocation_remaining_ms=remaining_time,

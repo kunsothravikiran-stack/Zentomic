@@ -1,6 +1,7 @@
 """Lambda context timeout admission with local synthetic runtime readings."""
 
 import unittest
+from itertools import product
 from unittest.mock import Mock
 
 from tests.test_voice_flow import ACCOUNT, CALL, callback
@@ -11,7 +12,8 @@ from zentomic.call_status_store import (
     CallStatusSnapshot, InMemoryCallStatusStore, StatusConflictError,
 )
 from zentomic.lambda_budget import (
-    make_lambda_status_conflict_retry_hook, resolve_lambda_operation_timeout,
+    make_lambda_operation_timeout_resolver, make_lambda_status_conflict_retry_hook,
+    resolve_lambda_operation_timeout,
 )
 
 
@@ -110,6 +112,116 @@ class LambdaOperationTimeoutTests(unittest.TestCase):
         ):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 self.resolve(self.context(0), **overrides)
+
+
+class LambdaOperationResolverTests(unittest.TestCase):
+    def resolver(self, runtime, clock, **overrides):
+        context = Mock(spec=["get_remaining_time_in_millis"])
+        context.get_remaining_time_in_millis.side_effect = runtime
+        config = dict(
+            context=context, now_ms=clock, deadline_ms=10_000,
+            maximum_ms=5_000, minimum_ms=1_000, reserve_ms=500,
+        )
+        config.update(overrides)
+        return make_lambda_operation_timeout_resolver(**config), context
+
+    def test_construction_validates_every_policy_without_sampling_clocks(self):
+        clock = Mock()
+        for overrides in (
+            {"context": None}, {"deadline_ms": -1}, {"deadline_ms": True},
+            {"now_ms": None}, {"maximum_ms": 0}, {"minimum_ms": 0},
+            {"minimum_ms": 6_000}, {"reserve_ms": -1},
+            {"granularity_ms": 0},
+        ):
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.resolver((), clock, **overrides)
+        _, context = self.resolver((), clock)
+        clock.assert_not_called()
+        context.get_remaining_time_in_millis.assert_not_called()
+
+    def test_refreshes_both_clocks_and_preserves_reserve_and_rounding(self):
+        clock = Mock(side_effect=(7_000, 7_500, 8_500))
+        resolve, context = self.resolver(
+            (9_000, 2_250, 1_499), clock, granularity_ms=1_000,
+        )
+        self.assertEqual([resolve() for _ in range(3)], [2_000, 1_000, None])
+        self.assertEqual(clock.call_count, 3)
+        self.assertEqual(context.get_remaining_time_in_millis.call_count, 3)
+
+    def test_call_expiry_and_runtime_exhaustion_deny_first_attempt(self):
+        for runtime, now, expected in (
+            (30_000, 10_000, None), (0, 7_000, None),
+            (1_499, 7_000, None), (1_500, 7_000, 1_000),
+            (30_000, 8_500, 1_000), (30_000, 8_501, None),
+        ):
+            with self.subTest(runtime=runtime, now=now):
+                resolve, _ = self.resolver((runtime,), lambda: now)
+                self.assertEqual(resolve(), expected)
+
+    def test_independent_history_rejects_resets_hidden_by_other_clock(self):
+        for runtime, times, diagnostic in (
+            ((30_000, 29_000), (7_000, 6_999), "clock must not move backwards"),
+            ((2_000, 2_001), (7_000, 9_000), "invocation time must not increase"),
+        ):
+            with self.subTest(diagnostic=diagnostic):
+                resolve, _ = self.resolver(runtime, Mock(side_effect=times))
+                self.assertIsNotNone(resolve())
+                with self.assertRaisesRegex(ValueError, diagnostic):
+                    resolve()
+
+    def test_new_invocation_resets_history_but_not_persisted_call_deadline(self):
+        first, _ = self.resolver((2_000,), lambda: 7_000)
+        second, _ = self.resolver((30_000,), lambda: 10_000)
+        self.assertEqual(first(), 1_500)
+        self.assertIsNone(second())
+
+    def test_invalid_clock_or_runtime_reading_fails_closed(self):
+        for invalid in (None, True, False, -1, 1.5, "1000", [], {}):
+            for invalid_runtime in (True, False):
+                with self.subTest(value=invalid, runtime=invalid_runtime):
+                    runtime = (invalid,) if invalid_runtime else (30_000,)
+                    clock = (lambda: 7_000) if invalid_runtime else (lambda: invalid)
+                    resolve, _ = self.resolver(runtime, clock)
+                    with self.assertRaises(ValueError):
+                        resolve()
+
+    def test_runtime_and_clock_failures_have_private_safe_diagnostics(self):
+        for failing_runtime, diagnostic in (
+            (True, "Lambda invocation time is unavailable"),
+            (False, "call budget clock is unavailable"),
+        ):
+            with self.subTest(runtime=failing_runtime):
+                failure = RuntimeError("synthetic-private-clock")
+                runtime = (failure,) if failing_runtime else (30_000,)
+                clock = Mock(side_effect=(7_000,) if failing_runtime else (failure,))
+                resolve, _ = self.resolver(runtime, clock)
+                with self.assertRaisesRegex(ValueError, "^" + diagnostic + "$") as raised:
+                    resolve()
+                self.assertIsNone(raised.exception.__cause__)
+                self.assertTrue(raised.exception.__suppress_context__)
+                self.assertNotIn("synthetic-private-clock", str(raised.exception))
+
+    def test_repeated_equal_readings_are_allowed_without_refreshing_deadline(self):
+        resolve, _ = self.resolver((2_000, 2_000), lambda: 7_000)
+        self.assertEqual([resolve(), resolve()], [1_500, 1_500])
+
+    def test_bound_policy_matches_single_decision_helper(self):
+        for runtime, now, maximum, minimum, reserve, granularity in product(
+            (0, 1_500, 30_000), (0, 7_000, 10_000), (1_000, 5_000),
+            (1, 1_000), (0, 500), (1, 1_000),
+        ):
+            with self.subTest(
+                runtime=runtime, now=now, maximum=maximum, minimum=minimum,
+                reserve=reserve, granularity=granularity,
+            ):
+                policy = dict(
+                    maximum_ms=maximum, minimum_ms=minimum,
+                    reserve_ms=reserve, granularity_ms=granularity,
+                )
+                resolve, context = self.resolver((runtime, runtime), lambda: now, **policy)
+                self.assertEqual(resolve(), resolve_lambda_operation_timeout(
+                    context=context, deadline_ms=10_000, now_ms=now, **policy,
+                ))
 
 
 class LambdaStatusRetryTests(unittest.TestCase):
