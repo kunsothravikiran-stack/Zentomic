@@ -1634,8 +1634,48 @@ Each conflict samples before and after the injected wait. Exhaustion or invalid
 context readings prevent the next authentication/load/write attempt, and
 runtime exceptions are replaced with a stable diagnostic without context
 details. Supply a real bounded waiter in a production adapter. This hook does
-not limit the initial attempt, enforce dependency timeouts, or check the
-persisted call deadline; those remain separate admission requirements.
+not limit the initial attempt or enforce dependency timeouts; those remain
+separate admission requirements.
+
+To also bound backoff by a fixed persisted call deadline, supply both
+`deadline_ms` and a trusted `now_ms` callable in the same timestamp domain.
+Construction validates these inputs without sampling either clock. Every
+before/after-wait reading caps invocation time by remaining call time before
+reserving cleanup and the next attempt. Expiry prevents another authenticated
+storage attempt, even if the Lambda invocation has ample time left. Clock
+rollback and increasing runtime readings are rejected independently, so the
+tighter bound cannot hide a reset in the other clock. Omit both options for
+the original invocation-only behavior. Use trusted session state and a fresh
+clock, never callback fields or a deadline restarted on each retry.
+
+```python
+from zentomic.lambda_budget import make_lambda_status_conflict_retry_hook
+
+class SyntheticCallRetryContext:
+    remaining_ms = 30_000
+    current_ms = 9_399
+
+    def get_remaining_time_in_millis(self):
+        return self.remaining_ms
+
+context = SyntheticCallRetryContext()
+waits = []
+
+def synthetic_call_wait(delay_ms):
+    waits.append(delay_ms)
+    context.remaining_ms -= delay_ms
+    context.current_ms += delay_ms
+
+before_retry = make_lambda_status_conflict_retry_hook(
+    context=context, wait_ms=synthetic_call_wait,
+    randbelow=lambda upper: upper - 1,
+    reserve_ms=500, minimum_retry_attempt_ms=100,
+    deadline_ms=10_000, now_ms=lambda: context.current_ms,
+)
+before_retry(1)
+assert waits == [1]  # Only 601 ms remain in the call, despite 30 s of runtime.
+assert context.current_ms == 9_400
+```
 
 ### Offline webhook form decoding
 

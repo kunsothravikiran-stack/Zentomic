@@ -225,6 +225,132 @@ class LambdaStatusRetryTests(unittest.TestCase):
         self.assertEqual(context.get_remaining_time_in_millis.call_count, 2)
         waiter.assert_called_once_with(25)
 
+    def test_call_deadline_configuration_is_checked_without_reading_clocks(self):
+        context = self.context()
+        clock = Mock()
+        for overrides in (
+            {"deadline_ms": 1_000}, {"now_ms": clock},
+            {"deadline_ms": -1, "now_ms": clock},
+            {"deadline_ms": True, "now_ms": clock},
+            {"deadline_ms": 1_000, "now_ms": 100},
+        ):
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                self.hook(context, **overrides)
+        self.hook(context, deadline_ms=1_000, now_ms=clock)
+        context.get_remaining_time_in_millis.assert_not_called()
+        clock.assert_not_called()
+
+    def test_expired_call_prevents_wait_even_with_invocation_headroom(self):
+        for now in (9_401, 10_000, 10_001):
+            with self.subTest(now=now):
+                waiter, sampler = Mock(), Mock()
+                hook = self.hook(
+                    self.context(30_000), deadline_ms=10_000,
+                    now_ms=lambda: now, wait_ms=waiter, randbelow=sampler,
+                )
+                with self.assertRaises(StatusRetryBudgetExhaustedError):
+                    hook(1)
+                waiter.assert_not_called()
+                sampler.assert_not_called()
+
+    def test_call_time_caps_jitter_before_reserving_cleanup_and_next_attempt(self):
+        context = self.context(30_000, 29_999)
+        clock = Mock(side_effect=(9_399, 9_400))
+        waiter, sampler = Mock(), Mock(side_effect=lambda upper: upper - 1)
+        self.hook(
+            context, deadline_ms=10_000, now_ms=clock,
+            wait_ms=waiter, randbelow=sampler,
+        )(1)
+        sampler.assert_called_once_with(2)
+        waiter.assert_called_once_with(1)
+        self.assertEqual(clock.call_count, 2)
+
+    def test_optional_call_deadline_preserves_tighter_runtime_and_exact_boundary(self):
+        for runtime, now, expected_delay in ((601, 0, 1), (30_000, 9_400, 0)):
+            with self.subTest(runtime=runtime, now=now):
+                waiter = Mock()
+                self.hook(
+                    self.context(runtime, runtime - expected_delay),
+                    deadline_ms=10_000,
+                    now_ms=Mock(side_effect=(now, now + expected_delay)),
+                    wait_ms=waiter,
+                )(1)
+                waiter.assert_called_once_with(expected_delay)
+
+    def test_call_deadline_is_rechecked_after_wait_and_between_retries(self):
+        for readings, actions in (((9_375, 9_401), 1),
+                                  ((9_000, 9_025, 9_401), 2)):
+            with self.subTest(readings=readings):
+                waiter = Mock()
+                hook = self.hook(
+                    self.context(30_000, 29_975, 29_900),
+                    deadline_ms=10_000, now_ms=Mock(side_effect=readings),
+                    wait_ms=waiter,
+                )
+                with self.assertRaises(StatusRetryBudgetExhaustedError):
+                    for number in range(1, actions + 1):
+                        hook(number)
+                self.assertEqual(waiter.call_count, 1)
+
+    def test_call_clock_failures_and_invalid_readings_have_safe_diagnostics(self):
+        for value in (None, True, -1, 1.5, "1000",
+                      RuntimeError("synthetic-private-clock")):
+            with self.subTest(value=value):
+                hook = self.hook(
+                    self.context(30_000), deadline_ms=10_000,
+                    now_ms=Mock(side_effect=[value]),
+                )
+                with self.assertRaisesRegex(ValueError, "^call budget clock") as raised:
+                    hook(1)
+                self.assertIsNone(raised.exception.__cause__)
+                self.assertNotIn("synthetic-private-clock", str(raised.exception))
+                if isinstance(value, Exception):
+                    self.assertTrue(raised.exception.__suppress_context__)
+
+    def test_clock_rollback_and_runtime_reset_cannot_hide_behind_the_other_bound(self):
+        for runtime, clock, error in (
+            ((1_000, 975), (7_000, 6_999), "clock must not move backwards"),
+            ((30_000, 30_001), (9_000, 9_025), "invocation time must not increase"),
+            ((1_000, 975, 900), (7_000, 7_025, 7_024),
+             "clock must not move backwards"),
+            ((30_000, 29_975, 29_976), (9_000, 9_025, 9_050),
+             "invocation time must not increase"),
+        ):
+            with self.subTest(runtime=runtime):
+                hook = self.hook(
+                    self.context(*runtime), deadline_ms=10_000,
+                    now_ms=Mock(side_effect=clock),
+                )
+                with self.assertRaisesRegex(ValueError, error):
+                    hook(1)
+                    if len(runtime) == 3:
+                        hook(2)
+
+    def test_first_success_does_not_sample_optional_call_clock(self):
+        clock = Mock()
+        result = self.observe(
+            InMemoryCallStatusStore(), Mock(return_value=True),
+            self.hook(self.context(), deadline_ms=10_000, now_ms=clock),
+        )
+        self.assertEqual(result, CallStatusSnapshot("completed", 1))
+        clock.assert_not_called()
+
+    def test_call_expiry_after_wait_prevents_second_authenticated_write(self):
+        store = Mock(spec=["load", "observe"])
+        store.load.return_value = CallStatusSnapshot(None, 0)
+        store.observe.side_effect = StatusConflictError("synthetic conflict")
+        validator, waiter = Mock(return_value=True), Mock()
+        hook = self.hook(
+            self.context(30_000, 29_975), deadline_ms=10_000,
+            now_ms=Mock(side_effect=(9_375, 9_401)), wait_ms=waiter,
+        )
+        with self.assertRaises(StatusRetryBudgetExhaustedError):
+            self.observe(store, validator, hook)
+        waiter.assert_called_once_with(25)
+        self.assertEqual(validator.call_count, 1)
+        self.assertEqual(store.load.call_count, 1)
+        self.assertEqual(store.observe.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
