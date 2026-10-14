@@ -1594,6 +1594,49 @@ waiter failures also propagate and fail closed. The adapter remains responsible
 for supplying a real bounded wait primitive; the scaffold does not import a
 sleep function or read a Lambda context.
 
+For a trusted Lambda handler context, `make_lambda_status_conflict_retry_hook`
+binds the same backoff policy to `get_remaining_time_in_millis`, using the
+fail-closed context validation from timeout admission. This executable example
+uses a synthetic wait, so it neither sleeps nor contacts a service:
+
+```python
+from zentomic.lambda_budget import make_lambda_status_conflict_retry_hook
+
+class SyntheticRetryContext:
+    def __init__(self):
+        self.remaining_ms = 1_000
+
+    def get_remaining_time_in_millis(self):
+        return self.remaining_ms
+
+context = SyntheticRetryContext()
+waits = []
+
+def synthetic_wait(delay_ms):
+    waits.append(delay_ms)
+    context.remaining_ms -= delay_ms
+
+before_retry = make_lambda_status_conflict_retry_hook(
+    context=context, wait_ms=synthetic_wait,
+    randbelow=lambda upper: upper - 1,
+    reserve_ms=500, minimum_retry_attempt_ms=100,
+)
+before_retry(1)
+before_retry(2)
+assert waits == [25, 50]
+assert context.remaining_ms == 925
+```
+
+Pass this hook as `before_retry` to `retry_call_status_event` and create a new
+hook per invocation. Construction validates the method and fixed policy but
+does not sample runtime; successful first attempts need no backoff readings.
+Each conflict samples before and after the injected wait. Exhaustion or invalid
+context readings prevent the next authentication/load/write attempt, and
+runtime exceptions are replaced with a stable diagnostic without context
+details. Supply a real bounded waiter in a production adapter. This hook does
+not limit the initial attempt, enforce dependency timeouts, or check the
+persisted call deadline; those remain separate admission requirements.
+
 ### Offline webhook form decoding
 
 `parse_form_body` prepares form-encoded callback input for a future adapter:
@@ -1961,7 +2004,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
 - `zentomic/gather_event.py`: authenticated keypad decisions with optional replay claims.
 - `zentomic/budget.py`: individual and combined whole-call time/count admission and timeouts.
-- `zentomic/lambda_budget.py`: timeout admission from a fresh trusted Lambda context reading.
+- `zentomic/lambda_budget.py`: operation timeout and lifecycle retry budgets from trusted Lambda context readings.
 - `zentomic/speech.py`: bounded speech result admission before classification.
 - `zentomic/speech_event.py`: authenticated speech admission with optional replay claims.
 - `zentomic/classification.py`: strict JSON admission of allowlisted pending intents.
@@ -1987,7 +2030,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_routing.py`: menu validation, fallback, and side-effect tests.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_budget.py`: shared deadlines, exact boundaries, and offline validation.
-- `tests/test_lambda_budget.py`: synthetic runtime caps, fresh readings, and fail-closed context validation.
+- `tests/test_lambda_budget.py`: synthetic runtime caps, fail-closed context validation, and authenticated retry integration.
 - `tests/test_voice_step_budget.py`: combined time/count admission without spending denied steps.
 - `tests/test_voice_admission_flow.py`: authenticated multi-step redirect admission contracts.
 - `tests/test_budget_flow.py`: authenticated classifier timeout and late-result contracts.
