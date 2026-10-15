@@ -59,6 +59,24 @@ write responses fail closed, but a transport or response error does **not** prov
 that the write was rolled back. Reload and reconcile before retrying uncertain
 operations; never treat them as permission to repeat an external side effect.
 
+## Recovering an unacknowledged write
+
+A timeout or invalid update response can occur **after** DynamoDB saved the
+observation. `retry_call_status_event` does not classify either failure as a
+conditional conflict and does not invoke its conflict-backoff hook for them.
+Do not catch arbitrary storage errors and convert them to `StatusConflictError`.
+
+On a later delivery, authenticate and bind the callback again, reload the current
+snapshot, and recompute against that revision. Do not reuse the failed attempt's
+expected revision or infer absence from its exception. Reobserving an already
+saved status keeps its revision; an intervening terminal observation still wins
+over delayed active or different terminal statuses. No-op observations still
+need a conditional write and can themselves fail or conflict.
+
+This reconciles lifecycle state only. It is not exactly-once processing or a
+receipt for calls, messages, cleanup, or acknowledgments. Those effects still
+need their own durable idempotency protocol and adapter-specific error policy.
+
 ## Boundaries before any live use
 
 This adapter can issue service requests when given a real client. No real client
@@ -87,3 +105,10 @@ authenticated conflict retry. It is not a DynamoDB emulator or proof of service
 expression evaluation. No DynamoDB Local, AWS, boto3, real signature validator,
 credentials, table, or network integration was used. Validate those separately
 before connecting any production traffic.
+
+Run `python -m tests tests.test_dynamodb_status_recovery` for committed-but-
+unacknowledged write scenarios. Its synthetic client saves the row and then
+raises a timeout or returns a malformed response. The tests verify no automatic
+conflict retry, authenticated redelivery, stable revisions, intervening terminal
+state preservation, and no storage access after failed reauthentication. This
+models an uncertain response; it does not simulate SDK retries or service faults.
