@@ -38,6 +38,14 @@ Revisions must be positive integral numbers no larger than `10**38 - 1`; an
 advance at that limit fails rather than wrapping. Valid integral decimal or
 exponent representations are decoded without floating-point rounding.
 
+Conditional revision comparisons are numeric: a stored `{"N": "1.0"}` must
+match an expected `{"N": "1"}`. The synthetic client models this equivalence,
+including during no-op writes. Run
+`python -m tests tests.test_dynamodb_revision_numbers` for alternate encodings,
+exact adjacent 38-digit revisions under reduced Decimal precision, and concurrent
+status/revision changes that must still conflict. These are offline contract
+tests, not service-level validation of DynamoDB number parsing or expressions.
+
 `observe` validates inputs, reloads the snapshot, checks `expected_revision`, and
 applies the shared `advance_call_status` policy. It then sends an
 [UpdateItem](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_UpdateItem.html)

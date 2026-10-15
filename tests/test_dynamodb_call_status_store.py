@@ -2,6 +2,7 @@
 
 import unittest
 from copy import deepcopy
+from decimal import Decimal
 from itertools import product
 from unittest.mock import Mock
 
@@ -48,7 +49,10 @@ class SyntheticClient:
         values = request["ExpressionAttributeValues"]
         if ":expected_revision" in values:
             matches = (current is not None
-                       and current.get("status_revision") == values[":expected_revision"]
+                       # DynamoDB compares Number values numerically, not by
+                       # the spelling of their AttributeValue wire strings.
+                       and Decimal(current["status_revision"]["N"])
+                       == Decimal(values[":expected_revision"]["N"])
                        and current.get("call_status") == values[":expected_status"])
         else:
             matches = current is None
