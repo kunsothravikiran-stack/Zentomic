@@ -91,6 +91,37 @@ also loads the store first. Budget for **all** requests and retries; the adapter
 does not promise an operation timeout or a cost ceiling. Use a single-region
 writer; no cross-region/global-table concurrency guarantee is provided here.
 
+### Fresh admission before each request
+
+Optionally pass a trusted `before_request` callable. Construction validates but
+does not invoke it. Every `load` invokes it immediately before `get_item`; every
+`observe` invokes it before its reload and again before `update_item`, even for
+a no-op. The authenticated orchestration's initial load is gated too. This
+allows a request to be denied when an earlier read or conflict backoff consumed
+the remaining call or invocation budget.
+
+The hook must **raise** to deny work; its return value is ignored. For example,
+wrap a fresh per-invocation `make_lambda_operation_timeout_resolver` result:
+
+```python
+def before_request():
+    if resolve_timeout() is None:
+        raise TimeoutError("lifecycle request budget exhausted")
+```
+
+Here `resolve_timeout` is a trusted configured resolver, not callback input.
+Pass `before_request=before_request` when constructing the store. Hook exceptions
+propagate unchanged, outside the client's conditional-conflict translation.
+Omitting the hook preserves existing behavior. Authenticate before invoking the
+store and use a new resolver/store binding for each invocation.
+
+Admission is not timeout enforcement: the returned duration is not applied to
+the client, SDK-internal retries do not call the hook, and already-sent requests
+are not cancelled or rolled back. Configure bounded client timeouts and retries
+separately, allowing for all attempts and cleanup. No time is reserved durably.
+Run `python -m tests tests.test_dynamodb_request_admission` for synthetic coverage,
+including expiry between read/write and readmission after a conditional conflict.
+
 Do not delete or TTL-expire terminal rows while callbacks may replay: a missing
 row permits creation again. This adapter does not supply retention, durable
 callback claims, session deadlines, voice steps, account IDs, cleanup claims,

@@ -1,7 +1,7 @@
 """Injectable DynamoDB lifecycle storage; importing it creates no AWS client."""
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 
@@ -59,22 +59,36 @@ class DynamoDBCallStatusStore:
     retention or side effects. All writers must preserve this revision protocol.
     Use a single-region writer and retain terminal rows throughout callback replay.
     Configure the client's timeouts/retries outside this adapter.
+
+    Optional trusted before_request runs immediately before each get/update.
+    It must raise to deny work; its return value is ignored. Use a fresh hook
+    per invocation to recheck call/runtime budgets after reads and backoff.
+    Hook failures propagate unchanged. It does not bound SDK-internal retries,
+    configure timeouts, reserve time, or undo a request already sent.
     """
 
-    def __init__(self, *, client: DynamoDBStatusClient, table_name: str) -> None:
+    def __init__(
+        self, *, client: DynamoDBStatusClient, table_name: str,
+        before_request: Callable[[], None] | None = None,
+    ) -> None:
         if (not isinstance(table_name, str) or not 3 <= len(table_name) <= 255
                 or not re.fullmatch(r"[A-Za-z0-9_.-]+", table_name)):
             raise ValueError("table_name must be a DynamoDB table name, not an ARN")
         if not all(callable(getattr(client, method, None))
                    for method in ("get_item", "update_item")):
             raise ValueError("client must provide callable get_item and update_item")
+        if before_request is not None and not callable(before_request):
+            raise ValueError("before_request must be a trusted callable or None")
         self._client = client
         self._table_name = table_name
+        self._before_request = before_request
 
     def load(self, workspace_id: str, call_sid: str) -> CallStatusSnapshot:
         """Read current state consistently; only an absent Item means revision zero."""
         workspace_id, call_sid = _key(workspace_id, call_sid)
         key = {"workspace_id": {"S": workspace_id}, "call_sid": {"S": call_sid}}
+        if self._before_request is not None:
+            self._before_request()
         result = self._client.get_item(
             TableName=self._table_name, Key=key, ConsistentRead=True,
             ProjectionExpression="#workspace, #call, #status, #revision",
@@ -128,6 +142,10 @@ class DynamoDBCallStatusStore:
                 ":expected_revision": {"N": str(current.revision)},
                 ":expected_status": {"S": current.status},
             })
+        # Admission failures are not DynamoDB conditional-check failures. Keep
+        # the hook outside the client exception translation, including no-ops.
+        if self._before_request is not None:
+            self._before_request()
         try:
             result = self._client.update_item(
                 TableName=self._table_name,
