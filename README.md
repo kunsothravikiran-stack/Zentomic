@@ -1553,6 +1553,17 @@ results fail closed. The included in-memory store makes this flow testable
 offline; production still requires authorized durable conditional writes and
 idempotent side effects.
 
+`zentomic.dynamodb_call_status_store.DynamoDBCallStatusStore` now implements the
+same store boundary using an injected low-level DynamoDB client. Construction
+does no I/O and imports no AWS SDK. Its operations use consistent reads and
+conditional updates, including for duplicate/delayed observations, without
+replacing unrelated attributes. Only conditional-check write failures become
+`StatusConflictError`; malformed stored state is never treated as a missing call.
+The fixed dedicated-table schema, timeout/retry responsibilities, retention
+limitations, and synthetic-only validation are described in
+[DynamoDB lifecycle storage](docs/dynamodb-call-status.md). No table, client,
+credentials, production wiring or cloud integration tests are supplied.
+
 `retry_call_status_event(..., max_conflict_retries=2)` provides that complete
 retry loop for local adapter composition. It revalidates the signature and call
 binding, reloads the snapshot, and recomputes after each conflict. Only
@@ -2084,6 +2095,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `zentomic/dial_event.py`: authenticated child-leg outcomes with optional replay claims.
 - `zentomic/call_status.py`: strict terminal versus active call-leg classification.
 - `zentomic/call_status_event.py`: authenticated lifecycle proposals and conditional writes.
+- `zentomic/dynamodb_call_status_store.py`: injected low-level DynamoDB lifecycle reads and conditional writes, tested with synthetic clients only.
 - `zentomic/callback_claim_store.py`: bounded local replay claims for adapter tests.
 - `zentomic/intent.py`: allowlisted intent routing gated on caller confirmation.
 - `zentomic/confirmation_event.py`: authenticated intent confirmation with optional replay claims.
@@ -2103,6 +2115,7 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 - `tests/test_gather.py`: retry budgets, exhaustion, and input validation tests.
 - `tests/test_budget.py`: shared deadlines, exact boundaries, and offline validation.
 - `tests/test_lambda_budget.py`: synthetic runtime caps, fail-closed context validation, and authenticated retry integration.
+- `tests/test_dynamodb_call_status_store.py`: exact DynamoDB request contracts, malformed state, modeled write races and authenticated conflict retries.
 - `tests/test_voice_step_budget.py`: combined time/count admission without spending denied steps.
 - `tests/test_voice_admission_flow.py`: authenticated multi-step redirect admission contracts.
 - `tests/test_budget_flow.py`: authenticated classifier timeout and late-result contracts.
@@ -2246,7 +2259,9 @@ Local `.env` files are ignored and are not loaded by the scaffold.
 Future increments can add mocked service adapters, call-session state, and
 webhook validation. The signature gate has no configured production validator;
 end-to-end authentication, workspace isolation, cryptographic signature
-verification, durable callback claims/persistence, and deployment are not
-implemented. Do not connect this scaffold to real call traffic until those
+verification, durable callback claims/session coordination, and deployment are
+not implemented. The injected DynamoDB lifecycle adapter has only synthetic
+tests, not a configured or live-validated persistence integration.
+Do not connect this scaffold to real call traffic until those
 boundaries are designed and tested. Do not add automatic deployments or paid
 service calls as part of routine development.
