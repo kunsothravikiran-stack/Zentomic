@@ -2171,6 +2171,14 @@ an atomic durable claim keyed to the authorized current step; they must fail
 closed on storage errors and commit the claim together with relevant state when
 the workflow requires one transaction.
 
+An injectable `DynamoDBCallbackClaimStore` now supplies a conditional-put
+implementation of the same claim protocol. It requires a dedicated existing
+table and a trusted low-level client; construction performs no I/O. See
+[DynamoDB callback claims](docs/dynamodb-callback-claims.md) for its exact key
+schema, request admission hook, uncertain-write behavior and retention limits.
+It is not a transaction with session state or an exactly-once effect receipt.
+Local tests use fake clients only; no production integration is configured.
+
 `validate_and_claim_call_event` composes the existing form transport,
 injected signature gate, exact account/call binding, and an atomic claim. Its
 workspace, call and step key comes only from trusted arguments, never signed
@@ -2259,9 +2267,10 @@ Local `.env` files are ignored and are not loaded by the scaffold.
 Future increments can add mocked service adapters, call-session state, and
 webhook validation. The signature gate has no configured production validator;
 end-to-end authentication, workspace isolation, cryptographic signature
-verification, durable callback claims/session coordination, and deployment are
-not implemented. The injected DynamoDB lifecycle adapter has only synthetic
-tests, not a configured or live-validated persistence integration.
+verification, transactional claim/session coordination, and deployment are
+not implemented. The injected DynamoDB lifecycle and callback-claim adapters
+have only synthetic tests, not configured or live-validated persistence
+integrations.
 Do not connect this scaffold to real call traffic until those
 boundaries are designed and tested. Do not add automatic deployments or paid
 service calls as part of routine development.
