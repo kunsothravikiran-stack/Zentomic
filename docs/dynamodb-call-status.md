@@ -30,6 +30,14 @@ contract. They are not joined into a compound string or normalized. Authorizatio
 and account/call binding must happen before storage access. Do not use callback
 fields as trusted workspace IDs or expected revisions.
 
+Run `python -m tests tests.test_dynamodb_status_isolation` for synthetic key-
+isolation coverage: shared call IDs across workspaces, distinct call legs,
+delimiter collisions, whitespace, and canonically equivalent Unicode must not
+alias. Exact 256-byte UTF-8 key boundaries are preserved. Invalid keys fail
+before admission or client access; a read returning another workspace/call's
+row fails closed without writing. These tests exercise the adapter boundary,
+not IAM enforcement, workspace authorization, or a live DynamoDB service.
+
 `load` sends a [GetItem](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_GetItem.html)
 request with `ConsistentRead=True` and projects only these four attributes. Only
 an absent `Item` means `CallStatusSnapshot(None, 0)`. A present but incomplete,
