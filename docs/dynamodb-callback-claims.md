@@ -57,3 +57,15 @@ coverage of exact request shapes, key isolation, replay denial, input validation
 admission, uncertain write results, and authenticated REST v1/HTTP v2 composition
 with plain/base64 bodies. These are not SDK, service, IAM, Twilio cryptography,
 or live distributed-concurrency tests. No real client is invoked.
+
+Run `python -m tests tests.test_dynamodb_claimed_voice_flow` for composition
+regressions across the claimed keypad, speech, confirmation, and dial-result
+helpers. Each delivery constructs a fresh adapter over the same synthetic
+table. Changed authenticated input cannot reopen a claimed step; lost write
+acknowledgments and policy failures after claiming also leave it consumed.
+Neither an uncertain claim nor a replay reaches voice policy. Rejected
+signatures, wrong account/parent/child identities, and denied request admission
+leave the claim available. Coverage includes REST v1/HTTP v2 and plain/base64
+bodies. These sequential fake-client checks demonstrate the composition's
+failure boundaries, not real provider cryptography, distributed atomicity,
+session transactions, or permission to execute a proposed effect.
