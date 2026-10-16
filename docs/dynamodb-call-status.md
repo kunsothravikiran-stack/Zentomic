@@ -38,6 +38,15 @@ before admission or client access; a read returning another workspace/call's
 row fails closed without writing. These tests exercise the adapter boundary,
 not IAM enforcement, workspace authorization, or a live DynamoDB service.
 
+Run `python -m tests tests.test_dynamodb_callback_authentication` to exercise
+authentication through this adapter with synthetic REST v1/HTTP v2 callbacks,
+both plain and base64 encoded. Rejected signatures, wrong account/call bindings,
+and invalid lifecycle fields must fail before request admission or storage,
+including when a terminal row already exists and after a conditional conflict.
+Signed extra fields cannot replace trusted workspace keys or revisions, and an
+injected validator cannot mutate the fields later persisted. The validator is a
+test double: this does not verify Twilio cryptography or authorize workspaces.
+
 `load` sends a [GetItem](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_GetItem.html)
 request with `ConsistentRead=True` and projects only these four attributes. Only
 an absent `Item` means `CallStatusSnapshot(None, 0)`. A present but incomplete,
