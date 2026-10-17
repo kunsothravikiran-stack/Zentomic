@@ -84,6 +84,18 @@ write responses fail closed, but a transport or response error does **not** prov
 that the write was rolled back. Reload and reconcile before retrying uncertain
 operations; never treat them as permission to repeat an external side effect.
 
+Run `python -m tests tests.test_dynamodb_status_concurrency` for overlapping
+deliveries through distinct adapters sharing one synthetic table. Bounded
+barriers force two writers to load the same starting state before either
+conditional update. Coverage includes single-winner creation, authenticated
+conflict retry with a fresh signature check and snapshot, active/terminal and
+competing terminal observations, concurrent terminal no-ops, unrelated-field
+preservation, and independent workspace/call keys. Assertions allow either
+writer to win while requiring the first saved terminal outcome to remain final.
+The test client's lock models conditional-write atomicity; it does not validate
+DynamoDB service concurrency, SDK thread safety, cryptography, or real Lambda
+deliveries. No-op successes still do not authorize repeated side effects.
+
 ## Recovering an unacknowledged write
 
 A timeout or invalid update response can occur **after** DynamoDB saved the
