@@ -617,8 +617,51 @@ attempts as well as retries but does not wait, check terminal status, or enforce
 dependency timeouts. `None` means skip work; clock failures raise safe
 `ValueError` diagnostics. The single-decision helper remains unchanged.
 
-The adapter must actually apply the returned timeout, recheck on retries, and
-include any delay before execution in its margin. This pure helper neither
+For the DynamoDB stores' `before_request` boundary, use
+`make_lambda_request_admission_hook` when the client has a separately enforced,
+fixed request-time envelope. Its `required_request_ms` must cover that complete
+envelope, including SDK retries. It requires that duration **plus** the cleanup
+reserve to fit both budgets; it never admits a shorter partial request:
+
+```python
+from zentomic.lambda_budget import (
+    RequestBudgetExhaustedError, make_lambda_request_admission_hook,
+)
+
+class SyntheticContext:
+    remaining_ms = 1_500
+
+    def get_remaining_time_in_millis(self):
+        return self.remaining_ms
+
+context = SyntheticContext()
+before_request = make_lambda_request_admission_hook(
+    context=context, deadline_ms=10_000, now_ms=lambda: 7_000,
+    required_request_ms=1_000, reserve_ms=500,
+)
+assert before_request() is None  # Exact request-plus-reserve boundary fits.
+context.remaining_ms = 1_499
+try:
+    before_request()
+except RequestBudgetExhaustedError:
+    pass  # Do not issue the request.
+else:
+    raise AssertionError("exhausted request budget must deny admission")
+```
+
+Pass this hook as `before_request` to either `DynamoDBCallStatusStore` or
+`DynamoDBCallbackClaimStore`. Those stores ignore hook return values, so passing
+a timeout resolver directly would **not** deny work when it returns `None`.
+This hook raises `RequestBudgetExhaustedError` (a `TimeoutError`) for insufficient
+time; malformed/unavailable clocks still raise safe `ValueError` diagnostics.
+It shares the resolver's fresh-clock and reset checks. Construct a new hook per
+invocation, retaining the persisted call deadline. No client timeout or retry
+settings are changed, no request is cancelled, and no time is durably reserved.
+Run `python -m tests tests.test_lambda_request_admission` for synthetic hook and
+store-composition coverage, not live Lambda/SDK integration validation.
+
+When using a timeout resolver, the adapter must apply its result, recheck on
+retries, and include any delay before execution in its margin. This pure helper neither
 cancels work nor guarantees cleanup fits in the reserve. Convert units without
 rounding up; if a provider's minimum or granularity cannot fit, skip the work.
 It is not a direct Gather/Dial wall-clock guarantee: those verbs have separate

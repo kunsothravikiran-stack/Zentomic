@@ -14,6 +14,10 @@ class LambdaTimeContext(Protocol):
         """Return fresh invocation time remaining in integer milliseconds."""
 
 
+class RequestBudgetExhaustedError(TimeoutError):
+    """A request cannot fit within the call/invocation budget and reserve."""
+
+
 def _lambda_time_reader(context: LambdaTimeContext) -> Callable[[], int]:
     """Bind the trusted runtime method without sampling its remaining time."""
     try:
@@ -107,6 +111,38 @@ def make_lambda_operation_timeout_resolver(
         )
 
     return resolve
+
+
+def make_lambda_request_admission_hook(
+    *, context: LambdaTimeContext, deadline_ms: int,
+    now_ms: Callable[[], int], required_request_ms: int, reserve_ms: int = 0,
+) -> Callable[[], None]:
+    """Raise when a complete configured request no longer fits either budget.
+
+    Pass this hook to a store's before_request, whose return value is ignored.
+    Unlike a variable timeout resolver, admission requires the entire trusted
+    required_request_ms plus cleanup reserve. Set that duration to cover the
+    separately enforced client request envelope, including SDK retries.
+
+    Construction validates without reading either clock. Every request samples
+    fresh time and rejects call-clock rollback or increasing invocation time.
+    Bind a new hook per invocation to the fixed persisted call deadline. This
+    does not configure SDK timeouts, reserve time, wait, cancel work, authorize
+    calls, or check terminal status. It performs no network or storage I/O.
+    """
+    if type(required_request_ms) is not int or required_request_ms < 1:
+        raise ValueError("required_request_ms must be a positive integer")
+    resolve = make_lambda_operation_timeout_resolver(
+        context=context, deadline_ms=deadline_ms, now_ms=now_ms,
+        maximum_ms=required_request_ms, minimum_ms=required_request_ms,
+        reserve_ms=reserve_ms,
+    )
+
+    def admit() -> None:
+        if resolve() is None:
+            raise RequestBudgetExhaustedError("request admission budget exhausted")
+
+    return admit
 
 
 def resolve_lambda_operation_timeout(

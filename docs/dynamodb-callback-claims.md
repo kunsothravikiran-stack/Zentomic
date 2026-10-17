@@ -32,6 +32,19 @@ value is ignored. Hook failures propagate outside conditional-error translation.
 It does not configure SDK timeouts, constrain SDK-internal retries, cancel a
 request, or reserve time. Configure bounded SDK retries/timeouts separately.
 
+For a fixed, separately enforced client request-time envelope, use
+`zentomic.lambda_budget.make_lambda_request_admission_hook` as `before_request`.
+Set `required_request_ms` to cover the complete envelope, including SDK retries,
+and supply a cleanup `reserve_ms`. Each put requires both durations to fit the
+remaining call and invocation budgets; otherwise `RequestBudgetExhaustedError`
+(a `TimeoutError`) is raised before client access, leaving the step unclaimed.
+Clock failures raise safe `ValueError` diagnostics. Construct a fresh hook per
+invocation with the same persisted call deadline. Do not pass a timeout resolver
+directly: a returned `None` cannot deny work at this exception-based boundary.
+See the [lifecycle integration sketch](dynamodb-call-status.md#fresh-admission-before-each-request)
+and run `python -m tests tests.test_lambda_request_admission` for synthetic
+coverage. This does not configure or enforce client timeouts or SDK retries.
+
 Use the existing `validate_and_claim_call_event` or claimed voice helpers to
 authenticate and bind the account/call before accessing the store. Authorize
 the workspace and select the current step from trusted persisted state, never

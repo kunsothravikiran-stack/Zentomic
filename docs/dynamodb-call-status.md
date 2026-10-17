@@ -125,23 +125,34 @@ a no-op. The authenticated orchestration's initial load is gated too. This
 allows a request to be denied when an earlier read or conflict backoff consumed
 the remaining call or invocation budget.
 
-The hook must **raise** to deny work; its return value is ignored. For example,
-wrap a fresh per-invocation `make_lambda_operation_timeout_resolver` result:
+The hook must **raise** to deny work; its return value is ignored. For a client
+with a separately enforced request-time envelope, bind the fixed-duration hook:
 
 ```python
-def before_request():
-    if resolve_timeout() is None:
-        raise TimeoutError("lifecycle request budget exhausted")
+from zentomic.lambda_budget import make_lambda_request_admission_hook
+
+# Integration sketch: all three inputs come from the trusted invocation/session.
+before_request = make_lambda_request_admission_hook(
+    context=context, deadline_ms=stored_deadline_ms, now_ms=trusted_now_ms,
+    required_request_ms=1_000, reserve_ms=500,
+)
 ```
 
-Here `resolve_timeout` is a trusted configured resolver, not callback input.
+The example's 1,000 ms is synthetic, not a recommended SDK configuration. Set
+`required_request_ms` to cover the **complete enforced request envelope**,
+including SDK retries. Admission requires that whole duration plus reserve to
+fit both budgets. Insufficient time raises `RequestBudgetExhaustedError`, a
+`TimeoutError`; clock failures raise safe `ValueError` diagnostics. Do not pass
+`make_lambda_operation_timeout_resolver` directly: its `None` result is ignored.
 Pass `before_request=before_request` when constructing the store. Hook exceptions
 propagate unchanged, outside the client's conditional-conflict translation.
 Omitting the hook preserves existing behavior. Authenticate before invoking the
-store and use a new resolver/store binding for each invocation.
+store and use a new hook/store binding for each invocation, retaining the fixed
+persisted call deadline. Run `python -m tests tests.test_lambda_request_admission`
+for synthetic fixed-envelope boundaries and composition with both stores.
 
-Admission is not timeout enforcement: the returned duration is not applied to
-the client, SDK-internal retries do not call the hook, and already-sent requests
+Admission is not timeout enforcement: no duration is applied to the client,
+SDK-internal retries do not call the hook, and already-sent requests
 are not cancelled or rolled back. Configure bounded client timeouts and retries
 separately, allowing for all attempts and cleanup. No time is reserved durably.
 Run `python -m tests tests.test_dynamodb_request_admission` for synthetic coverage,
