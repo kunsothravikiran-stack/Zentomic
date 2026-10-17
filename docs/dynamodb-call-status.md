@@ -151,6 +151,17 @@ store and use a new hook/store binding for each invocation, retaining the fixed
 persisted call deadline. Run `python -m tests tests.test_lambda_request_admission`
 for synthetic fixed-envelope boundaries and composition with both stores.
 
+Run `python -m tests tests.test_lambda_storage_flow` for the full fixed-envelope
+hook composed with authenticated conflict retries and Lambda-aware backoff.
+Passing the backoff check does not pre-admit the next request: authentication
+can consume more time before the next storage gate. The tests cover denial on
+either clock, an exact-boundary terminal no-op retry, and failed reauthentication
+before readmission. A hook shared by stores within one invocation retains its
+clock history across them, but a successful read does not reserve time for a
+later claim. The sequential synthetic clients do not validate SDK timeout
+enforcement, real signature cryptography, DynamoDB atomicity, or transactions
+between lifecycle state and claims.
+
 Admission is not timeout enforcement: no duration is applied to the client,
 SDK-internal retries do not call the hook, and already-sent requests
 are not cancelled or rolled back. Configure bounded client timeouts and retries
