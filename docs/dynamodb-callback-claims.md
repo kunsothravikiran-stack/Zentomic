@@ -82,3 +82,13 @@ leave the claim available. Coverage includes REST v1/HTTP v2 and plain/base64
 bodies. These sequential fake-client checks demonstrate the composition's
 failure boundaries, not real provider cryptography, distributed atomicity,
 session transactions, or permission to execute a proposed effect.
+
+Run `python -m tests tests.test_dynamodb_claim_concurrency` for overlapping
+delivery regressions across all four claimed voice helpers. A bounded barrier
+forces authenticated deliveries from fresh adapters to reach storage together;
+a locked synthetic conditional put permits only one policy entry per exact
+key. A lost winner acknowledgment admits neither delivery, and a winner's
+policy failure does not release the claim to its concurrent loser. Distinct
+workspace/step keys remain independent. Signature validation is synthetic and
+the lock models the storage contract: these checks do not establish DynamoDB
+service atomicity, cross-process behavior, or exactly-once effects.
