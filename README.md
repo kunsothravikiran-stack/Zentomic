@@ -477,6 +477,29 @@ check terminal state and call budgets, and authorize the selected target
 before acting. This policy does not persist, render TwiML, start a service,
 or connect to telephony. Its tests use synthetic schedules only.
 
+`resolve_claimed_business_hours_event` in `zentomic.business_hours_event`
+composes the datetime policy with the existing authenticated atomic-claim
+boundary. It validates the complete schedule, date overrides, timezone and
+targets before invoking dependencies. It then authenticates the callback,
+binds its account/call, and claims the trusted workspace/call/step key before
+returning the precomputed target. Callback fields cannot choose the clock,
+zone, schedule, target or claim key. Validator/claimer mutations cannot rewrite
+that policy snapshot. Invalid configuration or authentication does not consume
+the step; replay, storage failure or a nonboolean claim result returns no target.
+
+This is an **as-of-time decision**, not a fresh-clock or current-step check.
+The caller supplies an authorized configuration/session snapshot and a fresh
+aware `instant`; authentication or storage latency can cross a schedule
+boundary. Enforce clock freshness, terminal state, budgets and current-step
+authorization externally, and authorize the selected destination before acting.
+Related session updates still need transactional persistence. A consumed claim
+does not prove downstream delivery, so failures after claiming require explicit
+recovery rather than executing the same effect again. The helper constructs no
+storage, signature validator or SDK and only invokes injected dependencies.
+Its offline tests use fake signature validation and process-local claims across
+REST v1/HTTP v2 plain/base64 callbacks; they do not verify real Twilio signatures,
+distributed persistence, clock freshness, deployment or telephony delivery.
+
 ### Bounded input retries
 
 `resolve_gather` wraps the single-digit resolver with a finite collection
