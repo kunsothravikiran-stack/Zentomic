@@ -416,7 +416,7 @@ The helper does not read a clock or timezone database. An adapter must derive
 fresh coordinates from a trusted clock converted to the configured workspace
 timezone, never callback fields or the server's default timezone. Both copies
 of a repeated local minute during a DST fallback follow the same schedule;
-holidays and date-specific exceptions are not implemented. Precision is one
+date-specific exceptions require the datetime adapter below. Precision is one
 minute, so 9:00:59 is inside a window starting at 9:00.
 
 `resolve_business_hours_target_at` supplies that conversion for an explicit
@@ -425,7 +425,8 @@ It never samples a clock, trusts callback time fields, or infers the host timezo
 The caller must obtain a fresh trusted instant, preferably UTC. Conversion goes
 through UTC even for same-zone inputs, so absolute instants determine DST folds
 and gaps. Both occurrences of a repeated minute have the same weekly policy;
-skipped minutes never match. Holidays remain outside this helper.
+skipped minutes never match. Optional `date_overrides` supply exact workspace-local
+dates for holiday closures or special opening hours; no holiday calendar is fetched.
 
 ```python
 from datetime import datetime, timezone
@@ -437,6 +438,27 @@ assert resolve_business_hours_target_at(
     timezone_name="America/New_York",
     open_target="demo-team", closed_target="demo-voicemail",
 ) == "demo-team"  # Monday 9 AM Eastern, not 2 PM local server time.
+```
+
+An override replaces the whole local day's weekly schedule, rather than adding
+to it. Use an empty list to close a date, or up to 24 minute windows for special
+hours. Missing dates use the weekly schedule. Keys must be exact `date` objects
+(not strings or `datetime` objects); dates do not repeat annually. At most 366
+dates are accepted. Every override and the entire weekly policy are validated,
+including inactive entries, before any result is returned. Split overnight
+exceptions across both dates. UTC dates are not used to select the exception.
+
+```python
+from datetime import date, datetime, timezone
+from zentomic.business_hours import resolve_business_hours_target_at
+
+assert resolve_business_hours_target_at(
+    {day: [(0, 1440)] for day in range(5)},  # Synthetic all-day weekday hours.
+    instant=datetime(2026, 1, 1, 1, tzinfo=timezone.utc),
+    timezone_name="America/New_York",
+    date_overrides={date(2025, 12, 31): []},
+    open_target="demo-team", closed_target="demo-voicemail",
+) == "demo-voicemail"  # Still December 31 in the workspace.
 ```
 
 The standard-library `zoneinfo` module reads the runtime's local timezone

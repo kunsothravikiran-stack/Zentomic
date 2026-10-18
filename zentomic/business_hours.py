@@ -1,7 +1,7 @@
 """Bounded, offline business-hours routing from trusted workspace-local time."""
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from itertools import islice
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -9,12 +9,14 @@ from zentomic.routing import _valid_target
 
 
 MAX_DAILY_WINDOWS = 24
+MAX_DATE_OVERRIDES = 366
 MINUTES_PER_DAY = 1440
 
 
 def resolve_business_hours_target_at(
     hours: Mapping[int, Sequence[tuple[int, int]]], *,
     instant: datetime, timezone_name: str, open_target: str, closed_target: str,
+    date_overrides: Mapping[date, Sequence[tuple[int, int]]] | None = None,
 ) -> str:
     """Resolve weekly hours at an explicit trusted, timezone-aware instant.
 
@@ -24,7 +26,10 @@ def resolve_business_hours_target_at(
     invalid/missing zones and unrepresentable conversions fail closed.
     UTC round-tripping ensures repeated/skipped local times are resolved from
     the absolute instant, even when its tzinfo is already the workspace zone.
-    Holidays, clock freshness, call authorization and budgets remain external.
+    Optional exact local-date overrides replace (not extend) weekly hours for
+    that date. An empty list means closed. At most 366 dates are accepted, all
+    validated even when inactive. No holiday calendar is inferred or fetched.
+    Clock freshness, call authorization and budgets remain external.
     """
     if not isinstance(instant, datetime):
         raise ValueError("instant must be a timezone-aware datetime")
@@ -44,10 +49,30 @@ def resolve_business_hours_target_at(
         local = utc.astimezone(zone)
     except (ValueError, OverflowError):
         raise ValueError("instant cannot be represented in the workspace timezone") from None
-    return resolve_business_hours_target(
-        hours, weekday=local.weekday(), minute_of_day=local.hour * 60 + local.minute,
+    weekday = local.weekday()
+    minute = local.hour * 60 + local.minute
+    target = resolve_business_hours_target(
+        hours, weekday=weekday, minute_of_day=minute,
         open_target=open_target, closed_target=closed_target,
     )
+    if date_overrides is None:
+        return target
+    if not isinstance(date_overrides, Mapping):
+        raise ValueError("date_overrides must be a local-date mapping")
+    dates = tuple(islice(date_overrides, MAX_DATE_OVERRIDES + 1))
+    if len(dates) > MAX_DATE_OVERRIDES:
+        raise ValueError("date_overrides must contain at most 366 dates")
+    for day in dates:
+        # Reject datetime (a date subclass) and ambiguous string/annual keys.
+        if type(day) is not date:
+            raise ValueError("date_overrides keys must be exact date objects")
+        override_target = resolve_business_hours_target(
+            {weekday: date_overrides[day]}, weekday=weekday, minute_of_day=minute,
+            open_target=open_target, closed_target=closed_target,
+        )
+        if day == local.date():
+            target = override_target
+    return target
 
 
 def resolve_business_hours_target(
