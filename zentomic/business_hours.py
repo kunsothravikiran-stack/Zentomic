@@ -1,13 +1,53 @@
 """Bounded, offline business-hours routing from trusted workspace-local time."""
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from itertools import islice
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from zentomic.routing import _valid_target
 
 
 MAX_DAILY_WINDOWS = 24
 MINUTES_PER_DAY = 1440
+
+
+def resolve_business_hours_target_at(
+    hours: Mapping[int, Sequence[tuple[int, int]]], *,
+    instant: datetime, timezone_name: str, open_target: str, closed_target: str,
+) -> str:
+    """Resolve weekly hours at an explicit trusted, timezone-aware instant.
+
+    The caller supplies a fresh clock sample and an authorized IANA workspace
+    timezone. No clock is read and no system default timezone is inferred.
+    System zoneinfo data (or separately installed tzdata) must be available;
+    invalid/missing zones and unrepresentable conversions fail closed.
+    UTC round-tripping ensures repeated/skipped local times are resolved from
+    the absolute instant, even when its tzinfo is already the workspace zone.
+    Holidays, clock freshness, call authorization and budgets remain external.
+    """
+    if not isinstance(instant, datetime):
+        raise ValueError("instant must be a timezone-aware datetime")
+    if not _valid_target(timezone_name):
+        raise ValueError("timezone_name must identify an available IANA timezone")
+    try:
+        if instant.tzinfo is None or instant.utcoffset() is None:
+            raise ValueError
+        utc = instant.astimezone(timezone.utc)
+    except (ValueError, OverflowError, TypeError):
+        raise ValueError("instant must be a representable timezone-aware datetime") from None
+    try:
+        zone = ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError, UnicodeError):
+        raise ValueError("timezone_name must identify an available IANA timezone") from None
+    try:
+        local = utc.astimezone(zone)
+    except (ValueError, OverflowError):
+        raise ValueError("instant cannot be represented in the workspace timezone") from None
+    return resolve_business_hours_target(
+        hours, weekday=local.weekday(), minute_of_day=local.hour * 60 + local.minute,
+        open_target=open_target, closed_target=closed_target,
+    )
 
 
 def resolve_business_hours_target(

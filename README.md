@@ -419,6 +419,36 @@ of a repeated local minute during a DST fallback follow the same schedule;
 holidays and date-specific exceptions are not implemented. Precision is one
 minute, so 9:00:59 is inside a window starting at 9:00.
 
+`resolve_business_hours_target_at` supplies that conversion for an explicit
+timezone-aware `datetime` and an authorized IANA workspace timezone name.
+It never samples a clock, trusts callback time fields, or infers the host timezone.
+The caller must obtain a fresh trusted instant, preferably UTC. Conversion goes
+through UTC even for same-zone inputs, so absolute instants determine DST folds
+and gaps. Both occurrences of a repeated minute have the same weekly policy;
+skipped minutes never match. Holidays remain outside this helper.
+
+```python
+from datetime import datetime, timezone
+from zentomic.business_hours import resolve_business_hours_target_at
+
+assert resolve_business_hours_target_at(
+    {0: [(540, 1020)]},
+    instant=datetime(2026, 1, 5, 14, tzinfo=timezone.utc),
+    timezone_name="America/New_York",
+    open_target="demo-team", closed_target="demo-voicemail",
+) == "demo-team"  # Monday 9 AM Eastern, not 2 PM local server time.
+```
+
+The standard-library `zoneinfo` module reads the runtime's local timezone
+database, or separately installed `tzdata` if present. This package does not
+bundle or download timezone data. Ensure the configured zones are available
+in the eventual runtime and keep that data current. Missing/invalid zones,
+naive datetimes, and overflowing conversions raise `ValueError` without a
+silent UTC fallback. Configuration errors must not be treated as permission
+to route to an open target. Offline tests exercise installed timezone data,
+seasonal offsets, DST transitions, and day/week/year rollover; they do not
+validate a deployed Lambda's timezone database or clock freshness.
+
 Targets remain unchanged workspace-local identifiers, not phone numbers or
 authorization to dial. Authenticate and bind the call, deduplicate the step,
 check terminal state and call budgets, and authorize the selected target
