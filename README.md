@@ -6,7 +6,7 @@ API Gateway, DynamoDB, Twilio, and OpenAI.
 ## Navigation
 
 - [Local development](#local-development): run the offline tests and health smoke check.
-- [Routing and voice helpers](#routing-and-voice-helpers): collection, budgets, TwiML, and intent policies.
+- [Routing and voice helpers](#routing-and-voice-helpers): business hours, collection, budgets, TwiML, and intent policies.
 - [Webhook decoding](#offline-webhook-form-decoding) and [authentication](#injected-webhook-signature-gate).
 - [Packaging and integration tests](#packaging-and-integration-tests).
 - [Repository layout](#layout) and [development boundaries](#development-boundaries).
@@ -371,7 +371,7 @@ network. Identifiers are returned unchanged. A future integration must load an
 authorized workspace's menu and resolve its targets within that same workspace;
 this helper does not perform authentication or workspace authorization.
 
-Target validation is shared by keypad, confirmed-intent, and dial-result
+Target validation is shared by keypad, business-hours, confirmed-intent, and dial-result
 policies, including their collection and speech helpers. Surrogate code points
 and values over 256 UTF-8 bytes are rejected before a decision, even in an
 unused route or a fallback that would not be selected. Oversized values are
@@ -380,6 +380,50 @@ unbounded or unusable identifier into future session persistence. Valid Unicode
 identifiers within the byte limit, including their whitespace and normalization
 form, are preserved exactly. This is an application-level bound, not database
 key validation, persistence, or workspace authorization.
+
+### Business-hours routing
+
+`resolve_business_hours_target` chooses an opaque team or after-hours target
+from trusted workspace-local weekday/minute coordinates. Monday is 0, Sunday
+is 6; each day contains up to 24 `(start, end)` minute windows. Starts are
+inclusive, ends exclusive, and 1440 represents the end of a day. Missing days
+and empty daily lists mean closed. Unordered and overlapping windows form a union.
+The complete schedule and both targets are validated even when the active day
+already matches. Input collections are snapshotted with bounded iteration.
+
+```python
+from zentomic.business_hours import resolve_business_hours_target
+
+# Synthetic workspace hours: Monday split shift, Tuesday through Friday 9-5.
+hours = {0: [(540, 720), (780, 1020)]}
+hours.update({day: [(540, 1020)] for day in range(1, 5)})
+config = dict(open_target="demo-team", closed_target="demo-voicemail")
+assert resolve_business_hours_target(
+    hours, weekday=0, minute_of_day=600, **config,
+) == "demo-team"
+assert resolve_business_hours_target(
+    hours, weekday=0, minute_of_day=720, **config,
+) == "demo-voicemail"
+assert resolve_business_hours_target(
+    hours, weekday=6, minute_of_day=600, **config,
+) == "demo-voicemail"
+```
+
+Split overnight windows across days, including Sunday/Monday: for example
+`{6: [(1320, 1440)], 0: [(0, 120)]}` means Sunday 10 PM to Monday 2 AM.
+Equal/reversed endpoints are configuration errors, not overnight shorthand.
+The helper does not read a clock or timezone database. An adapter must derive
+fresh coordinates from a trusted clock converted to the configured workspace
+timezone, never callback fields or the server's default timezone. Both copies
+of a repeated local minute during a DST fallback follow the same schedule;
+holidays and date-specific exceptions are not implemented. Precision is one
+minute, so 9:00:59 is inside a window starting at 9:00.
+
+Targets remain unchanged workspace-local identifiers, not phone numbers or
+authorization to dial. Authenticate and bind the call, deduplicate the step,
+check terminal state and call budgets, and authorize the selected target
+before acting. This policy does not persist, render TwiML, start a service,
+or connect to telephony. Its tests use synthetic schedules only.
 
 ### Bounded input retries
 
