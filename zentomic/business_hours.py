@@ -3,6 +3,7 @@
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timezone
 from itertools import islice
+from struct import error as StructError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from zentomic.routing import _valid_target
@@ -43,9 +44,10 @@ def resolve_business_hours_target_at(
         raise ValueError("instant must be a representable timezone-aware datetime") from None
     try:
         zone = ZoneInfo(timezone_name)
-    except (ZoneInfoNotFoundError, ValueError, UnicodeError, OSError):
+    except (ZoneInfoNotFoundError, ValueError, UnicodeError, OSError, StructError):
         # Local zone data can be unreadable, or an otherwise bounded name can
-        # exceed a filesystem component limit. Do not leak paths or OS errors.
+        # exceed a filesystem component limit. A truncated TZif header can
+        # also raise struct.error. Keep all such runtime-data failures private.
         raise ValueError("timezone_name must identify an available IANA timezone") from None
     try:
         local = utc.astimezone(zone)

@@ -1,6 +1,7 @@
 """Synthetic claimed hours decisions; no real signatures, clocks or services."""
 
 import copy
+import io
 from datetime import date, datetime, timezone
 import unittest
 from unittest.mock import Mock, patch
@@ -105,6 +106,23 @@ class ClaimedBusinessHoursEventTests(unittest.TestCase):
                 self.resolve(event, store, validator=validator)
         validator.assert_not_called()
         # The same callback can succeed once local zone data is available.
+        self.assertEqual(self.resolve(event, store, validator=validator), "demo-team")
+        validator.assert_called_once()
+        with self.assertRaises(CallbackReplayError):
+            self.resolve(event, store)
+
+    def test_truncated_zone_data_preserves_claim_for_repaired_retry(self):
+        event = callback({}, "2.0", False)
+        store = InMemoryCallbackClaimStore()
+        validator = Mock(return_value=True)
+        with patch("zoneinfo._common.load_tzdata",
+                   return_value=io.BytesIO(b"TZif2" + bytes(15))):
+            with self.assertRaisesRegex(
+                ValueError, "^timezone_name must identify an available IANA timezone$",
+            ):
+                self.resolve(event, store, validator=validator,
+                             timezone_name="ZentomicFixture/Truncated")
+        validator.assert_not_called()
         self.assertEqual(self.resolve(event, store, validator=validator), "demo-team")
         validator.assert_called_once()
         with self.assertRaises(CallbackReplayError):

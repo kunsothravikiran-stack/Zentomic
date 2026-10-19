@@ -1,6 +1,7 @@
 """Explicit clock samples and local zoneinfo data only; no network or clock reads."""
 
 from datetime import datetime, timedelta, timezone, tzinfo
+import io
 import unittest
 from unittest.mock import patch
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -110,6 +111,23 @@ class BusinessHoursTimeTests(unittest.TestCase):
                                "Asia/Kolkata")):
             with self.subTest(zone=zone), self.assertRaises(ValueError):
                 self.resolve(instant, timezone_name=zone)
+
+    def test_truncated_tzif_data_uses_sanitized_timezone_error(self):
+        instant = datetime(2026, 1, 5, 14, tzinfo=timezone.utc)
+        # Use the actual ZoneInfo parser, not an injected exception. No files
+        # are changed: the absent synthetic zone reads only this byte fixture.
+        for data in (b"TZif2" + bytes(15), b"TZif\0" + bytes(38)):
+            with self.subTest(size=len(data)), patch(
+                "zoneinfo._common.load_tzdata", return_value=io.BytesIO(data),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "^timezone_name must identify an available IANA timezone$",
+                ) as caught:
+                    self.resolve(instant, timezone_name="ZentomicFixture/Truncated")
+            self.assertIsNone(caught.exception.__cause__)
+            self.assertTrue(caught.exception.__suppress_context__)
+            self.assertNotIn("buffer", str(caught.exception))
 
     def test_complete_policy_validation_and_exact_targets_are_preserved(self):
         instant = datetime(2026, 1, 5, 14, tzinfo=timezone.utc)

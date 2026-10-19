@@ -6,6 +6,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from tests.__main__ import offline_guard
 from zentomic.demo import main, simulate_business_hours
@@ -79,6 +80,19 @@ class BusinessHoursDemoTests(unittest.TestCase):
         self.assertEqual((code, output), (2, ""))
         self.assertIn("unavailable demo timezone", errors)
         self.assertNotIn("private-path", errors)
+
+    def test_truncated_zone_data_returns_cli_error_without_partial_json(self):
+        def truncated_zone(_):
+            return ZoneInfo.from_file(io.BytesIO(b"TZif2" + bytes(15)))
+
+        with patch("zentomic.business_hours.ZoneInfo", side_effect=truncated_zone):
+            code, output, errors = self.invoke([
+                "--business-hours-at", "2026-01-05T14:00:00Z",
+            ])
+        self.assertEqual((code, output), (2, ""))
+        self.assertIn("unavailable demo timezone", errors)
+        self.assertNotIn("buffer", errors)
+        self.assertNotIn("Traceback", errors)
 
     def test_mode_rejects_unrelated_inputs_before_simulation(self):
         for extra in (["1"], ["--speech", "hello"], ["--intent", "sales"],
