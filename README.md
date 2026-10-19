@@ -476,6 +476,24 @@ seasonal offsets, DST transitions, and day/week/year rollover. Filesystem-failur
 regressions inject synthetic OS errors; they do not
 validate a deployed Lambda's timezone database or clock freshness.
 
+Preview a fixed synthetic schedule from the command line without writing a
+Python script:
+
+```sh
+python -m zentomic.demo --business-hours-at 2026-01-05T14:00:00Z --business-hours-at 2026-01-05T22:00:00Z
+```
+
+This prints ordered `route` decisions for `demo-team` then `demo-voicemail`.
+The fixture uses `America/New_York`, Monday-Friday 09:00 inclusive to 17:00
+exclusive, and a full-day closure on January 1, 2026. Repeat the option for
+independent samples; use explicit aware ISO datetimes with `Z` or a UTC offset.
+Local zoneinfo data is required. No current clock or workspace configuration
+is read. Invalid/naive instants, unavailable zones, and conversion overflow
+exit 2 with no partial JSON output. This mode cannot be mixed with keypad,
+speech, classifier, intent, dialing, or lifecycle inputs. Output includes only
+synthetic targets, not the supplied timestamps. It does not authenticate,
+claim callbacks, persist state, render TwiML, or contact providers.
+
 Targets remain unchanged workspace-local identifiers, not phone numbers or
 authorization to dial. Authenticate and bind the call, deduplicate the step,
 check terminal state and call budgets, and authorize the selected target

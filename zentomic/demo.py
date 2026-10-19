@@ -1,9 +1,11 @@
-"""Synthetic collection, forwarding, and call-status demos without providers."""
+"""Synthetic collection, forwarding, status, and hours demos without providers."""
 
 import argparse
 import json
 from collections.abc import Callable, Iterable
+from datetime import date, datetime
 
+from zentomic.business_hours import resolve_business_hours_target_at
 from zentomic.call_status import advance_call_status, is_terminal_call_status
 from zentomic.classification import parse_intent_response
 from zentomic.dial import resolve_dial_result
@@ -14,6 +16,25 @@ from zentomic.twiml import render_dtmf_gather, render_hangup, render_speech_gath
 
 
 _MAX_ATTEMPTS = 3
+
+
+def simulate_business_hours(instants: Iterable[datetime]) -> list[dict]:
+    """Preview fixed synthetic New York weekday hours at explicit instants.
+
+    Demo hours are Monday-Friday 09:00-17:00, with January 1, 2026 closed.
+    Each input is an independent timezone-aware clock fixture, not a callback
+    or a live clock sample. Only synthetic target decisions are returned.
+    No authentication, claims, state, TwiML, or dialing is performed.
+    """
+    return [{
+        "action": "route",
+        "target": resolve_business_hours_target_at(
+            {day: [(540, 1020)] for day in range(5)},
+            instant=instant, timezone_name="America/New_York",
+            date_overrides={date(2026, 1, 1): []},
+            open_target="demo-team", closed_target="demo-voicemail",
+        ),
+    } for instant in instants]
 
 
 def simulate_call_status(
@@ -212,6 +233,10 @@ def main(argv: list[str] | None = None) -> int:
         "--call-status", action="append", metavar="STATUS",
         help="replay synthetic single-leg lifecycle observations; never changes a real call",
     )
+    mode.add_argument(
+        "--business-hours-at", action="append", metavar="ISO_DATETIME",
+        help="preview fixed New York weekday hours at an aware ISO datetime; repeat for samples",
+    )
     parser.add_argument(
         "--initial-call-status", metavar="STATUS",
         help="synthetic stored lifecycle state; requires --call-status; never loads a session",
@@ -221,6 +246,8 @@ def main(argv: list[str] | None = None) -> int:
         help="synthetic transcript in order; repeat for retries; requires --classifier-response",
     )
     args = parser.parse_args(argv)
+    if args.business_hours_at is not None and (args.digits or args.speech is not None):
+        parser.error("--business-hours-at cannot be combined with keypad or speech inputs")
     if args.initial_call_status is not None and args.call_status is None:
         parser.error("--initial-call-status requires --call-status")
     if args.call_status is not None and (args.digits or args.speech is not None):
@@ -230,7 +257,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.speech is not None and args.classifier_response is None:
         parser.error("--speech requires --classifier-response")
     # No arguments demonstrate a silent attempt followed by a valid selection.
-    if args.call_status is not None:
+    if args.business_hours_at is not None:
+        try:
+            steps = simulate_business_hours(
+                datetime.fromisoformat(value) for value in args.business_hours_at
+            )
+        except (ValueError, OverflowError):
+            parser.error("invalid synthetic business-hours instant or unavailable demo timezone")
+    elif args.call_status is not None:
         try:
             steps = simulate_call_status(
                 args.call_status, initial_status=args.initial_call_status,
