@@ -72,6 +72,69 @@ class BusinessHoursDemoTests(unittest.TestCase):
                 self.assertIn("invalid synthetic business-hours instant", errors)
                 self.assertNotIn(value, errors)
 
+    def test_workspace_zone_changes_decision_without_changing_default(self):
+        for zone, expected in ((None, "demo-voicemail"),
+                               ("America/New_York", "demo-voicemail"),
+                               ("Asia/Kolkata", "demo-team")):
+            argv = ["--business-hours-at", "2026-01-05T03:30:00Z"]
+            if zone is not None:
+                argv.extend(["--business-hours-timezone", zone])
+            with self.subTest(zone=zone):
+                code, output, errors = self.invoke(argv)
+                self.assertEqual((code, errors), (0, ""))
+                self.assertEqual(json.loads(output)["steps"],
+                                 [{"action": "route", "target": expected}])
+                self.assertNotIn("Asia/Kolkata", output)
+
+    def test_selected_zone_controls_holiday_and_fractional_offset_boundaries(self):
+        instants = [datetime.fromisoformat(value) for value in (
+            "2025-12-31T23:30:00-05:00",  # Jan 1 10:00: holiday in Kolkata.
+            "2026-01-02T03:29:59Z", "2026-01-02T03:30:00Z",
+            "2026-01-02T11:29:59Z", "2026-01-02T11:30:00Z",
+        )]
+        with offline_guard():
+            steps = simulate_business_hours(instants, timezone_name="Asia/Kolkata")
+        self.assertEqual([step["target"] for step in steps], [
+            "demo-voicemail", "demo-voicemail", "demo-team",
+            "demo-team", "demo-voicemail",
+        ])
+
+    def test_selected_zone_uses_seasonal_offsets(self):
+        instants = [datetime.fromisoformat(value) for value in (
+            "2026-01-05T16:59:59Z", "2026-01-05T17:00:00Z",
+            "2026-07-06T15:59:59Z", "2026-07-06T16:00:00Z",
+        )]
+        steps = simulate_business_hours(instants, timezone_name="America/Los_Angeles")
+        self.assertEqual([step["target"] for step in steps],
+                         ["demo-voicemail", "demo-team"] * 2)
+
+    def test_invalid_explicit_zone_has_no_default_fallback_or_input_echo(self):
+        for zone in ("", " ", "Private/Missing-Zone", "../private-zone", "\ud800"):
+            with self.subTest(zone=repr(zone)):
+                code, output, errors = self.invoke([
+                    "--business-hours-at", "2026-01-05T14:00:00Z",
+                    "--business-hours-timezone", zone,
+                ])
+                self.assertEqual((code, output), (2, ""))
+                self.assertIn("unavailable demo timezone", errors)
+                self.assertNotIn("private", errors.lower())
+                self.assertNotIn("Traceback", errors)
+
+    def test_timezone_without_hours_mode_never_runs_another_simulation(self):
+        for extra in ([], ["1"], ["--intent", "sales"], ["--speech", "hello"],
+                      ["--classifier-response", "{}"], ["--dial-result", "busy"],
+                      ["--call-status", "ringing"], ["--initial-call-status", "queued"]):
+            with self.subTest(extra=extra), patch(
+                "zentomic.demo.simulate_keypad",
+            ) as keypad, patch("zentomic.demo.simulate_business_hours") as hours:
+                code, output, errors = self.invoke([
+                    "--business-hours-timezone", "Asia/Kolkata", *extra,
+                ])
+                self.assertEqual((code, output), (2, ""))
+                self.assertIn("requires --business-hours-at", errors)
+                keypad.assert_not_called()
+                hours.assert_not_called()
+
     def test_missing_timezone_data_does_not_fallback_to_open(self):
         with patch("zentomic.business_hours.ZoneInfo", side_effect=OSError("private-path")):
             code, output, errors = self.invoke([

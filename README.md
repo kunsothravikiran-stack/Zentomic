@@ -496,6 +496,23 @@ speech, classifier, intent, dialing, or lifecycle inputs. Output includes only
 synthetic targets, not the supplied timestamps. It does not authenticate,
 claim callbacks, persist state, render TwiML, or contact providers.
 
+To preview the same fixture in another workspace timezone, add
+`--business-hours-timezone` with a locally available IANA zone. For example,
+this sample is Monday 09:00 in Kolkata and selects `demo-team`:
+
+```sh
+python -m zentomic.demo --business-hours-at 2026-01-05T03:30:00Z --business-hours-timezone Asia/Kolkata
+```
+
+The selected zone applies to every sample, including seasonal offsets and the
+January 1 closure's local date. Hours and targets remain the fixed demo fixture;
+this does not load a workspace or change production configuration. The option
+requires `--business-hours-at`. An empty, invalid, or unavailable explicit zone
+exits 2 without selecting the default, echoing the zone, or printing partial
+JSON. Omitting it preserves New York behavior. The Python helper also accepts
+the keyword-only `timezone_name` argument. Empty Python sample iterables still
+produce no decisions without resolving any zone.
+
 Targets remain unchanged workspace-local identifiers, not phone numbers or
 authorization to dial. Authenticate and bind the call, deduplicate the step,
 check terminal state and call budgets, and authorize the selected target

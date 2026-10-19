@@ -18,10 +18,13 @@ from zentomic.twiml import render_dtmf_gather, render_hangup, render_speech_gath
 _MAX_ATTEMPTS = 3
 
 
-def simulate_business_hours(instants: Iterable[datetime]) -> list[dict]:
-    """Preview fixed synthetic New York weekday hours at explicit instants.
+def simulate_business_hours(
+    instants: Iterable[datetime], *, timezone_name: str = "America/New_York",
+) -> list[dict]:
+    """Preview fixed synthetic weekday hours in an explicit workspace zone.
 
     Demo hours are Monday-Friday 09:00-17:00, with January 1, 2026 closed.
+    The default zone is New York; the closure uses the selected zone's date.
     Each input is an independent timezone-aware clock fixture, not a callback
     or a live clock sample. Only synthetic target decisions are returned.
     No authentication, claims, state, TwiML, or dialing is performed.
@@ -30,7 +33,7 @@ def simulate_business_hours(instants: Iterable[datetime]) -> list[dict]:
         "action": "route",
         "target": resolve_business_hours_target_at(
             {day: [(540, 1020)] for day in range(5)},
-            instant=instant, timezone_name="America/New_York",
+            instant=instant, timezone_name=timezone_name,
             date_overrides={date(2026, 1, 1): []},
             open_target="demo-team", closed_target="demo-voicemail",
         ),
@@ -235,7 +238,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     mode.add_argument(
         "--business-hours-at", action="append", metavar="ISO_DATETIME",
-        help="preview fixed New York weekday hours at an aware ISO datetime; repeat for samples",
+        help="preview fixed weekday hours at an aware ISO datetime; repeat for samples",
+    )
+    parser.add_argument(
+        "--business-hours-timezone", metavar="IANA_ZONE",
+        help="workspace zone for --business-hours-at (default: America/New_York)",
     )
     parser.add_argument(
         "--initial-call-status", metavar="STATUS",
@@ -246,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
         help="synthetic transcript in order; repeat for retries; requires --classifier-response",
     )
     args = parser.parse_args(argv)
+    if args.business_hours_timezone is not None and args.business_hours_at is None:
+        parser.error("--business-hours-timezone requires --business-hours-at")
     if args.business_hours_at is not None and (args.digits or args.speech is not None):
         parser.error("--business-hours-at cannot be combined with keypad or speech inputs")
     if args.initial_call_status is not None and args.call_status is None:
@@ -260,7 +269,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.business_hours_at is not None:
         try:
             steps = simulate_business_hours(
-                datetime.fromisoformat(value) for value in args.business_hours_at
+                (datetime.fromisoformat(value) for value in args.business_hours_at),
+                timezone_name=("America/New_York" if args.business_hours_timezone is None
+                               else args.business_hours_timezone),
             )
         except (ValueError, OverflowError):
             parser.error("invalid synthetic business-hours instant or unavailable demo timezone")
