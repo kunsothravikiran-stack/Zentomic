@@ -93,6 +93,23 @@ class ClaimedBusinessHoursEventTests(unittest.TestCase):
                          validator=Mock(side_effect=RuntimeError("private-validator")))
         claimer.claim.assert_not_called()
 
+    def test_unreadable_zone_data_does_not_authenticate_or_consume_claim(self):
+        event = callback({}, "2.0", False)
+        store = InMemoryCallbackClaimStore()
+        validator = Mock(return_value=True)
+        with patch("zentomic.business_hours.ZoneInfo",
+                   side_effect=PermissionError("private-zone-path")):
+            with self.assertRaisesRegex(
+                ValueError, "^timezone_name must identify an available IANA timezone$",
+            ):
+                self.resolve(event, store, validator=validator)
+        validator.assert_not_called()
+        # The same callback can succeed once local zone data is available.
+        self.assertEqual(self.resolve(event, store, validator=validator), "demo-team")
+        validator.assert_called_once()
+        with self.assertRaises(CallbackReplayError):
+            self.resolve(event, store)
+
     def test_validator_and_claimer_cannot_rewrite_the_policy_snapshot(self):
         hours = {0: [[540, 1020]]}
         overrides = {date(2026, 1, 6): []}

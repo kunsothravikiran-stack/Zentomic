@@ -464,11 +464,16 @@ assert resolve_business_hours_target_at(
 The standard-library `zoneinfo` module reads the runtime's local timezone
 database, or separately installed `tzdata` if present. This package does not
 bundle or download timezone data. Ensure the configured zones are available
-in the eventual runtime and keep that data current. Missing/invalid zones,
-naive datetimes, and overflowing conversions raise `ValueError` without a
-silent UTC fallback. Configuration errors must not be treated as permission
+in the eventual runtime and keep that data current. Missing/invalid/unreadable
+zones, naive datetimes, and overflowing conversions raise `ValueError` without
+a silent UTC fallback. Local timezone-file lookup failures (including permission
+errors and filesystem name limits) use the same sanitized timezone error without
+exposing local paths. They occur before authentication or claim consumption in
+the claimed-event helper, so the step remains retryable after configuration or
+runtime data is repaired. Configuration errors must not be treated as permission
 to route to an open target. Offline tests exercise installed timezone data,
-seasonal offsets, DST transitions, and day/week/year rollover; they do not
+seasonal offsets, DST transitions, and day/week/year rollover. Filesystem-failure
+regressions inject synthetic OS errors; they do not
 validate a deployed Lambda's timezone database or clock freshness.
 
 Targets remain unchanged workspace-local identifiers, not phone numbers or

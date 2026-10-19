@@ -23,7 +23,7 @@ def resolve_business_hours_target_at(
     The caller supplies a fresh clock sample and an authorized IANA workspace
     timezone. No clock is read and no system default timezone is inferred.
     System zoneinfo data (or separately installed tzdata) must be available;
-    invalid/missing zones and unrepresentable conversions fail closed.
+    invalid/missing/unreadable zones and unrepresentable conversions fail closed.
     UTC round-tripping ensures repeated/skipped local times are resolved from
     the absolute instant, even when its tzinfo is already the workspace zone.
     Optional exact local-date overrides replace (not extend) weekly hours for
@@ -43,7 +43,9 @@ def resolve_business_hours_target_at(
         raise ValueError("instant must be a representable timezone-aware datetime") from None
     try:
         zone = ZoneInfo(timezone_name)
-    except (ZoneInfoNotFoundError, ValueError, UnicodeError):
+    except (ZoneInfoNotFoundError, ValueError, UnicodeError, OSError):
+        # Local zone data can be unreadable, or an otherwise bounded name can
+        # exceed a filesystem component limit. Do not leak paths or OS errors.
         raise ValueError("timezone_name must identify an available IANA timezone") from None
     try:
         local = utc.astimezone(zone)

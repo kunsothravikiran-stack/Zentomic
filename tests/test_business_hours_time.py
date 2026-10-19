@@ -74,7 +74,8 @@ class BusinessHoursTimeTests(unittest.TestCase):
     def test_invalid_and_missing_zones_fail_without_echo_or_utc_fallback(self):
         instant = datetime(2026, 1, 5, 14, tzinfo=timezone.utc)
         for zone in (None, True, [], "", " ", "x" * 257, "\ud800",
-                     "/private-zone", "../private-zone", "Private/Missing-Zone"):
+                     "/private-zone", "../private-zone", "Private/Missing-Zone",
+                     "x" * 256):
             with self.subTest(zone=repr(zone)), self.assertRaises(ValueError) as caught:
                 self.resolve(instant, timezone_name=zone)
             self.assertNotIn("private", str(caught.exception).lower())
@@ -85,6 +86,22 @@ class BusinessHoursTimeTests(unittest.TestCase):
             self.assertNotIn("private-zone", str(caught.exception))
             self.assertIsNone(caught.exception.__cause__)
             self.assertTrue(caught.exception.__suppress_context__)
+
+    def test_zone_filesystem_failures_are_sanitized_without_utc_fallback(self):
+        instant = datetime(2026, 1, 5, 14, tzinfo=timezone.utc)
+        for error in (PermissionError("private-zone-path"),
+                      FileNotFoundError("private-zone-path"),
+                      OSError(36, "private-zone-path")):
+            with self.subTest(error=type(error).__name__):
+                with patch("zentomic.business_hours.ZoneInfo", side_effect=error):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "^timezone_name must identify an available IANA timezone$",
+                    ) as caught:
+                        self.resolve(instant)
+                self.assertNotIn("private-zone-path", str(caught.exception))
+                self.assertIsNone(caught.exception.__cause__)
+                self.assertTrue(caught.exception.__suppress_context__)
 
     def test_datetime_boundary_overflow_fails_closed(self):
         for instant, zone in ((datetime.min.replace(tzinfo=timezone.utc),
