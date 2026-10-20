@@ -68,6 +68,74 @@ class SpeechGatherTests(unittest.TestCase):
         ):
             self.assertEqual(self.render(), expected)
 
+    def test_omitted_and_empty_hints_preserve_existing_xml(self):
+        expected = self.render()
+        for hints in (None, [], ()):
+            self.assertEqual(self.render(hints=hints), expected)
+            self.assertNotIn("hints", fromstring(self.render(hints=hints))[0].attrib)
+
+    def test_hints_preserve_order_duplicates_and_unicode_without_xml_injection(self):
+        phrases = ['sales & support', 'Café తెలుగు 😀', '<Dial>"help"</Dial>', 'sales & support']
+        original = phrases.copy()
+        for hints in (phrases, tuple(phrases)):
+            with self.subTest(hints=type(hints).__name__):
+                root = fromstring(self.render(hints=hints))
+                self.assertEqual(root[0].get("hints"), ",".join(phrases))
+                self.assertEqual(root.findall(".//Dial"), [])
+                self.assertEqual(root[0][0].text, "How can we help?")
+                self.assertEqual(root[0].get("language"), "en-US")
+        self.assertEqual(phrases, original)
+
+    def test_hint_count_and_unicode_character_boundaries(self):
+        phrases = ["😀" * 100] * 500
+        self.assertEqual(fromstring(self.render(hints=phrases))[0].get("hints"),
+                         ",".join(phrases))
+        for hints in (["x"] * 501, ["x" * 101], ["😀" * 101]):
+            with self.subTest(count=len(hints)), self.assertRaises(ValueError):
+                self.render(hints=hints)
+
+    def test_hints_reject_ambiguous_invalid_or_nontext_values_privately(self):
+        for phrase in (None, True, 1, [], {}, "", " \u00a0", "private,marker",
+                       "private\nmarker", "private\rmarker", "private\tmarker",
+                       "private\x00marker", "private\x7fmarker", "private\ud800marker",
+                       "private\uffffmarker"):
+            with self.subTest(phrase=repr(phrase)), self.assertRaises(ValueError) as error:
+                self.render(hints=["sales", phrase])
+            self.assertIn("hints", str(error.exception))
+            self.assertNotIn("private", str(error.exception))
+
+    def test_hints_require_a_bounded_concrete_collection(self):
+        for hints in ("sales,support", b"sales", {"sales"}, {"sales": "support"},
+                      iter(["sales"]), True, 1):
+            with self.subTest(hints=type(hints).__name__), self.assertRaises(ValueError):
+                self.render(hints=hints)
+
+        class EndlessHints(list):
+            def __iter__(self):
+                for _ in range(501):
+                    yield "sales"
+                raise AssertionError("hint snapshot consumed beyond its bound")
+
+        with self.assertRaises(ValueError):
+            self.render(hints=EndlessHints())
+
+    def test_hints_are_snapshotted_once_without_rereading_mutable_input(self):
+        class ChangingHints(list):
+            def __iter__(self):
+                yield "sales"
+                self[:] = ["support"]
+
+        hints = ChangingHints(["sales"])
+        self.assertEqual(fromstring(self.render(hints=hints))[0].get("hints"), "sales")
+        self.assertEqual(hints, ["support"])
+
+    def test_hinted_rendering_is_offline(self):
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "socket.socket", side_effect=AssertionError("Network forbidden"),
+        ):
+            self.assertEqual(fromstring(self.render(hints=["sales", "support"]))[0].get("hints"),
+                             "sales,support")
+
 
 if __name__ == "__main__":
     unittest.main()

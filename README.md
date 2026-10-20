@@ -1182,6 +1182,29 @@ booleans and `"auto"` are intentionally unsupported. Prompt and callback-path
 validation are identical to the keypad renderer. No speech model or partial
 transcription callback is selected; keypad collection remains unchanged.
 
+Optional `hints` provide trusted business vocabulary for recognition:
+
+```python
+from zentomic.twiml import render_speech_gather
+
+xml = render_speech_gather(
+    "Say sales, support, or billing.", action_path="/voice/speech-result",
+    hints=["sales", "technical support", "billing"],
+)
+```
+
+The list or tuple is snapshotted once, preserving phrase order and duplicates.
+`None` and empty collections omit the attribute, preserving existing XML.
+Following [Twilio's hints limits](https://www.twilio.com/docs/voice/twiml/gather#hints),
+at most 500 phrases of 100 Unicode characters each are accepted. Entries must
+be nonblank XML text; this project also rejects commas and ASCII control
+characters to keep each entry a single phrase on one line. Text is escaped,
+not normalized. Never put secrets, transcripts, or personal/customer data in
+hints: executing the XML would disclose them to the speech provider. Hint and
+class-token support depends on the selected provider/model; rendering does not
+check compatibility, promise recognition accuracy, classify intent, or bypass
+confirmation. Existing demos and endpoints are unchanged.
+
 The example endpoint is not implemented. A future adapter must authenticate
 and bind callbacks to the current call step, deduplicate them, and handle
 missing speech with a persisted retry budget. Treat `SpeechResult` as

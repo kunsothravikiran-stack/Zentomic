@@ -10,6 +10,8 @@ from zentomic.voicemail import _validate_voicemail_result_configuration
 
 MAX_ACTION_PATH_CHARACTERS = 2048
 MAX_DIAL_DESTINATIONS = 10
+MAX_SPEECH_HINTS = 500
+MAX_SPEECH_HINT_CHARACTERS = 100
 
 
 def _serialize(response: Element) -> str:
@@ -72,8 +74,30 @@ def render_dtmf_gather(prompt: str, *, action_path: str, timeout: int = 5) -> st
     return _serialize(response)
 
 
+def _speech_hints(hints: list[str] | tuple[str, ...] | None) -> str | None:
+    """Snapshot bounded trusted recognition vocabulary without rewriting it."""
+    if hints is None:
+        return None
+    if not isinstance(hints, (list, tuple)):
+        raise ValueError("hints must be a list or tuple of at most 500 phrases")
+    phrases = tuple(islice(hints, MAX_SPEECH_HINTS + 1))
+    if len(phrases) > MAX_SPEECH_HINTS:
+        raise ValueError("hints must contain at most 500 phrases")
+    for phrase in phrases:
+        if (not isinstance(phrase, str) or len(phrase) > MAX_SPEECH_HINT_CHARACTERS
+                or "," in phrase
+                or any(ord(char) < 32 or ord(char) == 127 for char in phrase)):
+            raise ValueError("hints must be nonblank single-line phrases of at most 100 characters without commas")
+        try:
+            _validate_prompt(phrase)  # Reuse the prompt's XML 1.0 text policy.
+        except ValueError:
+            raise ValueError("hints must contain nonblank valid XML text") from None
+    return ",".join(phrases) if phrases else None
+
+
 def render_speech_gather(
     prompt: str, *, action_path: str, timeout: int = 5, speech_timeout: int = 2,
+    hints: list[str] | tuple[str, ...] | None = None,
 ) -> str:
     """Serialize an English speech-only collection for a future intent adapter.
 
@@ -81,12 +105,15 @@ def render_speech_gather(
     utterance, not a maximum recording duration or whole-call budget. Both are
     project-limited to 1-60 seconds. This does not transcribe, classify, confirm,
     retry, authenticate callbacks, or contact a speech provider.
+    Optional trusted vocabulary hints are serialized, not validated against a
+    provider/model. Never supply transcripts, secrets, or customer data here.
     """
     _validate_prompt(prompt)
     _validate_action_path(action_path)
     for name, value in (("timeout", timeout), ("speech_timeout", speech_timeout)):
         if type(value) is not int or not 1 <= value <= 60:
             raise ValueError(f"{name} must be an integer from 1 to 60 seconds")
+    vocabulary = _speech_hints(hints)
 
     response = Element("Response")
     gather = SubElement(response, "Gather", {
@@ -94,6 +121,8 @@ def render_speech_gather(
         "action": action_path, "method": "POST", "actionOnEmptyResult": "true",
         "timeout": str(timeout), "speechTimeout": str(speech_timeout),
     })
+    if vocabulary is not None:
+        gather.set("hints", vocabulary)
     SubElement(gather, "Say").text = prompt
     return _serialize(response)
 
