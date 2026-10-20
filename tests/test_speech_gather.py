@@ -119,6 +119,23 @@ class SpeechGatherTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.render(hints=EndlessHints())
 
+    def test_hints_reject_unicode_line_boundaries_without_reflecting_text(self):
+        for separator in ("\u0085", "\u2028", "\u2029"):
+            phrase = "synthetic-private" + separator + "support"
+            for hints in ([phrase], (phrase,)):
+                with self.subTest(separator=ord(separator), hints=type(hints).__name__):
+                    with self.assertRaises(ValueError) as error:
+                        self.render(hints=hints)
+                    self.assertIn("single-line", str(error.exception))
+                    self.assertNotIn("synthetic-private", str(error.exception))
+
+    def test_hints_preserve_nonbreaking_and_other_inline_unicode_spaces(self):
+        for space in ("\u00a0", "\u2003", "\u202f", "\u3000"):
+            phrase = "technical" + space + "support"
+            with self.subTest(space=ord(space)):
+                self.assertEqual(fromstring(self.render(hints=[phrase]))[0].get("hints"),
+                                 phrase)
+
     def test_hints_are_snapshotted_once_without_rereading_mutable_input(self):
         class ChangingHints(list):
             def __iter__(self):

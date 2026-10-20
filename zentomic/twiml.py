@@ -84,9 +84,11 @@ def _speech_hints(hints: list[str] | tuple[str, ...] | None) -> str | None:
     if len(phrases) > MAX_SPEECH_HINTS:
         raise ValueError("hints must contain at most 500 phrases")
     for phrase in phrases:
+        # XML permits Unicode line boundaries, but hints must remain single-line.
         if (not isinstance(phrase, str) or len(phrase) > MAX_SPEECH_HINT_CHARACTERS
                 or "," in phrase
-                or any(ord(char) < 32 or ord(char) == 127 for char in phrase)):
+                or any(ord(char) < 32 or ord(char) == 127
+                       or char in "\u0085\u2028\u2029" for char in phrase)):
             raise ValueError("hints must be nonblank single-line phrases of at most 100 characters without commas")
         try:
             _validate_prompt(phrase)  # Reuse the prompt's XML 1.0 text policy.

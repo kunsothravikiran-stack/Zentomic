@@ -163,6 +163,33 @@ class SpeechDemoTests(unittest.TestCase):
             self.assertEqual(steps[-1]["target"], target)
             self.assertNotIn("synthetic-private", output.getvalue())
 
+    def test_unicode_multiline_hints_fail_before_consumption_or_classification(self):
+        for separator in ("\u0085", "\u2028", "\u2029"):
+            with self.subTest(separator=ord(separator)):
+                with offline_guard(), patch("zentomic.demo.parse_intent_response") as classify:
+                    with self.assertRaises(ValueError) as error:
+                        simulate_speech(
+                            unused_inputs(), None, unused_inputs(),
+                            hints=["synthetic-private" + separator + "support"],
+                        )
+                classify.assert_not_called()
+                self.assertNotIn("synthetic-private", str(error.exception))
+
+    def test_cli_unicode_multiline_hints_are_private_input_errors(self):
+        for separator in ("\u0085", "\u2028", "\u2029"):
+            output, errors = io.StringIO(), io.StringIO()
+            args = ["--speech", "synthetic", "--classifier-response", '{"intent":"sales"}',
+                    "--speech-hint", "synthetic-private" + separator + "support"]
+            with self.subTest(separator=ord(separator)):
+                with offline_guard(), redirect_stdout(output), redirect_stderr(errors):
+                    with self.assertRaises(SystemExit) as error:
+                        main(args)
+                self.assertEqual(error.exception.code, 2)
+                self.assertEqual(output.getvalue(), "")
+                self.assertIn("invalid synthetic speech hints", errors.getvalue())
+                self.assertNotIn("synthetic-private", errors.getvalue())
+                self.assertNotIn("Traceback", errors.getvalue())
+
     def test_cli_hint_limits_and_private_errors_without_partial_json(self):
         base = ["--speech", "synthetic", "--classifier-response", '{"intent":"sales"}']
         output = io.StringIO()

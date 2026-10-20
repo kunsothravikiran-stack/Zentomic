@@ -1216,10 +1216,12 @@ The list or tuple is snapshotted once, preserving phrase order and duplicates.
 `None` and empty collections omit the attribute, preserving existing XML.
 Following [Twilio's hints limits](https://www.twilio.com/docs/voice/twiml/gather#hints),
 at most 500 phrases of 100 Unicode characters each are accepted. Entries must
-be nonblank XML text; this project also rejects commas and ASCII control
-characters to keep each entry a single phrase on one line. Text is escaped,
-not normalized. Never put secrets, transcripts, or personal/customer data in
-hints: executing the XML would disclose them to the speech provider. Hint and
+be nonblank XML text; this project also rejects commas, ASCII control
+characters, and Unicode next-line (U+0085), line-separator (U+2028), and
+paragraph-separator (U+2029) characters to keep each entry on one line.
+Inline Unicode spaces, such as nonbreaking spaces, are preserved. Text is
+escaped, not normalized. Never put secrets, transcripts, or personal/customer
+data in hints: executing the XML would disclose them to the speech provider. Hint and
 class-token support depends on the selected provider/model; rendering does not
 check compatibility, promise recognition accuracy, classify intent, or bypass
 confirmation. The offline speech demo can preview hints using `--speech-hint`;
