@@ -332,6 +332,25 @@ proceed to a separate three-attempt confirmation budget; missing confirmation
 digits never imply consent. `--speech` requires `--classifier-response` and
 cannot be used with `--intent`.
 
+Preview synthetic recognition vocabulary with repeatable `--speech-hint`
+arguments, or the keyword-only `hints` option on `simulate_speech`:
+
+```sh
+python -m zentomic.demo --speech-hint 'sales' --speech-hint 'technical support' --speech '' --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
+```
+
+Hints follow the [speech renderer's validation](#offline-speech-collection-renderer):
+at most 500 nonblank single-line XML phrases, each at most 100 characters,
+without commas or ASCII control characters. Order and duplicates are preserved
+in the initial and retry collection XML, never in confirmation XML. Omitted
+hints preserve existing output. Invalid hints exit 2 without partial JSON or
+echoing the phrases. `--speech-hint` requires `--speech`; it cannot configure
+keypad, classifier-only, hours, lifecycle, or dialing demos. The vocabulary
+does not change admission, classifier fixtures, target choices, or confirmation
+requirements. Use synthetic public vocabulary only: hints appear in output,
+shell history, and process listings. This previews XML, not recognition quality
+or provider/model compatibility, and sends nothing to a provider.
+
 This mode adds a `stage` field (`speech` or `confirmation`) so attempt counts
 are not confused across stages. A `classify` decision means speech was admitted,
 not that a model ran. The supplied fixture is parsed next and need not match
@@ -1203,7 +1222,8 @@ not normalized. Never put secrets, transcripts, or personal/customer data in
 hints: executing the XML would disclose them to the speech provider. Hint and
 class-token support depends on the selected provider/model; rendering does not
 check compatibility, promise recognition accuracy, classify intent, or bypass
-confirmation. Existing demos and endpoints are unchanged.
+confirmation. The offline speech demo can preview hints using `--speech-hint`;
+default demo output and endpoints are unchanged.
 
 The example endpoint is not implemented. A future adapter must authenticate
 and bind callbacks to the current call step, deduplicate them, and handle

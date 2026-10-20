@@ -98,6 +98,107 @@ class SpeechDemoTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 2)
             simulate.assert_not_called()
 
+    def test_empty_hints_preserve_default_output(self):
+        expected = simulate_speech(["", "synthetic"], '{"intent":"sales"}', ["1"])
+        for hints in (None, [], ()):
+            with self.subTest(hints=hints):
+                self.assertEqual(simulate_speech(
+                    ["", "synthetic"], '{"intent":"sales"}', ["1"], hints=hints,
+                ), expected)
+
+    def test_vocabulary_is_only_in_speech_xml_and_never_selects_the_intent(self):
+        phrases = ['sales & <help> "desk"', "café", "sales"]
+        baseline = simulate_speech(["", "synthetic"], '{"intent":"support"}', ["1"])
+        for hints in (phrases, tuple(phrases)):
+            with self.subTest(hints=type(hints).__name__), offline_guard():
+                steps = simulate_speech(
+                    ["", "synthetic"], '{"intent":"support"}', ["1"], hints=hints,
+                )
+            self.assertEqual(steps[-1]["target"], "demo-support")
+            for step, original in zip(steps, baseline, strict=True):
+                self.assertEqual({k: v for k, v in step.items() if k != "twiml"},
+                                 {k: v for k, v in original.items() if k != "twiml"})
+                if step["stage"] == "speech" and "twiml" in step:
+                    root = fromstring(step["twiml"])
+                    self.assertEqual([node.tag for node in root.iter()],
+                                     ["Response", "Gather", "Say"])
+                    self.assertEqual(root[0].get("hints"), ",".join(phrases))
+                else:
+                    self.assertEqual(step, original)
+            self.assertEqual(steps[0]["twiml"], steps[1]["twiml"])
+
+    def test_hints_are_snapshotted_once_for_all_retries(self):
+        class ChangingHints(list):
+            def __iter__(self):
+                yield "sales"
+                self[:] = ["support"]
+
+        hints = ChangingHints(["sales"])
+        steps = simulate_speech([], None, unused_inputs(), hints=hints)
+        self.assertEqual(hints, ["support"])
+        xml = [step["twiml"] for step in steps if "twiml" in step]
+        self.assertEqual(len(xml), 3)
+        self.assertTrue(all(fromstring(value)[0].get("hints") == "sales" for value in xml))
+
+    def test_invalid_hints_fail_before_consuming_or_classifying_inputs(self):
+        for hints in ([""], ["synthetic-private,phrase"], ["\ud800"], ["x" * 101],
+                      ["x"] * 501, "sales", [42]):
+            with self.subTest(hints=type(hints).__name__), offline_guard(), \
+                    patch("zentomic.demo.parse_intent_response") as classify:
+                with self.assertRaises(ValueError):
+                    simulate_speech(unused_inputs(), None, unused_inputs(), hints=hints)
+            classify.assert_not_called()
+
+    def test_cli_hints_preserve_order_and_require_explicit_confirmation(self):
+        for digits, target in (([], "demo-reception"), (["1"], "demo-support")):
+            output = io.StringIO()
+            args = ["--speech-hint", "sales", "--speech-hint", "technical support",
+                    "--speech-hint", "sales", "--speech", "synthetic-private",
+                    "--classifier-response", '{"intent":"support"}', *digits]
+            with offline_guard(), redirect_stdout(output):
+                self.assertEqual(main(args), 0)
+            steps = json.loads(output.getvalue())["steps"]
+            self.assertEqual(fromstring(steps[0]["twiml"])[0].get("hints"),
+                             "sales,technical support,sales")
+            self.assertEqual(steps[-1]["target"], target)
+            self.assertNotIn("synthetic-private", output.getvalue())
+
+    def test_cli_hint_limits_and_private_errors_without_partial_json(self):
+        base = ["--speech", "synthetic", "--classifier-response", '{"intent":"sales"}']
+        output = io.StringIO()
+        with offline_guard(), redirect_stdout(output):
+            self.assertEqual(main(base + ["--speech-hint", "é" * 100] * 500), 0)
+        gather = fromstring(json.loads(output.getvalue())["steps"][0]["twiml"])[0]
+        self.assertEqual(gather.get("hints"), ",".join(["é" * 100] * 500))
+        for hint_args in (["--speech-hint", "synthetic-private,phrase"],
+                          ["--speech-hint", "synthetic-private\nphrase"],
+                          ["--speech-hint", ""], ["--speech-hint", "x" * 101],
+                          ["--speech-hint", "synthetic-private"] * 501):
+            output, errors = io.StringIO(), io.StringIO()
+            with offline_guard(), redirect_stdout(output), redirect_stderr(errors):
+                with self.assertRaises(SystemExit) as error:
+                    main(base + hint_args)
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("invalid synthetic speech hints", errors.getvalue())
+            self.assertNotIn("synthetic-private", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
+
+    def test_cli_hints_cannot_silently_configure_other_modes(self):
+        for mode in ([], ["1"], ["--intent", "sales"],
+                     ["--classifier-response", '{"intent":"sales"}'],
+                     ["--dial-result", "busy"], ["--call-status", "completed"],
+                     ["--business-hours-at", "2026-01-05T14:00:00Z"]):
+            output, errors = io.StringIO(), io.StringIO()
+            with self.subTest(mode=mode), offline_guard(), \
+                    redirect_stdout(output), redirect_stderr(errors):
+                with self.assertRaises(SystemExit) as error:
+                    main(["--speech-hint", "synthetic-private", *mode])
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("--speech-hint requires --speech", errors.getvalue())
+            self.assertNotIn("synthetic-private", errors.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

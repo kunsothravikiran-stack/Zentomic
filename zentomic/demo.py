@@ -177,6 +177,7 @@ def simulate_classification(response: str | None, digits: Iterable[str]) -> list
 
 def simulate_speech(
     speeches: Iterable[str | None], response: str | None, digits: Iterable[str],
+    *, hints: list[str] | tuple[str, ...] | None = None,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -185,9 +186,12 @@ def simulate_speech(
     digits if speech was not admitted. Transcript and raw response stay out
     of the returned steps. This does not transcribe or run a classifier, and
     the fixture need not represent the supplied speech's actual meaning.
+    Optional synthetic vocabulary is validated before consuming any inputs,
+    appears in collection XML, and never changes the classifier fixture.
     """
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
+        hints=hints,
     )
     steps = [{"stage": "speech", "action": "gather", "attempts": 0, "twiml": collection}]
     inputs = iter(speeches)
@@ -252,7 +256,13 @@ def main(argv: list[str] | None = None) -> int:
         "--speech", action="append", metavar="TEXT",
         help="synthetic transcript in order; repeat for retries; requires --classifier-response",
     )
+    parser.add_argument(
+        "--speech-hint", action="append", metavar="PHRASE",
+        help="synthetic recognition vocabulary in collection XML; repeat; requires --speech",
+    )
     args = parser.parse_args(argv)
+    if args.speech_hint is not None and args.speech is None:
+        parser.error("--speech-hint requires --speech")
     if args.business_hours_timezone is not None and args.business_hours_at is None:
         parser.error("--business-hours-timezone requires --business-hours-at")
     if args.business_hours_at is not None and (args.digits or args.speech is not None):
@@ -288,7 +298,13 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError:
             parser.error("unsupported synthetic Number dial result status")
     elif args.speech is not None:
-        steps = simulate_speech(args.speech, args.classifier_response, args.digits)
+        try:
+            steps = simulate_speech(
+                args.speech, args.classifier_response, args.digits, hints=args.speech_hint,
+            )
+        except ValueError:
+            parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "
+                         "XML phrases of at most 100 characters each, without commas")
     elif args.classifier_response is not None:
         steps = simulate_classification(args.classifier_response, args.digits)
     elif args.intent is not None:
