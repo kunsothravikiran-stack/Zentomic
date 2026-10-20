@@ -68,6 +68,50 @@ class SpeechGatherTests(unittest.TestCase):
         ):
             self.assertEqual(self.render(), expected)
 
+    def test_explicit_default_language_preserves_existing_xml(self):
+        self.assertEqual(self.render(language="en-US"), self.render())
+
+    def test_recognition_locale_changes_only_gather_language(self):
+        expected = fromstring(self.render(hints=["sales & support"]))
+        for language in ("en-US", "en-GB", "en-IN", "es-US", "es-ES", "hi-IN"):
+            with self.subTest(language=language):
+                actual = fromstring(self.render(language=language, hints=["sales & support"]))
+                self.assertEqual(actual[0].get("language"), language)
+                actual[0].set("language", "en-US")
+                self.assertEqual(actual[0].attrib, expected[0].attrib)
+                self.assertEqual(actual[0][0].attrib, {})
+                self.assertEqual(actual[0][0].text, expected[0][0].text)
+                self.assertEqual([child.tag for child in actual[0]], ["Say"])
+
+    def test_recognition_locale_requires_an_exact_allowlisted_string(self):
+        for language in (None, True, 1, [], {}, b"en-US", "", "en-us", "EN-US",
+                         " en-US", "en-US ", "en_US", "en", "auto", "multi",
+                         "private-locale", "x" * 10000, "en-US\n", "en-US\ud800",
+                         'en-US\" method=\"GET'):
+            with self.subTest(language=repr(language)[:40]):
+                with self.assertRaises(ValueError) as error:
+                    self.render(language=language)
+                self.assertIn("language", str(error.exception))
+                self.assertNotIn("private-locale", str(error.exception))
+
+    def test_invalid_locale_does_not_consume_vocabulary(self):
+        class UnreadHints(list):
+            def __iter__(self):
+                raise AssertionError("invalid language must fail before hint iteration")
+
+        with self.assertRaises(ValueError):
+            self.render(language="auto", hints=UnreadHints(["sales"]))
+
+    def test_explicit_locale_is_offline_and_does_not_echo_configuration(self):
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "socket.socket", side_effect=AssertionError("Network forbidden"),
+        ), patch("builtins.print") as output:
+            xml = self.render(language="en-IN", hints=["support"])
+            self.assertEqual(fromstring(xml)[0].get("language"), "en-IN")
+            with self.assertRaises(ValueError):
+                self.render(language="private-locale")
+            output.assert_not_called()
+
     def test_omitted_and_empty_hints_preserve_existing_xml(self):
         expected = self.render()
         for hints in (None, [], ()):

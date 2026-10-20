@@ -1177,7 +1177,7 @@ a clock, authorize cleanup, mutate storage, or contact a provider.
 
 ### Offline speech collection renderer
 
-`render_speech_gather` prepares an English, speech-only collection for a future
+`render_speech_gather` prepares a speech-only collection (US English by default) for a future
 intent classifier, without starting a call or contacting a provider:
 
 ```python
@@ -1191,7 +1191,7 @@ xml = render_speech_gather(
 )
 ```
 
-The XML uses `input="speech"`, `language="en-US"`, POST, and
+By default the XML uses `input="speech"`, `language="en-US"`, POST, and
 `actionOnEmptyResult="true"`. `timeout` controls waiting for input;
 `speech_timeout` controls the pause ending an utterance. Neither is a
 whole-call duration or billing cap. These attributes follow the
@@ -1200,6 +1200,31 @@ Both timeouts are project-limited to integers from 1 through 60 seconds;
 booleans and `"auto"` are intentionally unsupported. Prompt and callback-path
 validation are identical to the keypad renderer. No speech model or partial
 transcription callback is selected; keypad collection remains unchanged.
+
+Optional `language` selects an explicit recognition locale from the project's
+small starter allowlist: `en-US`, `en-GB`, `en-IN`, `es-US`, `es-ES`, or `hi-IN`.
+For example, preview Indian English recognition while keeping an English prompt:
+
+```python
+from zentomic.twiml import render_speech_gather
+
+xml = render_speech_gather(
+    "Say sales or support.", action_path="/voice/speech-result",
+    language="en-IN", hints=["sales", "support"],
+)
+```
+
+Tags must match exactly; invalid values raise a privacy-safe `ValueError` before
+vocabulary is consumed, with no locale inference or fallback. Omitting the
+argument or supplying `en-US` preserves previous XML byte for byte. This sets
+only Gather recognition, not the nested Say language/voice, prompt translation,
+classifier behavior, or confirmation language. It is not automatic multilingual
+recognition. The allowlist is a project policy, not Twilio's complete language
+catalog or a compatibility guarantee. Verify the account region, speech model,
+language, hints, and separately configured prompt voice against the current
+[Twilio language/model reference](https://www.twilio.com/docs/voice/twiml/gather#language)
+before live use. No live recognition is tested here. The offline demo continues
+to use US English; no production endpoint or workspace setting is added.
 
 Optional `hints` provide trusted business vocabulary for recognition:
 
