@@ -367,6 +367,23 @@ the English prompt, alter classifier fixtures or intents, select a model,
 change confirmation prompts, or perform automatic language detection. Verify
 locale, hints, model, voice, and region compatibility before live integration.
 
+Preview fixed pause detection or the provider's automatic first-pause behavior
+with `--speech-timeout` or the keyword-only `speech_timeout` option on
+`simulate_speech`:
+
+```sh
+python -m zentomic.demo --speech-timeout auto --speech '' --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
+```
+
+The value is an integer from 1 through 60 seconds or exact lowercase `auto`;
+the default remains 2. The same value is reused for every speech retry and
+never appears on keypad confirmation. Invalid values exit 2 without partial
+JSON or reflecting the supplied value. `--speech-timeout` requires `--speech`
+and cannot configure another demo. This setting changes only the rendered
+`speechTimeout` attribute. It does not cap the whole Gather or call, transcribe
+speech, run a timer, or guarantee provider behavior. Verify the selected
+recognition model's support before live integration.
+
 This mode adds a `stage` field (`speech` or `confirmation`) so attempt counts
 are not confused across stages. A `classify` decision means speech was admitted,
 not that a model ran. The supplied fixture is parsed next and need not match
