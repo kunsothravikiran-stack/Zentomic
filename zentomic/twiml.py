@@ -102,16 +102,18 @@ def _speech_hints(hints: list[str] | tuple[str, ...] | None) -> str | None:
 
 
 def render_speech_gather(
-    prompt: str, *, action_path: str, timeout: int = 5, speech_timeout: int = 2,
+    prompt: str, *, action_path: str, timeout: int = 5,
+    speech_timeout: int | Literal["auto"] = 2,
     hints: list[str] | tuple[str, ...] | None = None,
     language: str = "en-US",
 ) -> str:
     """Serialize a speech-only collection for a future intent adapter.
 
     timeout bounds waiting for input; speech_timeout is the pause that ends an
-    utterance, not a maximum recording duration or whole-call budget. Both are
-    project-limited to 1-60 seconds. This does not transcribe, classify, confirm,
-    retry, authenticate callbacks, or contact a speech provider.
+    utterance, not a maximum recording duration or whole-call budget. timeout is
+    project-limited to 1-60 seconds; speech_timeout also accepts Twilio's exact
+    ``auto`` value to end recognition at the first pause. This does not transcribe,
+    classify, confirm, retry, authenticate callbacks, or contact a provider.
     Optional trusted vocabulary hints are serialized, not validated against a
     provider/model. Never supply transcripts, secrets, or customer data here.
     language selects recognition only from a small project allowlist; it does
@@ -120,9 +122,13 @@ def render_speech_gather(
     """
     _validate_prompt(prompt)
     _validate_action_path(action_path)
-    for name, value in (("timeout", timeout), ("speech_timeout", speech_timeout)):
-        if type(value) is not int or not 1 <= value <= 60:
-            raise ValueError(f"{name} must be an integer from 1 to 60 seconds")
+    if type(timeout) is not int or not 1 <= timeout <= 60:
+        raise ValueError("timeout must be an integer from 1 to 60 seconds")
+    if not (
+        (type(speech_timeout) is int and 1 <= speech_timeout <= 60)
+        or (type(speech_timeout) is str and speech_timeout == "auto")
+    ):
+        raise ValueError("speech_timeout must be 'auto' or an integer from 1 to 60 seconds")
     # Check the bounded tag before consuming optional vocabulary. Reject rather
     # than trim, case-fold, infer, or silently fall back to another locale.
     if (not isinstance(language, str) or len(language) != 5

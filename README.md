@@ -1212,10 +1212,12 @@ By default the XML uses `input="speech"`, `language="en-US"`, POST, and
 `speech_timeout` controls the pause ending an utterance. Neither is a
 whole-call duration or billing cap. These attributes follow the
 [Twilio Gather reference](https://www.twilio.com/docs/voice/twiml/gather).
-Both timeouts are project-limited to integers from 1 through 60 seconds;
-booleans and `"auto"` are intentionally unsupported. Prompt and callback-path
-validation are identical to the keypad renderer. No speech model or partial
-transcription callback is selected; keypad collection remains unchanged.
+`timeout` is project-limited to integers from 1 through 60 seconds.
+`speech_timeout` accepts the same integer range or exact lowercase `"auto"`,
+which stops recognition at the first pause; booleans and other strings remain
+invalid. Prompt and callback-path validation are identical to the keypad
+renderer. No speech model or partial transcription callback is selected;
+keypad collection remains unchanged.
 
 Optional `language` selects an explicit recognition locale from the project's
 small starter allowlist: `en-US`, `en-GB`, `en-IN`, `es-US`, `es-ES`, or `hi-IN`.

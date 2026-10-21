@@ -45,11 +45,31 @@ class SpeechGatherTests(unittest.TestCase):
             self.assertEqual(root[0].get("timeout"), str(timeout))
             self.assertEqual(root[0].get("speechTimeout"), str(speech_timeout))
 
+    def test_auto_speech_timeout_stops_at_the_first_pause(self):
+        expected = fromstring(self.render())
+        actual = fromstring(self.render(speech_timeout="auto"))
+        self.assertEqual(actual[0].get("speechTimeout"), "auto")
+        actual[0].set("speechTimeout", "2")
+        self.assertEqual(actual[0].attrib, expected[0].attrib)
+        self.assertEqual(actual[0][0].text, expected[0][0].text)
+
     def test_timeouts_reject_nonintegers_and_out_of_range_values(self):
-        for name in ("timeout", "speech_timeout"):
-            for value in (0, -1, 61, True, False, 1.5, "2", "auto", None, [], {}):
+        for name, values in (
+            ("timeout", (0, -1, 61, True, False, 1.5, "2", "auto", None, [], {})),
+            ("speech_timeout", (0, -1, 61, True, False, 1.5, "2", "AUTO",
+                                " auto", "auto ", None, [], {})),
+        ):
+            for value in values:
                 with self.subTest(name=name, value=value), self.assertRaises(ValueError):
                     self.render(**{name: value})
+
+    def test_invalid_speech_timeout_does_not_consume_vocabulary(self):
+        class UnreadHints(list):
+            def __iter__(self):
+                raise AssertionError("invalid timeout must fail before hint iteration")
+
+        with self.assertRaises(ValueError):
+            self.render(speech_timeout="AUTO", hints=UnreadHints(["sales"]))
 
     def test_callback_paths_use_the_existing_hosted_path_allowlist(self):
         for path in ("/speech", "/voice/speech-result", "/v1/speech_result/"):
