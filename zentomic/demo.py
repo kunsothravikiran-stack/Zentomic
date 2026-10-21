@@ -12,7 +12,12 @@ from zentomic.dial import resolve_dial_result
 from zentomic.gather import GatherDecision, resolve_gather
 from zentomic.intent import resolve_intent_confirmation
 from zentomic.speech import resolve_speech_gather
-from zentomic.twiml import render_dtmf_gather, render_hangup, render_speech_gather
+from zentomic.twiml import (
+    SPEECH_RECOGNITION_LANGUAGES,
+    render_dtmf_gather,
+    render_hangup,
+    render_speech_gather,
+)
 
 
 _MAX_ATTEMPTS = 3
@@ -177,7 +182,7 @@ def simulate_classification(response: str | None, digits: Iterable[str]) -> list
 
 def simulate_speech(
     speeches: Iterable[str | None], response: str | None, digits: Iterable[str],
-    *, hints: list[str] | tuple[str, ...] | None = None,
+    *, hints: list[str] | tuple[str, ...] | None = None, language: str = "en-US",
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -188,10 +193,12 @@ def simulate_speech(
     the fixture need not represent the supplied speech's actual meaning.
     Optional synthetic vocabulary is validated before consuming any inputs,
     appears in collection XML, and never changes the classifier fixture.
+    The explicit recognition language changes only the speech Gather XML; it
+    does not translate prompts, classifier fixtures, or confirmation prompts.
     """
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
-        hints=hints,
+        hints=hints, language=language,
     )
     steps = [{"stage": "speech", "action": "gather", "attempts": 0, "twiml": collection}]
     inputs = iter(speeches)
@@ -260,9 +267,18 @@ def main(argv: list[str] | None = None) -> int:
         "--speech-hint", action="append", metavar="PHRASE",
         help="synthetic recognition vocabulary in collection XML; repeat; requires --speech",
     )
+    parser.add_argument(
+        "--speech-language", metavar="LOCALE",
+        help="recognition locale for speech collection XML (default: en-US); requires --speech",
+    )
     args = parser.parse_args(argv)
     if args.speech_hint is not None and args.speech is None:
         parser.error("--speech-hint requires --speech")
+    if args.speech_language is not None and args.speech is None:
+        parser.error("--speech-language requires --speech")
+    if (args.speech_language is not None
+            and args.speech_language not in SPEECH_RECOGNITION_LANGUAGES):
+        parser.error("invalid synthetic speech language; use a supported project locale")
     if args.business_hours_timezone is not None and args.business_hours_at is None:
         parser.error("--business-hours-timezone requires --business-hours-at")
     if args.business_hours_at is not None and (args.digits or args.speech is not None):
@@ -301,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             steps = simulate_speech(
                 args.speech, args.classifier_response, args.digits, hints=args.speech_hint,
+                language=("en-US" if args.speech_language is None else args.speech_language),
             )
         except ValueError:
             parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "

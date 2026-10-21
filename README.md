@@ -351,6 +351,22 @@ requirements. Use synthetic public vocabulary only: hints appear in output,
 shell history, and process listings. This previews XML, not recognition quality
 or provider/model compatibility, and sends nothing to a provider.
 
+Preview an explicit recognition locale with `--speech-language` or the
+keyword-only `language` option on `simulate_speech`:
+
+```sh
+python -m zentomic.demo --speech-language en-IN --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
+```
+
+The locale uses the same exact project allowlist as the speech renderer:
+`en-US`, `en-GB`, `en-IN`, `es-US`, `es-ES`, or `hi-IN`. The default remains
+`en-US`. Invalid locales exit 2 without partial JSON. `--speech-language`
+requires `--speech` and cannot configure any other demo. It changes only the
+speech Gather `language` attribute, including retries; it does not translate
+the English prompt, alter classifier fixtures or intents, select a model,
+change confirmation prompts, or perform automatic language detection. Verify
+locale, hints, model, voice, and region compatibility before live integration.
+
 This mode adds a `stage` field (`speech` or `confirmation`) so attempt counts
 are not confused across stages. A `classify` decision means speech was admitted,
 not that a model ran. The supplied fixture is parsed next and need not match
@@ -1223,8 +1239,9 @@ recognition. The allowlist is a project policy, not Twilio's complete language
 catalog or a compatibility guarantee. Verify the account region, speech model,
 language, hints, and separately configured prompt voice against the current
 [Twilio language/model reference](https://www.twilio.com/docs/voice/twiml/gather#language)
-before live use. No live recognition is tested here. The offline demo continues
-to use US English; no production endpoint or workspace setting is added.
+before live use. No live recognition is tested here. The offline demo defaults
+to US English and can preview these explicit locales; no production endpoint or
+workspace setting is added.
 
 Optional `hints` provide trusted business vocabulary for recognition:
 
