@@ -50,6 +50,17 @@ def _parse_speech_input_timeout(value: str | None) -> int:
     raise ValueError("speech input timeout must be an integer from 1 to 60")
 
 
+def _parse_speech_profanity_filter(value: str | None) -> bool | None:
+    """Parse an explicit provider profanity-redaction preference."""
+    if value is None:
+        return None
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError("speech profanity filter must be true or false")
+
+
 def simulate_business_hours(
     instants: Iterable[datetime], *, timezone_name: str = "America/New_York",
 ) -> list[dict]:
@@ -211,6 +222,7 @@ def simulate_speech(
     speeches: Iterable[str | None], response: str | None, digits: Iterable[str],
     *, hints: list[str] | tuple[str, ...] | None = None, language: str = "en-US",
     input_timeout: int = 5, speech_timeout: int | Literal["auto"] = 2,
+    profanity_filter: bool | None = None,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -226,11 +238,13 @@ def simulate_speech(
     The input timeout controls how long collection waits for speech to begin.
     The speech timeout controls the simulated collection XML only; ``auto``
     asks a future provider to stop at the first pause, not after a fixed limit.
+    An explicit profanity filter changes recognition output policy only; it
+    does not inspect, rewrite, or return the supplied synthetic transcript.
     """
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
         timeout=input_timeout, hints=hints, language=language,
-        speech_timeout=speech_timeout,
+        speech_timeout=speech_timeout, profanity_filter=profanity_filter,
     )
     steps = [{"stage": "speech", "action": "gather", "attempts": 0, "twiml": collection}]
     inputs = iter(speeches)
@@ -311,6 +325,10 @@ def main(argv: list[str] | None = None) -> int:
         "--speech-input-timeout", metavar="SECONDS",
         help="wait for speech to begin (1-60; default: 5); requires --speech",
     )
+    parser.add_argument(
+        "--speech-profanity-filter", metavar="true|false",
+        help="explicit recognition redaction policy; requires --speech",
+    )
     args = parser.parse_args(argv)
     if args.speech_hint is not None and args.speech is None:
         parser.error("--speech-hint requires --speech")
@@ -320,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-timeout requires --speech")
     if args.speech_input_timeout is not None and args.speech is None:
         parser.error("--speech-input-timeout requires --speech")
+    if args.speech_profanity_filter is not None and args.speech is None:
+        parser.error("--speech-profanity-filter requires --speech")
     if (args.speech_language is not None
             and args.speech_language not in SPEECH_RECOGNITION_LANGUAGES):
         parser.error("invalid synthetic speech language; use a supported project locale")
@@ -331,6 +351,12 @@ def main(argv: list[str] | None = None) -> int:
         speech_input_timeout = _parse_speech_input_timeout(args.speech_input_timeout)
     except ValueError:
         parser.error("invalid synthetic speech input timeout; use an integer from 1 to 60")
+    try:
+        speech_profanity_filter = _parse_speech_profanity_filter(
+            args.speech_profanity_filter,
+        )
+    except ValueError:
+        parser.error("invalid synthetic speech profanity filter; use true or false")
     if args.business_hours_timezone is not None and args.business_hours_at is None:
         parser.error("--business-hours-timezone requires --business-hours-at")
     if args.business_hours_at is not None and (args.digits or args.speech is not None):
@@ -371,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.speech, args.classifier_response, args.digits, hints=args.speech_hint,
                 language=("en-US" if args.speech_language is None else args.speech_language),
                 input_timeout=speech_input_timeout, speech_timeout=speech_timeout,
+                profanity_filter=speech_profanity_filter,
             )
         except ValueError:
             parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "

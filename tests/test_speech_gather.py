@@ -122,6 +122,33 @@ class SpeechGatherTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.render(language="auto", hints=UnreadHints(["sales"]))
 
+    def test_profanity_filter_is_explicit_and_isolated(self):
+        expected = fromstring(self.render(hints=["sales & support"]))
+        self.assertIsNone(expected[0].get("profanityFilter"))
+        for value, rendered in ((True, "true"), (False, "false")):
+            with self.subTest(value=value):
+                actual = fromstring(self.render(
+                    profanity_filter=value, hints=["sales & support"],
+                ))
+                self.assertEqual(actual[0].get("profanityFilter"), rendered)
+                del actual[0].attrib["profanityFilter"]
+                self.assertEqual(actual[0].attrib, expected[0].attrib)
+                self.assertEqual(actual[0][0].text, expected[0][0].text)
+
+    def test_profanity_filter_requires_exact_boolean_before_vocabulary(self):
+        class UnreadHints(list):
+            def __iter__(self):
+                raise AssertionError("invalid filter must fail before hint iteration")
+
+        for value in (0, 1, "true", "false", "private-filter", [], {}):
+            with self.subTest(value=repr(value)[:30]):
+                with self.assertRaises(ValueError) as error:
+                    self.render(
+                        profanity_filter=value, hints=UnreadHints(["sales"]),
+                    )
+                self.assertIn("profanity_filter", str(error.exception))
+                self.assertNotIn("private-filter", str(error.exception))
+
     def test_explicit_locale_is_offline_and_does_not_echo_configuration(self):
         with patch.dict("os.environ", {}, clear=True), patch(
             "socket.socket", side_effect=AssertionError("Network forbidden"),

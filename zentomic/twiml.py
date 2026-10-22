@@ -105,7 +105,7 @@ def render_speech_gather(
     prompt: str, *, action_path: str, timeout: int = 5,
     speech_timeout: int | Literal["auto"] = 2,
     hints: list[str] | tuple[str, ...] | None = None,
-    language: str = "en-US",
+    language: str = "en-US", profanity_filter: bool | None = None,
 ) -> str:
     """Serialize a speech-only collection for a future intent adapter.
 
@@ -118,6 +118,8 @@ def render_speech_gather(
     provider/model. Never supply transcripts, secrets, or customer data here.
     language selects recognition only from a small project allowlist; it does
     not translate the prompt, set Say's voice/language, or select a speech model.
+    profanity_filter explicitly asks the provider to redact or preserve recognized
+    profanity; None leaves the provider's configured/default behavior unchanged.
     Provider/model/region compatibility must be checked before live use.
     """
     _validate_prompt(prompt)
@@ -134,6 +136,8 @@ def render_speech_gather(
     if (not isinstance(language, str) or len(language) != 5
             or language not in SPEECH_RECOGNITION_LANGUAGES):
         raise ValueError("language must be a supported project recognition locale")
+    if profanity_filter is not None and type(profanity_filter) is not bool:
+        raise ValueError("profanity_filter must be a boolean or None")
     vocabulary = _speech_hints(hints)
 
     response = Element("Response")
@@ -144,6 +148,8 @@ def render_speech_gather(
     })
     if vocabulary is not None:
         gather.set("hints", vocabulary)
+    if profanity_filter is not None:
+        gather.set("profanityFilter", "true" if profanity_filter else "false")
     SubElement(gather, "Say").text = prompt
     return _serialize(response)
 

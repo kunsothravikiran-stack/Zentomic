@@ -383,6 +383,24 @@ and cannot configure another demo. This setting changes only the rendered
 `timeout` attribute. It does not run a timer, cap the whole Gather or call, or
 change the pause that ends an utterance.
 
+Preview an explicit provider profanity-redaction preference with
+`--speech-profanity-filter` or the keyword-only `profanity_filter` option on
+`simulate_speech`:
+
+```sh
+python -m zentomic.demo --speech-profanity-filter false --speech '' --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
+```
+
+Accepted CLI values are exact lowercase `true` and `false`. Omitting the option
+leaves the `profanityFilter` attribute out of the XML, preserving existing
+provider/default behavior. An explicit value is reused for speech retries and
+never appears on keypad confirmation. The setting changes only provider
+transcription redaction policy. This offline demo neither recognizes nor
+rewrites the synthetic transcript. Compatibility depends on the selected
+language and model; verify both against the current Twilio Gather reference
+before live use. `--speech-profanity-filter` requires `--speech` and cannot
+configure another demo.
+
 Preview fixed pause detection or the provider's automatic first-pause behavior
 with `--speech-timeout` or the keyword-only `speech_timeout` option on
 `simulate_speech`:
@@ -1277,6 +1295,26 @@ language, hints, and separately configured prompt voice against the current
 before live use. No live recognition is tested here. The offline demo defaults
 to US English and can preview these explicit locales; no production endpoint or
 workspace setting is added.
+
+Optional `profanity_filter` explicitly serializes Twilio's recognition-output
+redaction preference:
+
+```python
+from zentomic.twiml import render_speech_gather
+
+xml = render_speech_gather(
+    "Say sales or support.", action_path="/voice/speech-result",
+    profanity_filter=False,
+)
+```
+
+Only exact booleans are accepted. `True` and `False` render
+`profanityFilter="true"` and `profanityFilter="false"`; `None` omits the
+attribute and preserves prior XML byte for byte. Validation happens before
+optional vocabulary is consumed. This flag does not inspect text, filter local
+fixtures, or guarantee that a chosen recognition language/model supports the
+setting. Twilio documents unsupported combinations, so validate the complete
+provider configuration before deployment.
 
 Optional `hints` provide trusted business vocabulary for recognition:
 
