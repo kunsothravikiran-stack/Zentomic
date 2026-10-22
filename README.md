@@ -1413,6 +1413,14 @@ Surrogate code points in Python strings are rejected without replacement or
 normalization, so admitted text can be encoded for a classifier dependency.
 The form decoder already rejects malformed UTF-8; this also protects direct
 uses of the speech policy outside that transport decoder.
+An optional trusted `minimum_confidence_percent` integer from 0 through 100 can
+gate an explicitly supplied provider `Confidence` score. A present score must
+be a bounded decimal from 0 through 1; a lower or malformed score follows the
+same retry/fallback policy and is never reflected in the decision. Missing
+confidence remains admissible because Twilio does not guarantee that field is
+present or accurate. Treat this threshold as a routing quality hint, not proof
+of caller intent, identity, or authorization. See Twilio's
+[Gather action parameters](https://www.twilio.com/docs/voice/twiml/gather#action).
 Every completed collection consumes one attempt. Valid text on the last
 attempt can still be classified; an already exhausted budget always falls
 back without incrementing. Counts and fallback configuration follow
@@ -1764,6 +1772,9 @@ and fallback. Only authenticated `SpeechResult` enters speech policy; request
 fields cannot replace that configuration. Missing or blank speech retries
 within the budget, oversized input is not admitted, and exhausted collections
 fall back even when text is present. Accepted text is preserved unchanged.
+When trusted `minimum_confidence_percent` is configured, authenticated
+`Confidence` below that threshold or malformed follows the same finite retry
+budget. An omitted score never blocks otherwise valid speech.
 
 The result is a `SpeechDecision`, not a classifier call or routing decision.
 Authentication and identity failures never reach speech policy. As with the

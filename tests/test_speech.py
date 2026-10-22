@@ -5,7 +5,12 @@ from dataclasses import FrozenInstanceError
 from unittest.mock import patch
 
 from zentomic.intent import resolve_intent
-from zentomic.speech import MAX_TRANSCRIPT_CHARS, SpeechDecision, resolve_speech_gather
+from zentomic.speech import (
+    MAX_CONFIDENCE_CHARACTERS,
+    MAX_TRANSCRIPT_CHARS,
+    SpeechDecision,
+    resolve_speech_gather,
+)
 from zentomic.webhook import parse_form_body
 
 
@@ -78,6 +83,65 @@ class SpeechDecisionTests(unittest.TestCase):
             with self.subTest(attempts=attempts):
                 self.assertEqual(self.decide("sales", attempts=attempts),
                                  SpeechDecision("fallback", None, "reception", attempts))
+
+    def test_optional_confidence_threshold_retries_only_explicit_low_scores(self):
+        for confidence in (None, "0.80", "0.8000", "1", "1.0"):
+            with self.subTest(confidence=confidence):
+                self.assertEqual(
+                    self.decide(
+                        "sales", confidence=confidence,
+                        minimum_confidence_percent=80,
+                    ),
+                    SpeechDecision("classify", "sales", None, 1),
+                )
+        for confidence in ("0", "0.799999", "0.01"):
+            with self.subTest(confidence=confidence):
+                self.assertEqual(
+                    self.decide(
+                        "sales", confidence=confidence,
+                        minimum_confidence_percent=80,
+                    ),
+                    SpeechDecision("retry", None, None, 1),
+                )
+
+    def test_configured_threshold_rejects_malformed_present_scores_privately(self):
+        for confidence in (
+            "", " ", "00.8", ".8", "0.", "1.01", "-0.1", "+0.8", "8e-1",
+            "nan", "inf", "private-confidence", "0.8\n", "0.8\ud800",
+            "0." + "1" * MAX_CONFIDENCE_CHARACTERS, 0.8, True, [], {},
+        ):
+            with self.subTest(confidence=repr(confidence)[:40]):
+                decision = self.decide(
+                    "sales", confidence=confidence,
+                    minimum_confidence_percent=80,
+                )
+                self.assertEqual(decision, SpeechDecision("retry", None, None, 1))
+                self.assertNotIn("private-confidence", repr(decision))
+
+    def test_confidence_is_ignored_without_an_explicit_threshold(self):
+        for confidence in (None, "0", "private-confidence", 0.1, []):
+            with self.subTest(confidence=repr(confidence)):
+                self.assertEqual(
+                    self.decide("sales", confidence=confidence),
+                    SpeechDecision("classify", "sales", None, 1),
+                )
+
+    def test_confidence_threshold_configuration_is_strict(self):
+        for threshold in (0, 1, 80, 100):
+            with self.subTest(threshold=threshold):
+                self.assertEqual(
+                    self.decide(
+                        "sales", confidence="1",
+                        minimum_confidence_percent=threshold,
+                    ).action,
+                    "classify",
+                )
+        for threshold in (-1, 101, True, False, 80.0, "80", [], {}):
+            with self.subTest(threshold=repr(threshold)), self.assertRaises(ValueError):
+                self.decide(
+                    "sales", confidence="0.8",
+                    minimum_confidence_percent=threshold,
+                )
 
     def test_repeated_silence_terminates_without_resetting_the_budget(self):
         attempts = 0
