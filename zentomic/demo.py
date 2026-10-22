@@ -38,6 +38,18 @@ def _parse_speech_timeout(value: str | None) -> int | Literal["auto"]:
     raise ValueError("speech timeout must be auto or an integer from 1 to 60")
 
 
+def _parse_speech_input_timeout(value: str | None) -> int:
+    """Parse the demo's bounded wait for speech to begin."""
+    if value is None:
+        return 5
+    if (value.isascii() and value.isdecimal() and not value.startswith("0")
+            and len(value) <= 2):
+        seconds = int(value)
+        if seconds <= 60:
+            return seconds
+    raise ValueError("speech input timeout must be an integer from 1 to 60")
+
+
 def simulate_business_hours(
     instants: Iterable[datetime], *, timezone_name: str = "America/New_York",
 ) -> list[dict]:
@@ -198,7 +210,7 @@ def simulate_classification(response: str | None, digits: Iterable[str]) -> list
 def simulate_speech(
     speeches: Iterable[str | None], response: str | None, digits: Iterable[str],
     *, hints: list[str] | tuple[str, ...] | None = None, language: str = "en-US",
-    speech_timeout: int | Literal["auto"] = 2,
+    input_timeout: int = 5, speech_timeout: int | Literal["auto"] = 2,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -211,12 +223,14 @@ def simulate_speech(
     appears in collection XML, and never changes the classifier fixture.
     The explicit recognition language changes only the speech Gather XML; it
     does not translate prompts, classifier fixtures, or confirmation prompts.
+    The input timeout controls how long collection waits for speech to begin.
     The speech timeout controls the simulated collection XML only; ``auto``
     asks a future provider to stop at the first pause, not after a fixed limit.
     """
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
-        hints=hints, language=language, speech_timeout=speech_timeout,
+        timeout=input_timeout, hints=hints, language=language,
+        speech_timeout=speech_timeout,
     )
     steps = [{"stage": "speech", "action": "gather", "attempts": 0, "twiml": collection}]
     inputs = iter(speeches)
@@ -293,6 +307,10 @@ def main(argv: list[str] | None = None) -> int:
         "--speech-timeout", metavar="SECONDS|auto",
         help="pause ending speech collection (1-60 or auto; default: 2); requires --speech",
     )
+    parser.add_argument(
+        "--speech-input-timeout", metavar="SECONDS",
+        help="wait for speech to begin (1-60; default: 5); requires --speech",
+    )
     args = parser.parse_args(argv)
     if args.speech_hint is not None and args.speech is None:
         parser.error("--speech-hint requires --speech")
@@ -300,6 +318,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-language requires --speech")
     if args.speech_timeout is not None and args.speech is None:
         parser.error("--speech-timeout requires --speech")
+    if args.speech_input_timeout is not None and args.speech is None:
+        parser.error("--speech-input-timeout requires --speech")
     if (args.speech_language is not None
             and args.speech_language not in SPEECH_RECOGNITION_LANGUAGES):
         parser.error("invalid synthetic speech language; use a supported project locale")
@@ -307,6 +327,10 @@ def main(argv: list[str] | None = None) -> int:
         speech_timeout = _parse_speech_timeout(args.speech_timeout)
     except ValueError:
         parser.error("invalid synthetic speech timeout; use auto or an integer from 1 to 60")
+    try:
+        speech_input_timeout = _parse_speech_input_timeout(args.speech_input_timeout)
+    except ValueError:
+        parser.error("invalid synthetic speech input timeout; use an integer from 1 to 60")
     if args.business_hours_timezone is not None and args.business_hours_at is None:
         parser.error("--business-hours-timezone requires --business-hours-at")
     if args.business_hours_at is not None and (args.digits or args.speech is not None):
@@ -346,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
             steps = simulate_speech(
                 args.speech, args.classifier_response, args.digits, hints=args.speech_hint,
                 language=("en-US" if args.speech_language is None else args.speech_language),
-                speech_timeout=speech_timeout,
+                input_timeout=speech_input_timeout, speech_timeout=speech_timeout,
             )
         except ValueError:
             parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "

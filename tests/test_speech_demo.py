@@ -191,6 +191,94 @@ class SpeechDemoTests(unittest.TestCase):
             self.assertEqual(output.getvalue(), "")
             self.assertIn("--speech-language requires --speech", errors.getvalue())
 
+    def test_explicit_input_timeout_changes_only_speech_collection_xml(self):
+        baseline = simulate_speech(["", "synthetic"], '{"intent":"support"}', ["1"])
+        for input_timeout in (1, 60):
+            with self.subTest(input_timeout=input_timeout), offline_guard():
+                steps = simulate_speech(
+                    ["", "synthetic"], '{"intent":"support"}', ["1"],
+                    input_timeout=input_timeout,
+                )
+            self.assertEqual(steps[-1]["target"], "demo-support")
+            for step, original in zip(steps, baseline, strict=True):
+                if step["stage"] == "speech" and "twiml" in step:
+                    actual = fromstring(step["twiml"])
+                    expected = fromstring(original["twiml"])
+                    self.assertEqual(actual[0].get("timeout"), str(input_timeout))
+                    actual[0].set("timeout", "5")
+                    self.assertEqual(actual.attrib, expected.attrib)
+                    self.assertEqual(actual[0].attrib, expected[0].attrib)
+                    self.assertEqual(actual[0][0].text, expected[0][0].text)
+                else:
+                    self.assertEqual(step, original)
+
+    def test_invalid_input_timeout_fails_before_hints_inputs_or_classifier(self):
+        class UnreadHints(list):
+            def __iter__(self):
+                raise AssertionError("invalid timeout must fail before hint iteration")
+
+        for input_timeout in (None, True, 0, 61, "5", "auto", "private-timeout"):
+            with self.subTest(input_timeout=input_timeout), offline_guard(), \
+                    patch("zentomic.demo.parse_intent_response") as classify:
+                with self.assertRaises(ValueError) as error:
+                    simulate_speech(
+                        unused_inputs(), None, unused_inputs(),
+                        hints=UnreadHints(["sales"]), input_timeout=input_timeout,
+                    )
+            classify.assert_not_called()
+            self.assertNotIn("private-timeout", str(error.exception))
+
+    def test_cli_input_timeout_is_reused_only_for_speech_retries(self):
+        for value in ("1", "60"):
+            output = io.StringIO()
+            args = ["--speech-input-timeout", value, "--speech", "",
+                    "--speech", "synthetic", "--classifier-response",
+                    '{"intent":"sales"}', "1"]
+            with self.subTest(value=value), offline_guard(), redirect_stdout(output):
+                self.assertEqual(main(args), 0)
+            steps = json.loads(output.getvalue())["steps"]
+            speech_xml = [fromstring(step["twiml"])[0] for step in steps
+                          if step["stage"] == "speech" and "twiml" in step]
+            self.assertEqual(len(speech_xml), 2)
+            self.assertTrue(all(gather.get("timeout") == value for gather in speech_xml))
+            confirmation = [fromstring(step["twiml"])[0] for step in steps
+                            if step["stage"] == "confirmation" and "twiml" in step]
+            self.assertTrue(confirmation)
+            self.assertTrue(all(gather.get("timeout") == "5" for gather in confirmation))
+            self.assertEqual(steps[-1]["target"], "demo-sales")
+
+    def test_cli_invalid_input_timeout_is_private_and_prints_no_partial_json(self):
+        for value in ("0", "00", "01", "61", "+1", "1.0", "auto",
+                      "private-timeout", "9" * 10000):
+            output, errors = io.StringIO(), io.StringIO()
+            args = ["--speech-input-timeout", value, "--speech", "synthetic",
+                    "--classifier-response", '{"intent":"sales"}']
+            with self.subTest(value=value[:20]), offline_guard(), \
+                    redirect_stdout(output), redirect_stderr(errors), \
+                    patch("zentomic.demo.simulate_speech") as simulate:
+                with self.assertRaises(SystemExit) as error:
+                    main(args)
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("invalid synthetic speech input timeout", errors.getvalue())
+            self.assertNotIn("private-timeout", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
+            simulate.assert_not_called()
+
+    def test_cli_input_timeout_requires_speech_and_cannot_configure_other_modes(self):
+        for mode in ([], ["1"], ["--intent", "sales"],
+                     ["--classifier-response", '{"intent":"sales"}'],
+                     ["--dial-result", "busy"], ["--call-status", "completed"],
+                     ["--business-hours-at", "2026-01-05T14:00:00Z"]):
+            output, errors = io.StringIO(), io.StringIO()
+            with self.subTest(mode=mode), offline_guard(), \
+                    redirect_stdout(output), redirect_stderr(errors):
+                with self.assertRaises(SystemExit) as error:
+                    main(["--speech-input-timeout", "5", *mode])
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("--speech-input-timeout requires --speech", errors.getvalue())
+
     def test_explicit_speech_timeout_changes_only_speech_collection_xml(self):
         baseline = simulate_speech(["", "synthetic"], '{"intent":"support"}', ["1"])
         for speech_timeout in (1, 60, "auto"):
