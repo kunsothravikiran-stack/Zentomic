@@ -401,6 +401,22 @@ language and model; verify both against the current Twilio Gather reference
 before live use. `--speech-profanity-filter` requires `--speech` and cannot
 configure another demo.
 
+Preview a stable generic recognition model with `--speech-model` or the
+keyword-only `speech_model` option on `simulate_speech`:
+
+```sh
+python -m zentomic.demo --speech-model phone_call --speech '' --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
+```
+
+The project allowlist is `default`, `numbers_and_commands`, and `phone_call`.
+Omitting the option leaves `speechModel` out of the XML, preserving provider
+selection and existing output. One explicit model is reused for speech retries
+and never appears on keypad confirmation. Invalid or unsupported names exit 2
+without partial JSON or reflecting the supplied value. This offline preview
+does not run recognition, choose a provider, or guarantee compatibility with
+the selected language, hints, or profanity policy. Check the current Twilio
+Gather reference before live use. `--speech-model` requires `--speech`.
+
 Preview fixed pause detection or the provider's automatic first-pause behavior
 with `--speech-timeout` or the keyword-only `speech_timeout` option on
 `simulate_speech`:
@@ -1267,7 +1283,7 @@ whole-call duration or billing cap. These attributes follow the
 `speech_timeout` accepts the same integer range or exact lowercase `"auto"`,
 which stops recognition at the first pause; booleans and other strings remain
 invalid. Prompt and callback-path validation are identical to the keypad
-renderer. No speech model or partial transcription callback is selected;
+renderer. No speech model or partial transcription callback is selected by default;
 keypad collection remains unchanged.
 
 Optional `language` selects an explicit recognition locale from the project's
@@ -1295,6 +1311,25 @@ language, hints, and separately configured prompt voice against the current
 before live use. No live recognition is tested here. The offline demo defaults
 to US English and can preview these explicit locales; no production endpoint or
 workspace setting is added.
+
+Optional `speech_model` selects one stable generic provider model from the
+project allowlist:
+
+```python
+from zentomic.twiml import render_speech_gather
+
+xml = render_speech_gather(
+    "Say sales or support.", action_path="/voice/speech-result",
+    speech_model="phone_call",
+)
+```
+
+Accepted names are exact lowercase `default`, `numbers_and_commands`, and
+`phone_call`. `None` omits `speechModel`, preserving prior XML and provider
+selection. Invalid values fail before optional vocabulary is consumed. The
+allowlist deliberately excludes experimental and provider-specific names; it
+does not guarantee that every allowed model works with every language, region,
+hint, or profanity setting. Verify the complete configuration before live use.
 
 Optional `profanity_filter` explicitly serializes Twilio's recognition-output
 redaction preference:

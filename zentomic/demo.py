@@ -15,6 +15,7 @@ from zentomic.intent import resolve_intent_confirmation
 from zentomic.speech import resolve_speech_gather
 from zentomic.twiml import (
     SPEECH_RECOGNITION_LANGUAGES,
+    SPEECH_RECOGNITION_MODELS,
     render_dtmf_gather,
     render_hangup,
     render_speech_gather,
@@ -222,7 +223,7 @@ def simulate_speech(
     speeches: Iterable[str | None], response: str | None, digits: Iterable[str],
     *, hints: list[str] | tuple[str, ...] | None = None, language: str = "en-US",
     input_timeout: int = 5, speech_timeout: int | Literal["auto"] = 2,
-    profanity_filter: bool | None = None,
+    profanity_filter: bool | None = None, speech_model: str | None = None,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -240,11 +241,14 @@ def simulate_speech(
     asks a future provider to stop at the first pause, not after a fixed limit.
     An explicit profanity filter changes recognition output policy only; it
     does not inspect, rewrite, or return the supplied synthetic transcript.
+    An explicit speech model changes only the collection XML and does not run
+    recognition or select a provider.
     """
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
         timeout=input_timeout, hints=hints, language=language,
         speech_timeout=speech_timeout, profanity_filter=profanity_filter,
+        speech_model=speech_model,
     )
     steps = [{"stage": "speech", "action": "gather", "attempts": 0, "twiml": collection}]
     inputs = iter(speeches)
@@ -329,6 +333,10 @@ def main(argv: list[str] | None = None) -> int:
         "--speech-profanity-filter", metavar="true|false",
         help="explicit recognition redaction policy; requires --speech",
     )
+    parser.add_argument(
+        "--speech-model", metavar="MODEL",
+        help="generic recognition model for collection XML; requires --speech",
+    )
     args = parser.parse_args(argv)
     if args.speech_hint is not None and args.speech is None:
         parser.error("--speech-hint requires --speech")
@@ -340,9 +348,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-input-timeout requires --speech")
     if args.speech_profanity_filter is not None and args.speech is None:
         parser.error("--speech-profanity-filter requires --speech")
+    if args.speech_model is not None and args.speech is None:
+        parser.error("--speech-model requires --speech")
     if (args.speech_language is not None
             and args.speech_language not in SPEECH_RECOGNITION_LANGUAGES):
         parser.error("invalid synthetic speech language; use a supported project locale")
+    if (args.speech_model is not None
+            and args.speech_model not in SPEECH_RECOGNITION_MODELS):
+        parser.error("invalid synthetic speech model; use a supported generic model")
     try:
         speech_timeout = _parse_speech_timeout(args.speech_timeout)
     except ValueError:
@@ -397,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.speech, args.classifier_response, args.digits, hints=args.speech_hint,
                 language=("en-US" if args.speech_language is None else args.speech_language),
                 input_timeout=speech_input_timeout, speech_timeout=speech_timeout,
-                profanity_filter=speech_profanity_filter,
+                profanity_filter=speech_profanity_filter, speech_model=args.speech_model,
             )
         except ValueError:
             parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "

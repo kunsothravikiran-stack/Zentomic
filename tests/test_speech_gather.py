@@ -149,6 +149,31 @@ class SpeechGatherTests(unittest.TestCase):
                 self.assertIn("profanity_filter", str(error.exception))
                 self.assertNotIn("private-filter", str(error.exception))
 
+    def test_speech_model_is_explicit_and_isolated(self):
+        expected = fromstring(self.render(hints=["sales & support"]))
+        self.assertIsNone(expected[0].get("speechModel"))
+        for model in ("default", "numbers_and_commands", "phone_call"):
+            with self.subTest(model=model):
+                actual = fromstring(self.render(
+                    speech_model=model, hints=["sales & support"],
+                ))
+                self.assertEqual(actual[0].get("speechModel"), model)
+                del actual[0].attrib["speechModel"]
+                self.assertEqual(actual[0].attrib, expected[0].attrib)
+                self.assertEqual(actual[0][0].text, expected[0][0].text)
+
+    def test_speech_model_uses_project_allowlist_before_vocabulary(self):
+        class UnreadHints(list):
+            def __iter__(self):
+                raise AssertionError("invalid model must fail before hint iteration")
+
+        for model in ("", "DEFAULT", "experimental_utterances", "private-model", 1, []):
+            with self.subTest(model=repr(model)[:30]):
+                with self.assertRaises(ValueError) as error:
+                    self.render(speech_model=model, hints=UnreadHints(["sales"]))
+                self.assertIn("speech_model", str(error.exception))
+                self.assertNotIn("private-model", str(error.exception))
+
     def test_explicit_locale_is_offline_and_does_not_echo_configuration(self):
         with patch.dict("os.environ", {}, clear=True), patch(
             "socket.socket", side_effect=AssertionError("Network forbidden"),

@@ -16,6 +16,10 @@ MAX_SPEECH_HINT_CHARACTERS = 100
 SPEECH_RECOGNITION_LANGUAGES = frozenset({
     "en-US", "en-GB", "en-IN", "es-US", "es-ES", "hi-IN",
 })
+# Stable generic models kept intentionally smaller than the provider catalog.
+SPEECH_RECOGNITION_MODELS = frozenset({
+    "default", "numbers_and_commands", "phone_call",
+})
 
 
 def _serialize(response: Element) -> str:
@@ -106,6 +110,7 @@ def render_speech_gather(
     speech_timeout: int | Literal["auto"] = 2,
     hints: list[str] | tuple[str, ...] | None = None,
     language: str = "en-US", profanity_filter: bool | None = None,
+    speech_model: str | None = None,
 ) -> str:
     """Serialize a speech-only collection for a future intent adapter.
 
@@ -120,6 +125,8 @@ def render_speech_gather(
     not translate the prompt, set Say's voice/language, or select a speech model.
     profanity_filter explicitly asks the provider to redact or preserve recognized
     profanity; None leaves the provider's configured/default behavior unchanged.
+    speech_model optionally selects one stable generic model from a project
+    allowlist; None leaves provider model selection unchanged.
     Provider/model/region compatibility must be checked before live use.
     """
     _validate_prompt(prompt)
@@ -138,6 +145,10 @@ def render_speech_gather(
         raise ValueError("language must be a supported project recognition locale")
     if profanity_filter is not None and type(profanity_filter) is not bool:
         raise ValueError("profanity_filter must be a boolean or None")
+    if (speech_model is not None
+            and (not isinstance(speech_model, str)
+                 or speech_model not in SPEECH_RECOGNITION_MODELS)):
+        raise ValueError("speech_model must be a supported project recognition model or None")
     vocabulary = _speech_hints(hints)
 
     response = Element("Response")
@@ -150,6 +161,8 @@ def render_speech_gather(
         gather.set("hints", vocabulary)
     if profanity_filter is not None:
         gather.set("profanityFilter", "true" if profanity_filter else "false")
+    if speech_model is not None:
+        gather.set("speechModel", speech_model)
     SubElement(gather, "Say").text = prompt
     return _serialize(response)
 

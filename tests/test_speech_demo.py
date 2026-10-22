@@ -366,6 +366,72 @@ class SpeechDemoTests(unittest.TestCase):
             self.assertNotIn("Traceback", errors.getvalue())
             simulate.assert_not_called()
 
+    def test_explicit_speech_model_changes_only_speech_collection_xml(self):
+        baseline = simulate_speech(["", "synthetic"], '{"intent":"support"}', ["1"])
+        for model in ("default", "numbers_and_commands", "phone_call"):
+            with self.subTest(model=model), offline_guard():
+                steps = simulate_speech(
+                    ["", "synthetic"], '{"intent":"support"}', ["1"],
+                    speech_model=model,
+                )
+            self.assertEqual(steps[-1]["target"], "demo-support")
+            for step, original in zip(steps, baseline, strict=True):
+                if step["stage"] == "speech" and "twiml" in step:
+                    actual = fromstring(step["twiml"])
+                    expected = fromstring(original["twiml"])
+                    self.assertEqual(actual[0].get("speechModel"), model)
+                    del actual[0].attrib["speechModel"]
+                    self.assertEqual(actual[0].attrib, expected[0].attrib)
+                    self.assertEqual(actual[0][0].text, expected[0][0].text)
+                else:
+                    self.assertEqual(step, original)
+
+    def test_invalid_speech_model_fails_before_hints_inputs_or_classifier(self):
+        class UnreadHints(list):
+            def __iter__(self):
+                raise AssertionError("invalid model must fail before hint iteration")
+
+        for model in ("", "DEFAULT", "experimental_utterances", "private-model", 1, []):
+            with self.subTest(model=repr(model)[:30]), offline_guard(), \
+                    patch("zentomic.demo.parse_intent_response") as classify:
+                with self.assertRaises(ValueError) as error:
+                    simulate_speech(
+                        unused_inputs(), None, unused_inputs(),
+                        hints=UnreadHints(["sales"]), speech_model=model,
+                    )
+            classify.assert_not_called()
+            self.assertNotIn("private-model", str(error.exception))
+
+    def test_cli_speech_model_requires_speech_and_uses_exact_allowlist(self):
+        for mode in ([], ["1"], ["--intent", "sales"],
+                     ["--classifier-response", '{"intent":"sales"}'],
+                     ["--dial-result", "busy"], ["--call-status", "completed"],
+                     ["--business-hours-at", "2026-01-05T14:00:00Z"]):
+            output, errors = io.StringIO(), io.StringIO()
+            with self.subTest(mode=mode), offline_guard(), \
+                    redirect_stdout(output), redirect_stderr(errors):
+                with self.assertRaises(SystemExit) as error:
+                    main(["--speech-model", "phone_call", *mode])
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("--speech-model requires --speech", errors.getvalue())
+
+        for model in ("DEFAULT", "experimental_utterances", "private-model"):
+            output, errors = io.StringIO(), io.StringIO()
+            args = ["--speech-model", model, "--speech", "synthetic",
+                    "--classifier-response", '{"intent":"sales"}']
+            with self.subTest(model=model), offline_guard(), redirect_stdout(output), \
+                    redirect_stderr(errors), \
+                    patch("zentomic.demo.simulate_speech") as simulate:
+                with self.assertRaises(SystemExit) as error:
+                    main(args)
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("invalid synthetic speech model", errors.getvalue())
+            self.assertNotIn("private-model", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
+            simulate.assert_not_called()
+
     def test_explicit_speech_timeout_changes_only_speech_collection_xml(self):
         baseline = simulate_speech(["", "synthetic"], '{"intent":"support"}', ["1"])
         for speech_timeout in (1, 60, "auto"):
