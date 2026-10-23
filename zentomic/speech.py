@@ -31,6 +31,7 @@ def _validate_speech_configuration(
     *, fallback_target: str, attempts: int, max_attempts: int,
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
 ) -> GatherDecision:
     """Return the collection budget after validating trusted speech policy."""
     if (minimum_confidence_percent is not None
@@ -39,6 +40,11 @@ def _validate_speech_configuration(
         raise ValueError("minimum_confidence_percent must be an integer from 0 to 100 or None")
     if type(require_confidence) is not bool:
         raise ValueError("require_confidence must be a boolean")
+    if (type(max_transcript_characters) is not int
+            or not 1 <= max_transcript_characters <= MAX_TRANSCRIPT_CHARS):
+        raise ValueError(
+            "max_transcript_characters must be an integer from 1 to 2000"
+        )
     return resolve_gather(
         None, {}, fallback_target=fallback_target,
         attempts=attempts, max_attempts=max_attempts,
@@ -70,10 +76,11 @@ def _resolve_validated_speech(
     attempts: int, max_attempts: int, confidence: str | None = None,
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
 ) -> SpeechDecision:
     """Admit speech after the caller validated and snapshotted its budget."""
     if (attempts < max_attempts and isinstance(speech, str)
-            and len(speech) <= MAX_TRANSCRIPT_CHARS and speech.strip()
+            and len(speech) <= max_transcript_characters and speech.strip()
             and _confidence_meets_minimum(
                 confidence, minimum_confidence_percent,
                 require_confidence=require_confidence,
@@ -92,6 +99,7 @@ def resolve_speech_gather(
     speech: str | None, *, fallback_target: str, attempts: int, max_attempts: int = 3,
     confidence: str | None = None, minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
 ) -> SpeechDecision:
     """Admit bounded nonblank text, or retry silence within a trusted budget.
 
@@ -101,8 +109,9 @@ def resolve_speech_gather(
     is an integer percentage from 0 through 100. Missing provider confidence
     remains admissible because the field is not guaranteed, unless trusted
     configuration explicitly requires it. Under either confidence policy, a
-    present score must be a bounded decimal from 0 through 1. The
-    2000-character limit applies before whitespace trimming;
+    present score must be a bounded decimal from 0 through 1. The trusted
+    transcript limit is an integer from 1 through the fixed
+    2000-character ceiling and applies before whitespace trimming;
     accepted text must be UTF-8 encodable and is returned unchanged. Surrogate
     code points are rejected, not silently replaced or repaired.
     Valid text on the last attempt may be classified, but an already exhausted
@@ -118,10 +127,12 @@ def resolve_speech_gather(
         max_attempts=max_attempts,
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        max_transcript_characters=max_transcript_characters,
     )
     return _resolve_validated_speech(
         speech, budget=budget, attempts=attempts, max_attempts=max_attempts,
         confidence=confidence,
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        max_transcript_characters=max_transcript_characters,
     )

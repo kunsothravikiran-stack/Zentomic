@@ -9,6 +9,7 @@ from zentomic.callback_claim_store import (
     validate_and_claim_call_event,
 )
 from zentomic.speech import (
+    MAX_TRANSCRIPT_CHARS,
     SpeechDecision,
     _resolve_validated_speech,
     _validate_speech_configuration,
@@ -22,6 +23,7 @@ def resolve_speech_event(
     fallback_target: str, attempts: int, max_attempts: int = 3,
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
 ) -> SpeechDecision:
     """Authenticate a speech callback, then propose bounded text admission.
 
@@ -31,6 +33,8 @@ def resolve_speech_event(
     threshold rejects an explicitly lower or malformed provider score, while a
     missing score remains admissible because the provider does not guarantee it,
     unless trusted configuration explicitly requires one.
+    A trusted transcript limit can tighten the global 2000-character ceiling
+    before any text reaches a future classifier.
     Policy configuration is validated after authentication. Accepted text
     remains untrusted and is not logged.
 
@@ -52,6 +56,7 @@ def resolve_speech_event(
         confidence=fields.get("Confidence"),
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        max_transcript_characters=max_transcript_characters,
     )
 
 
@@ -62,6 +67,7 @@ def resolve_claimed_speech_event(
     fallback_target: str, attempts: int, max_attempts: int = 3,
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
 ) -> SpeechDecision:
     """Validate trusted state, authenticate, claim, then admit speech once.
 
@@ -71,7 +77,7 @@ def resolve_claimed_speech_event(
     also leave it unclaimed, while authenticated replays fail before speech is
     inspected or returned. If configured, the trusted confidence presence and
     threshold rules are part of that policy snapshot; callback fields cannot
-    replace them.
+    replace them. The trusted transcript limit is snapshotted the same way.
 
     Production adapters still need an authorized current-step check and a
     durable conditional write, transactionally combined with related session
@@ -83,6 +89,7 @@ def resolve_claimed_speech_event(
         max_attempts=max_attempts,
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        max_transcript_characters=max_transcript_characters,
     )
     fields = validate_and_claim_call_event(
         event, public_url=public_url, validator=validator,
@@ -95,4 +102,5 @@ def resolve_claimed_speech_event(
         max_attempts=max_attempts, confidence=fields.get("Confidence"),
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        max_transcript_characters=max_transcript_characters,
     )

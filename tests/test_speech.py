@@ -59,6 +59,29 @@ class SpeechDecisionTests(unittest.TestCase):
                 self.assertEqual(self.decide(speech + "x").action, "retry")
         self.assertEqual(self.decide(" " * MAX_TRANSCRIPT_CHARS + "x").action, "retry")
 
+    def test_trusted_transcript_limit_can_reduce_classifier_input(self):
+        for limit in (1, 80, MAX_TRANSCRIPT_CHARS):
+            with self.subTest(limit=limit):
+                accepted = "x" * limit
+                self.assertEqual(
+                    self.decide(
+                        accepted, max_transcript_characters=limit,
+                    ),
+                    SpeechDecision("classify", accepted, None, 1),
+                )
+                self.assertEqual(
+                    self.decide(
+                        accepted + "x", max_transcript_characters=limit,
+                    ),
+                    SpeechDecision("retry", None, None, 1),
+                )
+
+    def test_trusted_transcript_limit_is_strict(self):
+        for limit in (0, -1, MAX_TRANSCRIPT_CHARS + 1, True, False,
+                      80.0, "80", None, [], {}):
+            with self.subTest(limit=repr(limit)), self.assertRaises(ValueError):
+                self.decide("sales", max_transcript_characters=limit)
+
     def test_invalid_unicode_never_reaches_classification(self):
         # Python strings (including decoded JSON) may contain surrogate code
         # points that cannot be sent as UTF-8 to a classifier dependency.

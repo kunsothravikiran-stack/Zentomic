@@ -99,7 +99,9 @@ class SpeechEventTests(unittest.TestCase):
         for overrides in ({"attempts": True}, {"attempts": -1}, {"max_attempts": 0},
                           {"fallback_target": ""},
                           {"minimum_confidence_percent": 101},
-                          {"require_confidence": 1}):
+                          {"require_confidence": 1},
+                          {"max_transcript_characters": 0},
+                          {"max_transcript_characters": 2001}):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 self.resolve(callback({"SpeechResult": "Synthetic request"}, "2.0", False),
                              Mock(return_value=True), **overrides)
@@ -132,6 +134,24 @@ class SpeechEventTests(unittest.TestCase):
                     require_confidence=True,
                 )
                 self.assertEqual(decision.action, action)
+
+    def test_authenticated_speech_obeys_trusted_transcript_limit(self):
+        event = callback(
+            {"SpeechResult": "synthetic request", "max_transcript_characters": "999"},
+            "2.0", False,
+        )
+        self.assertEqual(
+            self.resolve(
+                event, Mock(return_value=True), max_transcript_characters=17,
+            ),
+            SpeechDecision("classify", "synthetic request", None, 1),
+        )
+        self.assertEqual(
+            self.resolve(
+                event, Mock(return_value=True), max_transcript_characters=16,
+            ),
+            SpeechDecision("retry", None, None, 1),
+        )
 
 
 class ClaimedSpeechEventTests(unittest.TestCase):
@@ -223,6 +243,8 @@ class ClaimedSpeechEventTests(unittest.TestCase):
             {"max_attempts": 0},
             {"minimum_confidence_percent": 101},
             {"require_confidence": "true"},
+            {"max_transcript_characters": 0},
+            {"max_transcript_characters": 2001},
         ):
             validator = Mock(return_value=True)
             store = InMemoryCallbackClaimStore()
