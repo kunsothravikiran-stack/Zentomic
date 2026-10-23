@@ -21,6 +21,7 @@ def resolve_speech_event(
     expected_account_sid: str, expected_call_sid: str,
     fallback_target: str, attempts: int, max_attempts: int = 3,
     minimum_confidence_percent: int | None = None,
+    require_confidence: bool = False,
 ) -> SpeechDecision:
     """Authenticate a speech callback, then propose bounded text admission.
 
@@ -28,7 +29,8 @@ def resolve_speech_event(
     never callback fields. Only authenticated SpeechResult enters the existing
     speech policy; missing input is silence. An optional trusted confidence
     threshold rejects an explicitly lower or malformed provider score, while a
-    missing score remains admissible because the provider does not guarantee it.
+    missing score remains admissible because the provider does not guarantee it,
+    unless trusted configuration explicitly requires one.
     Policy configuration is validated after authentication. Accepted text
     remains untrusted and is not logged.
 
@@ -49,6 +51,7 @@ def resolve_speech_event(
         attempts=attempts, max_attempts=max_attempts,
         confidence=fields.get("Confidence"),
         minimum_confidence_percent=minimum_confidence_percent,
+        require_confidence=require_confidence,
     )
 
 
@@ -58,6 +61,7 @@ def resolve_claimed_speech_event(
     workspace_id: str, step_id: str, claimer: CallbackClaimer,
     fallback_target: str, attempts: int, max_attempts: int = 3,
     minimum_confidence_percent: int | None = None,
+    require_confidence: bool = False,
 ) -> SpeechDecision:
     """Validate trusted state, authenticate, claim, then admit speech once.
 
@@ -65,8 +69,9 @@ def resolve_claimed_speech_event(
     session snapshot. Policy is validated before authentication and claiming,
     so invalid configuration cannot consume a valid step. Rejected callbacks
     also leave it unclaimed, while authenticated replays fail before speech is
-    inspected or returned. If configured, the trusted confidence threshold is
-    part of that policy snapshot; callback fields cannot replace it.
+    inspected or returned. If configured, the trusted confidence presence and
+    threshold rules are part of that policy snapshot; callback fields cannot
+    replace them.
 
     Production adapters still need an authorized current-step check and a
     durable conditional write, transactionally combined with related session
@@ -77,6 +82,7 @@ def resolve_claimed_speech_event(
         fallback_target=fallback_target, attempts=attempts,
         max_attempts=max_attempts,
         minimum_confidence_percent=minimum_confidence_percent,
+        require_confidence=require_confidence,
     )
     fields = validate_and_claim_call_event(
         event, public_url=public_url, validator=validator,
@@ -88,4 +94,5 @@ def resolve_claimed_speech_event(
         fields.get("SpeechResult"), budget=budget, attempts=attempts,
         max_attempts=max_attempts, confidence=fields.get("Confidence"),
         minimum_confidence_percent=minimum_confidence_percent,
+        require_confidence=require_confidence,
     )

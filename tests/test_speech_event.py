@@ -98,7 +98,8 @@ class SpeechEventTests(unittest.TestCase):
     def test_invalid_trusted_policy_configuration_is_not_hidden(self):
         for overrides in ({"attempts": True}, {"attempts": -1}, {"max_attempts": 0},
                           {"fallback_target": ""},
-                          {"minimum_confidence_percent": 101}):
+                          {"minimum_confidence_percent": 101},
+                          {"require_confidence": 1}):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 self.resolve(callback({"SpeechResult": "Synthetic request"}, "2.0", False),
                              Mock(return_value=True), **overrides)
@@ -118,6 +119,19 @@ class SpeechEventTests(unittest.TestCase):
                 )
                 self.assertEqual(decision.action, action)
                 self.assertNotIn("private-score", repr(decision))
+
+    def test_authenticated_confidence_can_be_required(self):
+        for fields, action in (
+            ({"SpeechResult": "Synthetic request"}, "retry"),
+            ({"SpeechResult": "Synthetic request", "Confidence": "0"}, "classify"),
+            ({"SpeechResult": "Synthetic request", "Confidence": "bad"}, "retry"),
+        ):
+            with self.subTest(fields=fields):
+                decision = self.resolve(
+                    callback(fields, "2.0", False), Mock(return_value=True),
+                    require_confidence=True,
+                )
+                self.assertEqual(decision.action, action)
 
 
 class ClaimedSpeechEventTests(unittest.TestCase):
@@ -177,6 +191,18 @@ class ClaimedSpeechEventTests(unittest.TestCase):
                 )
                 self.assertEqual(decision.action, action)
 
+    def test_claimed_confidence_requirement_is_snapshotted_before_claim(self):
+        for fields, action in (
+            ({"SpeechResult": "Synthetic request"}, "retry"),
+            ({"SpeechResult": "Synthetic request", "Confidence": "0.5"}, "classify"),
+        ):
+            with self.subTest(fields=fields):
+                decision = self.resolve(
+                    callback(fields, "2.0", False), InMemoryCallbackClaimStore(),
+                    require_confidence=True,
+                )
+                self.assertEqual(decision.action, action)
+
     def test_rejected_callback_does_not_consume_the_step(self):
         for fields, valid in (
             ({}, False),
@@ -196,6 +222,7 @@ class ClaimedSpeechEventTests(unittest.TestCase):
             {"attempts": True},
             {"max_attempts": 0},
             {"minimum_confidence_percent": 101},
+            {"require_confidence": "true"},
         ):
             validator = Mock(return_value=True)
             store = InMemoryCallbackClaimStore()

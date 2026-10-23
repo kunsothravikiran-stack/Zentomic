@@ -240,6 +240,7 @@ def simulate_speech(
     profanity_filter: bool | None = None, speech_model: str | None = None,
     confidences: Iterable[str | None] | None = None,
     minimum_confidence_percent: int | None = None,
+    require_confidence: bool = False,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -260,13 +261,16 @@ def simulate_speech(
     An explicit speech model changes only the collection XML and does not run
     recognition or select a provider.
     Optional confidence fixtures align with speech attempts. When a trusted
-    minimum is configured, explicit scores below it retry; missing scores stay
-    admissible. Neither scores nor transcripts are returned.
+    minimum is configured, explicit scores below it retry. Missing scores stay
+    admissible unless trusted configuration requires one. Neither scores nor
+    transcripts are returned.
     """
     if (minimum_confidence_percent is not None
             and (type(minimum_confidence_percent) is not int
                  or not 0 <= minimum_confidence_percent <= 100)):
         raise ValueError("minimum_confidence_percent must be an integer from 0 to 100 or None")
+    if type(require_confidence) is not bool:
+        raise ValueError("require_confidence must be a boolean")
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
         timeout=input_timeout, hints=hints, language=language,
@@ -283,6 +287,7 @@ def simulate_speech(
             attempts=attempts, max_attempts=_MAX_ATTEMPTS,
             confidence=next(confidence_inputs, None),
             minimum_confidence_percent=minimum_confidence_percent,
+            require_confidence=require_confidence,
         )
         attempts = decision.attempts
         step = {"stage": "speech", "action": decision.action, "attempts": attempts}
@@ -371,6 +376,10 @@ def main(argv: list[str] | None = None) -> int:
         "--speech-minimum-confidence", metavar="PERCENT",
         help="trusted admission threshold from 0 to 100; requires --speech",
     )
+    parser.add_argument(
+        "--speech-require-confidence", action="store_true",
+        help="retry when the synthetic provider score is missing; requires --speech",
+    )
     args = parser.parse_args(argv)
     if args.speech_hint is not None and args.speech is None:
         parser.error("--speech-hint requires --speech")
@@ -388,9 +397,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-confidence requires --speech")
     if args.speech_minimum_confidence is not None and args.speech is None:
         parser.error("--speech-minimum-confidence requires --speech")
+    if args.speech_require_confidence and args.speech is None:
+        parser.error("--speech-require-confidence requires --speech")
     if (args.speech_confidence is not None
-            and args.speech_minimum_confidence is None):
-        parser.error("--speech-confidence requires --speech-minimum-confidence")
+            and args.speech_minimum_confidence is None
+            and not args.speech_require_confidence):
+        parser.error("--speech-confidence requires --speech-minimum-confidence or "
+                     "--speech-require-confidence")
     if (args.speech_confidence is not None
             and len(args.speech_confidence) != len(args.speech)):
         parser.error("provide one --speech-confidence for each --speech")
@@ -463,6 +476,7 @@ def main(argv: list[str] | None = None) -> int:
                 profanity_filter=speech_profanity_filter, speech_model=args.speech_model,
                 confidences=args.speech_confidence,
                 minimum_confidence_percent=speech_minimum_confidence,
+                require_confidence=args.speech_require_confidence,
             )
         except ValueError:
             parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "

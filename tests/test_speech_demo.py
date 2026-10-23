@@ -84,6 +84,19 @@ class SpeechDemoTests(unittest.TestCase):
             self.assertEqual(steps[1]["action"], expected)
             self.assertNotIn("private-score", json.dumps(steps))
 
+    def test_confidence_presence_requirement_reuses_the_retry_budget(self):
+        with offline_guard():
+            steps = simulate_speech(
+                ["synthetic missing", "synthetic scored"],
+                '{"intent":"support"}', ["1"],
+                confidences=[None, "0"], require_confidence=True,
+            )
+        self.assertEqual(
+            [step["action"] for step in steps],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("synthetic", json.dumps(steps))
+
     def test_invalid_confidence_policy_fails_before_other_inputs(self):
         class UnreadHints(list):
             def __iter__(self):
@@ -99,6 +112,16 @@ class SpeechDemoTests(unittest.TestCase):
                         minimum_confidence_percent=threshold,
                     )
             classify.assert_not_called()
+
+        for required in (None, 0, 1, "true"):
+            with self.subTest(required=repr(required)), offline_guard(), \
+                    patch("zentomic.demo.render_speech_gather") as render:
+                with self.assertRaises(ValueError):
+                    simulate_speech(
+                        unused_inputs(), None, unused_inputs(),
+                        require_confidence=required,
+                    )
+            render.assert_not_called()
 
     def test_cli_repeated_speech_and_existing_classification_are_composed(self):
         output = io.StringIO()
@@ -135,11 +158,14 @@ class SpeechDemoTests(unittest.TestCase):
              "--speech-minimum-confidence requires --speech"),
             (["--speech-confidence", "0.8", "--speech", "synthetic",
               "--classifier-response", '{"intent":"sales"}'],
-             "--speech-confidence requires --speech-minimum-confidence"),
+             "--speech-confidence requires --speech-minimum-confidence or "
+             "--speech-require-confidence"),
             (["--speech-minimum-confidence", "80", "--speech", "synthetic",
               "--speech-confidence", "0.8", "--speech", "synthetic",
               "--classifier-response", '{"intent":"sales"}'],
              "provide one --speech-confidence for each --speech"),
+            (["--speech-require-confidence"],
+             "--speech-require-confidence requires --speech"),
         )
         for args, message in cases:
             output, errors = io.StringIO(), io.StringIO()
@@ -165,6 +191,23 @@ class SpeechDemoTests(unittest.TestCase):
             self.assertIn("invalid synthetic speech minimum confidence", errors.getvalue())
             self.assertNotIn("private-threshold", errors.getvalue())
             simulate.assert_not_called()
+
+    def test_cli_can_require_present_confidence_without_a_threshold(self):
+        output = io.StringIO()
+        args = [
+            "--speech-require-confidence",
+            "--speech", "synthetic missing", "--speech-confidence", "",
+            "--speech", "synthetic scored", "--speech-confidence", "0",
+            "--classifier-response", '{"intent":"support"}', "1",
+        ]
+        with offline_guard(), redirect_stdout(output):
+            self.assertEqual(main(args), 0)
+        steps = json.loads(output.getvalue())["steps"]
+        self.assertEqual(
+            [step["action"] for step in steps],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("synthetic", output.getvalue())
 
     def test_last_speech_attempt_can_use_full_separate_confirmation_budget(self):
         def speeches():

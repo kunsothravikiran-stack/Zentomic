@@ -441,15 +441,19 @@ Preview confidence-gated admission with `--speech-minimum-confidence` and one
 python -m zentomic.demo --speech-minimum-confidence 80 --speech 'synthetic first request' --speech-confidence 0.79 --speech 'synthetic second request' --speech-confidence 0.80 --classifier-response '{"intent":"support"}' 1
 ```
 
-The threshold is a canonical integer percentage from 0 through 100. Scores
+The threshold is a canonical integer percentage from 0 through 100. Add
+`--speech-require-confidence` to make a missing score use the same finite retry
+budget, or use that flag by itself to require any valid bounded score. Scores
 follow the speech policy's bounded decimal format from 0 through 1 and align
 with speech attempts in argument order. An explicit low or malformed score
-retries without appearing in JSON; a missing score remains admissible because
-Twilio does not guarantee the field. When any score fixtures are supplied,
-their count must match `--speech` exactly. Scores require a threshold, and both
-options require `--speech`. Invalid thresholds exit 2 without partial JSON or
+retries without appearing in JSON; a missing score remains admissible by
+default because Twilio does not guarantee the field. When any score fixtures
+are supplied, their count must match `--speech` exactly. Scores require a
+threshold or the presence requirement, and all confidence options require
+`--speech`. Invalid thresholds exit 2 without partial JSON or
 reflecting the value. The keyword-only `confidences` and
-`minimum_confidence_percent` options expose the same synthetic behavior on
+`minimum_confidence_percent` and `require_confidence` options expose the same
+synthetic behavior on
 `simulate_speech`. This does not measure recognition quality, authenticate a
 caller, or make confidence sufficient for routing or confirmation.
 
@@ -1437,7 +1441,9 @@ gate an explicitly supplied provider `Confidence` score. A present score must
 be a bounded decimal from 0 through 1; a lower or malformed score follows the
 same retry/fallback policy and is never reflected in the decision. Missing
 confidence remains admissible because Twilio does not guarantee that field is
-present or accurate. Treat this threshold as a routing quality hint, not proof
+present or accurate. Set trusted `require_confidence=True` to make an omitted
+score follow the same retry/fallback budget; present scores must then be valid
+even without a threshold. Treat either policy as a routing quality hint, not proof
 of caller intent, identity, or authorization. See Twilio's
 [Gather action parameters](https://www.twilio.com/docs/voice/twiml/gather#action).
 Every completed collection consumes one attempt. Valid text on the last
@@ -1793,7 +1799,9 @@ within the budget, oversized input is not admitted, and exhausted collections
 fall back even when text is present. Accepted text is preserved unchanged.
 When trusted `minimum_confidence_percent` is configured, authenticated
 `Confidence` below that threshold or malformed follows the same finite retry
-budget. An omitted score never blocks otherwise valid speech.
+budget. An omitted score never blocks otherwise valid speech unless trusted
+`require_confidence=True` is also configured. The presence rule can be used
+without a threshold, in which case any valid bounded score is admissible.
 
 The result is a `SpeechDecision`, not a classifier call or routing decision.
 Authentication and identity failures never reach speech policy. As with the

@@ -126,6 +126,23 @@ class SpeechDecisionTests(unittest.TestCase):
                     SpeechDecision("classify", "sales", None, 1),
                 )
 
+    def test_confidence_presence_can_be_required_without_a_threshold(self):
+        for confidence in ("0", "0.80", "1.0"):
+            with self.subTest(confidence=confidence):
+                self.assertEqual(
+                    self.decide(
+                        "sales", confidence=confidence, require_confidence=True,
+                    ),
+                    SpeechDecision("classify", "sales", None, 1),
+                )
+        for confidence in (None, "", "private-confidence", 0.8):
+            with self.subTest(confidence=repr(confidence)):
+                decision = self.decide(
+                    "sales", confidence=confidence, require_confidence=True,
+                )
+                self.assertEqual(decision, SpeechDecision("retry", None, None, 1))
+                self.assertNotIn("private-confidence", repr(decision))
+
     def test_confidence_threshold_configuration_is_strict(self):
         for threshold in (0, 1, 80, 100):
             with self.subTest(threshold=threshold):
@@ -142,6 +159,9 @@ class SpeechDecisionTests(unittest.TestCase):
                     "sales", confidence="0.8",
                     minimum_confidence_percent=threshold,
                 )
+        for required in (None, 0, 1, "true", [], {}):
+            with self.subTest(required=repr(required)), self.assertRaises(ValueError):
+                self.decide("sales", confidence="0.8", require_confidence=required)
 
     def test_repeated_silence_terminates_without_resetting_the_budget(self):
         attempts = 0
