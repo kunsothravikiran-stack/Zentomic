@@ -8,6 +8,7 @@ from zentomic.intent import resolve_intent
 from zentomic.speech import (
     MAX_CONFIDENCE_CHARACTERS,
     MAX_TRANSCRIPT_CHARS,
+    MAX_TRANSCRIPT_UTF8_BYTES,
     SpeechDecision,
     resolve_speech_gather,
 )
@@ -81,6 +82,30 @@ class SpeechDecisionTests(unittest.TestCase):
                       80.0, "80", None, [], {}):
             with self.subTest(limit=repr(limit)), self.assertRaises(ValueError):
                 self.decide("sales", max_transcript_characters=limit)
+
+    def test_trusted_utf8_byte_limit_bounds_multibyte_classifier_input(self):
+        for speech, limit, expected in (
+            ("cafe", 4, "classify"),
+            ("café", 5, "classify"),
+            ("café", 4, "retry"),
+            ("😀", 4, "classify"),
+            ("😀", 3, "retry"),
+        ):
+            with self.subTest(speech=speech, limit=limit):
+                self.assertEqual(
+                    self.decide(speech, max_transcript_utf8_bytes=limit).action,
+                    expected,
+                )
+        self.assertEqual(
+            self.decide("😀" * MAX_TRANSCRIPT_CHARS).transcript,
+            "😀" * MAX_TRANSCRIPT_CHARS,
+        )
+
+    def test_trusted_utf8_byte_limit_is_strict(self):
+        for limit in (0, -1, MAX_TRANSCRIPT_UTF8_BYTES + 1, True, False,
+                      80.0, "80", None, [], {}):
+            with self.subTest(limit=repr(limit)), self.assertRaises(ValueError):
+                self.decide("sales", max_transcript_utf8_bytes=limit)
 
     def test_invalid_unicode_never_reaches_classification(self):
         # Python strings (including decoded JSON) may contain surrogate code

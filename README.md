@@ -457,22 +457,23 @@ synthetic behavior on
 `simulate_speech`. This does not measure recognition quality, authenticate a
 caller, or make confidence sufficient for routing or confirmation.
 
-Preview a stricter trusted transcript ceiling with `--speech-max-characters`
-or the keyword-only `max_transcript_characters` option on `simulate_speech`:
+Preview stricter trusted transcript ceilings with `--speech-max-characters`,
+`--speech-max-bytes`, or the matching keyword-only options on `simulate_speech`:
 
 ```sh
-python -m zentomic.demo --speech-max-characters 80 --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
+python -m zentomic.demo --speech-max-characters 80 --speech-max-bytes 320 --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
 ```
 
-The value is a canonical integer from 1 through 2000. Speech longer than the
-configured ceiling follows the same finite retry/fallback budget and is never
-returned in JSON. The default remains the fixed 2000-character project ceiling,
-so omitting the option preserves existing behavior. The limit includes leading
-and trailing whitespace, is reused across speech retries, and never changes
-collection XML or the separate keypad confirmation stage. Invalid values exit
-2 without partial JSON or reflecting the value. `--speech-max-characters`
-requires `--speech`. This is a local admission and classifier-input bound, not
-a provider recording limit, byte limit, token limit, or whole-call budget.
+Character values are canonical integers from 1 through 2000; byte values are
+from 1 through 8000. Speech exceeding either configured ceiling follows the
+same finite retry/fallback budget and is never returned in JSON. Defaults remain
+the fixed 2000-character and 8000-byte project ceilings, so omission preserves
+existing behavior for valid Unicode. Both limits include surrounding whitespace,
+are reused across retries, and never change collection XML or keypad confirmation.
+Byte length is measured after strict UTF-8 encoding. Invalid values exit 2
+without partial JSON or reflecting the value. Both flags require `--speech`.
+These are local admission and classifier-input bounds, not provider recording,
+model token, cost, or whole-call limits.
 
 This mode adds a `stage` field (`speech` or `confirmation`) so attempt counts
 are not confused across stages. A `classify` decision means speech was admitted,
@@ -1447,10 +1448,11 @@ Supply `SpeechResult` only after authenticating and binding the callback to
 the current speech step. Missing, non-string, blank, oversized, or invalid
 Unicode text retries within the budget, then falls back to the configured
 human target. The fixed `MAX_TRANSCRIPT_CHARS` ceiling is 2000 Unicode
-characters. Trusted workspace policy may set `max_transcript_characters` to an
-integer from 1 through that ceiling to keep future classifier inputs smaller.
-The selected limit includes surrounding whitespace and counts characters, not
-bytes or model tokens. Accepted text is preserved unchanged.
+characters and `MAX_TRANSCRIPT_UTF8_BYTES` is 8000 bytes. Trusted workspace
+policy may lower either `max_transcript_characters` or
+`max_transcript_utf8_bytes` to keep future classifier inputs smaller. Both
+limits include surrounding whitespace; the byte limit is measured after strict
+UTF-8 encoding. Neither is a model-token limit. Accepted text is preserved.
 Surrogate code points in Python strings are rejected without replacement or
 normalization, so admitted text can be encoded for a classifier dependency.
 The form decoder already rejects malformed UTF-8; this also protects direct
@@ -1822,7 +1824,8 @@ budget. An omitted score never blocks otherwise valid speech unless trusted
 `require_confidence=True` is also configured. The presence rule can be used
 without a threshold, in which case any valid bounded score is admissible.
 Trusted `max_transcript_characters` can reduce the fixed 2000-character ceiling;
-an authenticated callback field cannot raise or replace that policy.
+trusted `max_transcript_utf8_bytes` can independently reduce the fixed 8000-byte
+ceiling. Authenticated callback fields cannot raise or replace either policy.
 
 The result is a `SpeechDecision`, not a classifier call or routing decision.
 Authentication and identity failures never reach speech policy. As with the

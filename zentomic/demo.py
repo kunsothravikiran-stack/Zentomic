@@ -12,7 +12,11 @@ from zentomic.classification import parse_intent_response
 from zentomic.dial import resolve_dial_result
 from zentomic.gather import GatherDecision, resolve_gather
 from zentomic.intent import resolve_intent_confirmation
-from zentomic.speech import MAX_TRANSCRIPT_CHARS, resolve_speech_gather
+from zentomic.speech import (
+    MAX_TRANSCRIPT_CHARS,
+    MAX_TRANSCRIPT_UTF8_BYTES,
+    resolve_speech_gather,
+)
 from zentomic.twiml import (
     SPEECH_RECOGNITION_LANGUAGES,
     SPEECH_RECOGNITION_MODELS,
@@ -86,6 +90,18 @@ def _parse_speech_max_characters(value: str | None) -> int:
         if characters <= MAX_TRANSCRIPT_CHARS:
             return characters
     raise ValueError("speech transcript limit must be an integer from 1 to 2000")
+
+
+def _parse_speech_max_utf8_bytes(value: str | None) -> int:
+    """Parse an optional stricter UTF-8 transcript ceiling without reflection."""
+    if value is None:
+        return MAX_TRANSCRIPT_UTF8_BYTES
+    if (len(value) <= 4 and value.isascii() and value.isdecimal()
+            and not value.startswith("0")):
+        byte_count = int(value)
+        if byte_count <= MAX_TRANSCRIPT_UTF8_BYTES:
+            return byte_count
+    raise ValueError("speech transcript byte limit must be an integer from 1 to 8000")
 
 
 def simulate_business_hours(
@@ -254,6 +270,7 @@ def simulate_speech(
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
+    max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -277,8 +294,9 @@ def simulate_speech(
     minimum is configured, explicit scores below it retry. Missing scores stay
     admissible unless trusted configuration requires one. Neither scores nor
     transcripts are returned.
-    A trusted transcript ceiling can reduce the fixed 2000-character admission
-    bound without changing collection XML or returning rejected text.
+    Trusted transcript ceilings can reduce the fixed 2000-character and
+    8000-byte admission bounds without changing collection XML or returning
+    rejected text.
     """
     if (minimum_confidence_percent is not None
             and (type(minimum_confidence_percent) is not int
@@ -290,6 +308,11 @@ def simulate_speech(
             or not 1 <= max_transcript_characters <= MAX_TRANSCRIPT_CHARS):
         raise ValueError(
             "max_transcript_characters must be an integer from 1 to 2000"
+        )
+    if (type(max_transcript_utf8_bytes) is not int
+            or not 1 <= max_transcript_utf8_bytes <= MAX_TRANSCRIPT_UTF8_BYTES):
+        raise ValueError(
+            "max_transcript_utf8_bytes must be an integer from 1 to 8000"
         )
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
@@ -309,6 +332,7 @@ def simulate_speech(
             minimum_confidence_percent=minimum_confidence_percent,
             require_confidence=require_confidence,
             max_transcript_characters=max_transcript_characters,
+            max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         )
         attempts = decision.attempts
         step = {"stage": "speech", "action": decision.action, "attempts": attempts}
@@ -405,6 +429,10 @@ def main(argv: list[str] | None = None) -> int:
         "--speech-max-characters", metavar="COUNT",
         help="trusted transcript ceiling from 1 to 2000; requires --speech",
     )
+    parser.add_argument(
+        "--speech-max-bytes", metavar="COUNT",
+        help="trusted UTF-8 transcript ceiling from 1 to 8000; requires --speech",
+    )
     args = parser.parse_args(argv)
     if args.speech_hint is not None and args.speech is None:
         parser.error("--speech-hint requires --speech")
@@ -426,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-require-confidence requires --speech")
     if args.speech_max_characters is not None and args.speech is None:
         parser.error("--speech-max-characters requires --speech")
+    if args.speech_max_bytes is not None and args.speech is None:
+        parser.error("--speech-max-bytes requires --speech")
     if (args.speech_confidence is not None
             and args.speech_minimum_confidence is None
             and not args.speech_require_confidence):
@@ -466,6 +496,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     except ValueError:
         parser.error("invalid synthetic speech transcript limit; use an integer from 1 to 2000")
+    try:
+        speech_max_utf8_bytes = _parse_speech_max_utf8_bytes(
+            args.speech_max_bytes,
+        )
+    except ValueError:
+        parser.error("invalid synthetic speech transcript byte limit; use an integer from 1 to 8000")
     if args.business_hours_timezone is not None and args.business_hours_at is None:
         parser.error("--business-hours-timezone requires --business-hours-at")
     if args.business_hours_at is not None and (args.digits or args.speech is not None):
@@ -511,6 +547,7 @@ def main(argv: list[str] | None = None) -> int:
                 minimum_confidence_percent=speech_minimum_confidence,
                 require_confidence=args.speech_require_confidence,
                 max_transcript_characters=speech_max_characters,
+                max_transcript_utf8_bytes=speech_max_utf8_bytes,
             )
         except ValueError:
             parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "
