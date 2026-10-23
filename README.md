@@ -434,6 +434,25 @@ and cannot configure another demo. This setting changes only the rendered
 speech, run a timer, or guarantee provider behavior. Verify the selected
 recognition model's support before live integration.
 
+Preview confidence-gated admission with `--speech-minimum-confidence` and one
+`--speech-confidence` fixture for each `--speech` fixture:
+
+```sh
+python -m zentomic.demo --speech-minimum-confidence 80 --speech 'synthetic first request' --speech-confidence 0.79 --speech 'synthetic second request' --speech-confidence 0.80 --classifier-response '{"intent":"support"}' 1
+```
+
+The threshold is a canonical integer percentage from 0 through 100. Scores
+follow the speech policy's bounded decimal format from 0 through 1 and align
+with speech attempts in argument order. An explicit low or malformed score
+retries without appearing in JSON; a missing score remains admissible because
+Twilio does not guarantee the field. When any score fixtures are supplied,
+their count must match `--speech` exactly. Scores require a threshold, and both
+options require `--speech`. Invalid thresholds exit 2 without partial JSON or
+reflecting the value. The keyword-only `confidences` and
+`minimum_confidence_percent` options expose the same synthetic behavior on
+`simulate_speech`. This does not measure recognition quality, authenticate a
+caller, or make confidence sufficient for routing or confirmation.
+
 This mode adds a `stage` field (`speech` or `confirmation`) so attempt counts
 are not confused across stages. A `classify` decision means speech was admitted,
 not that a model ran. The supplied fixture is parsed next and need not match

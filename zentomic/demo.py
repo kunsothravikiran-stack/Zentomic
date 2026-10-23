@@ -62,6 +62,20 @@ def _parse_speech_profanity_filter(value: str | None) -> bool | None:
     raise ValueError("speech profanity filter must be true or false")
 
 
+def _parse_speech_minimum_confidence(value: str | None) -> int | None:
+    """Parse an optional canonical integer percentage without reflection."""
+    if value is None:
+        return None
+    if value == "0":
+        return 0
+    if (value.isascii() and value.isdecimal() and not value.startswith("0")
+            and len(value) <= 3):
+        percent = int(value)
+        if percent <= 100:
+            return percent
+    raise ValueError("minimum speech confidence must be an integer from 0 to 100")
+
+
 def simulate_business_hours(
     instants: Iterable[datetime], *, timezone_name: str = "America/New_York",
 ) -> list[dict]:
@@ -224,6 +238,8 @@ def simulate_speech(
     *, hints: list[str] | tuple[str, ...] | None = None, language: str = "en-US",
     input_timeout: int = 5, speech_timeout: int | Literal["auto"] = 2,
     profanity_filter: bool | None = None, speech_model: str | None = None,
+    confidences: Iterable[str | None] | None = None,
+    minimum_confidence_percent: int | None = None,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -243,7 +259,14 @@ def simulate_speech(
     does not inspect, rewrite, or return the supplied synthetic transcript.
     An explicit speech model changes only the collection XML and does not run
     recognition or select a provider.
+    Optional confidence fixtures align with speech attempts. When a trusted
+    minimum is configured, explicit scores below it retry; missing scores stay
+    admissible. Neither scores nor transcripts are returned.
     """
+    if (minimum_confidence_percent is not None
+            and (type(minimum_confidence_percent) is not int
+                 or not 0 <= minimum_confidence_percent <= 100)):
+        raise ValueError("minimum_confidence_percent must be an integer from 0 to 100 or None")
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
         timeout=input_timeout, hints=hints, language=language,
@@ -252,11 +275,14 @@ def simulate_speech(
     )
     steps = [{"stage": "speech", "action": "gather", "attempts": 0, "twiml": collection}]
     inputs = iter(speeches)
+    confidence_inputs = iter(()) if confidences is None else iter(confidences)
     attempts = 0
     while attempts < _MAX_ATTEMPTS:
         decision = resolve_speech_gather(
             next(inputs, None), fallback_target="demo-reception",
             attempts=attempts, max_attempts=_MAX_ATTEMPTS,
+            confidence=next(confidence_inputs, None),
+            minimum_confidence_percent=minimum_confidence_percent,
         )
         attempts = decision.attempts
         step = {"stage": "speech", "action": decision.action, "attempts": attempts}
@@ -337,6 +363,14 @@ def main(argv: list[str] | None = None) -> int:
         "--speech-model", metavar="MODEL",
         help="generic recognition model for collection XML; requires --speech",
     )
+    parser.add_argument(
+        "--speech-confidence", action="append", metavar="SCORE",
+        help="synthetic provider score aligned with each --speech; repeat",
+    )
+    parser.add_argument(
+        "--speech-minimum-confidence", metavar="PERCENT",
+        help="trusted admission threshold from 0 to 100; requires --speech",
+    )
     args = parser.parse_args(argv)
     if args.speech_hint is not None and args.speech is None:
         parser.error("--speech-hint requires --speech")
@@ -350,6 +384,16 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-profanity-filter requires --speech")
     if args.speech_model is not None and args.speech is None:
         parser.error("--speech-model requires --speech")
+    if args.speech_confidence is not None and args.speech is None:
+        parser.error("--speech-confidence requires --speech")
+    if args.speech_minimum_confidence is not None and args.speech is None:
+        parser.error("--speech-minimum-confidence requires --speech")
+    if (args.speech_confidence is not None
+            and args.speech_minimum_confidence is None):
+        parser.error("--speech-confidence requires --speech-minimum-confidence")
+    if (args.speech_confidence is not None
+            and len(args.speech_confidence) != len(args.speech)):
+        parser.error("provide one --speech-confidence for each --speech")
     if (args.speech_language is not None
             and args.speech_language not in SPEECH_RECOGNITION_LANGUAGES):
         parser.error("invalid synthetic speech language; use a supported project locale")
@@ -370,6 +414,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     except ValueError:
         parser.error("invalid synthetic speech profanity filter; use true or false")
+    try:
+        speech_minimum_confidence = _parse_speech_minimum_confidence(
+            args.speech_minimum_confidence,
+        )
+    except ValueError:
+        parser.error("invalid synthetic speech minimum confidence; use an integer from 0 to 100")
     if args.business_hours_timezone is not None and args.business_hours_at is None:
         parser.error("--business-hours-timezone requires --business-hours-at")
     if args.business_hours_at is not None and (args.digits or args.speech is not None):
@@ -411,6 +461,8 @@ def main(argv: list[str] | None = None) -> int:
                 language=("en-US" if args.speech_language is None else args.speech_language),
                 input_timeout=speech_input_timeout, speech_timeout=speech_timeout,
                 profanity_filter=speech_profanity_filter, speech_model=args.speech_model,
+                confidences=args.speech_confidence,
+                minimum_confidence_percent=speech_minimum_confidence,
             )
         except ValueError:
             parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "
