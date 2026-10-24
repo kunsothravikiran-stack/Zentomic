@@ -29,23 +29,14 @@ class SpeechDecision:
     attempts: int
 
 
-def _validate_speech_configuration(
-    *, fallback_target: str, attempts: int, max_attempts: int,
-    minimum_confidence_percent: int | None = None,
-    require_confidence: bool = False,
-    min_transcript_characters: int = 1,
+def _validate_transcript_policy(
+    *, min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
-) -> GatherDecision:
-    """Return the collection budget after validating trusted speech policy."""
-    if (minimum_confidence_percent is not None
-            and (type(minimum_confidence_percent) is not int
-                 or not 0 <= minimum_confidence_percent <= 100)):
-        raise ValueError("minimum_confidence_percent must be an integer from 0 to 100 or None")
-    if type(require_confidence) is not bool:
-        raise ValueError("require_confidence must be a boolean")
+) -> None:
+    """Validate trusted transcript bounds, including cross-limit feasibility."""
     if (type(min_transcript_characters) is not int
             or not 1 <= min_transcript_characters <= MAX_TRANSCRIPT_CHARS):
         raise ValueError(
@@ -79,6 +70,50 @@ def _validate_speech_configuration(
         raise ValueError(
             "min_transcript_words must not exceed max_transcript_words"
         )
+
+    # Every character occupies at least one UTF-8 byte. Each nonempty word
+    # needs at least one character, with at least one whitespace character
+    # between adjacent words. Reject trusted policies that cannot admit any
+    # transcript instead of silently spending every collection attempt.
+    if min_transcript_characters > max_transcript_utf8_bytes:
+        raise ValueError(
+            "min_transcript_characters must not exceed max_transcript_utf8_bytes"
+        )
+    minimum_word_characters = min_transcript_words * 2 - 1
+    if minimum_word_characters > max_transcript_characters:
+        raise ValueError(
+            "min_transcript_words cannot fit within max_transcript_characters"
+        )
+    if minimum_word_characters > max_transcript_utf8_bytes:
+        raise ValueError(
+            "min_transcript_words cannot fit within max_transcript_utf8_bytes"
+        )
+
+
+def _validate_speech_configuration(
+    *, fallback_target: str, attempts: int, max_attempts: int,
+    minimum_confidence_percent: int | None = None,
+    require_confidence: bool = False,
+    min_transcript_characters: int = 1,
+    max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
+    max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
+    min_transcript_words: int = 1,
+    max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+) -> GatherDecision:
+    """Return the collection budget after validating trusted speech policy."""
+    if (minimum_confidence_percent is not None
+            and (type(minimum_confidence_percent) is not int
+                 or not 0 <= minimum_confidence_percent <= 100)):
+        raise ValueError("minimum_confidence_percent must be an integer from 0 to 100 or None")
+    if type(require_confidence) is not bool:
+        raise ValueError("require_confidence must be a boolean")
+    _validate_transcript_policy(
+        min_transcript_characters=min_transcript_characters,
+        max_transcript_characters=max_transcript_characters,
+        max_transcript_utf8_bytes=max_transcript_utf8_bytes,
+        min_transcript_words=min_transcript_words,
+        max_transcript_words=max_transcript_words,
+    )
     return resolve_gather(
         None, {}, fallback_target=fallback_target,
         attempts=attempts, max_attempts=max_attempts,

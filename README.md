@@ -469,7 +469,11 @@ Minimum and maximum character values are canonical integers from 1 through
 2000, and the minimum cannot exceed the maximum. The minimum counts characters
 after trimming surrounding Unicode whitespace. Byte values are from 1 through
 8000; minimum and maximum word values are from 1 through 1000, and the minimum
-cannot exceed the maximum. Speech outside any configured bound
+cannot exceed the maximum. The minimum character count must also fit within the
+byte ceiling. Because adjacent nonempty words require at least one separating
+whitespace character, the minimum word count must fit within both the character
+and byte ceilings. Contradictory policy is rejected before collection begins
+instead of consuming the retry budget. Speech outside any configured bound
 follows the same finite retry/fallback budget and is never
 returned in JSON. Defaults preserve every previously valid transcript. Character
 and byte limits include surrounding whitespace; words are nonempty segments
@@ -1461,7 +1465,10 @@ policy may lower `max_transcript_characters`, `max_transcript_utf8_bytes`, or
 raise `min_transcript_characters` or `min_transcript_words` from their defaults
 of 1 to avoid classifier work for noise-like short results. Minimum characters
 are counted after trimming surrounding Unicode whitespace. Each minimum cannot
-exceed its matching maximum policy.
+exceed its matching maximum policy. Minimum characters must fit under the byte
+ceiling, and a minimum of N whitespace-delimited words requires room for at
+least `2N - 1` characters and UTF-8 bytes. Impossible combinations fail before
+authentication or collection attempts are consumed.
 Maximum character and byte limits include surrounding whitespace; the byte
 limit is measured after strict UTF-8 encoding. Words are nonempty segments
 separated by Unicode whitespace, so this is not a linguistic segmenter or
@@ -1843,7 +1850,9 @@ classification. Trusted `max_transcript_characters` can reduce the fixed
 reduce the fixed 8000-byte
 ceiling. Trusted `min_transcript_words` can require a minimum
 whitespace-delimited word count; trusted `max_transcript_words` can reduce the
-fixed 1000-word ceiling.
+fixed 1000-word ceiling. Cross-dimension policy is validated for feasibility:
+minimum characters must fit within the byte ceiling, and minimum words must fit
+within both character and byte ceilings.
 Authenticated callback fields cannot raise or replace any of these policies.
 
 The result is a `SpeechDecision`, not a classifier call or routing decision.

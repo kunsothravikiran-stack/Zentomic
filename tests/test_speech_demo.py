@@ -235,6 +235,22 @@ class SpeechDemoTests(unittest.TestCase):
             )
         render.assert_not_called()
 
+        for policy in (
+            {"min_transcript_characters": 5,
+             "max_transcript_utf8_bytes": 4},
+            {"min_transcript_words": 3,
+             "max_transcript_characters": 4},
+            {"min_transcript_words": 3,
+             "max_transcript_utf8_bytes": 4},
+        ):
+            with self.subTest(policy=policy), offline_guard(), patch(
+                "zentomic.demo.render_speech_gather",
+            ) as render, self.assertRaises(ValueError):
+                simulate_speech(
+                    unused_inputs(), None, unused_inputs(), **policy,
+                )
+            render.assert_not_called()
+
     def test_invalid_confidence_policy_fails_before_other_inputs(self):
         class UnreadHints(list):
             def __iter__(self):
@@ -593,6 +609,35 @@ class SpeechDemoTests(unittest.TestCase):
             self.assertEqual(output.getvalue(), "")
             self.assertIn("invalid synthetic speech transcript word minimum",
                           errors.getvalue())
+            simulate.assert_not_called()
+
+    def test_cli_cross_dimension_policy_fails_before_simulation(self):
+        base = ["--speech", "synthetic", "--classifier-response", '{"intent":"sales"}']
+        for policy, message in (
+            (
+                ["--speech-min-characters", "5", "--speech-max-bytes", "4"],
+                "synthetic speech transcript minimum cannot fit within its byte limit",
+            ),
+            (
+                ["--speech-min-words", "3", "--speech-max-characters", "4"],
+                "synthetic speech transcript word minimum cannot fit within its "
+                "character and byte limits",
+            ),
+            (
+                ["--speech-min-words", "3", "--speech-max-bytes", "4"],
+                "synthetic speech transcript word minimum cannot fit within its "
+                "character and byte limits",
+            ),
+        ):
+            output, errors = io.StringIO(), io.StringIO()
+            with self.subTest(policy=policy), offline_guard(), \
+                    redirect_stdout(output), redirect_stderr(errors), \
+                    patch("zentomic.demo.simulate_speech") as simulate:
+                with self.assertRaises(SystemExit) as error:
+                    main([*policy, *base])
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn(message, errors.getvalue())
             simulate.assert_not_called()
 
     def test_last_speech_attempt_can_use_full_separate_confirmation_budget(self):

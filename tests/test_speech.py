@@ -182,6 +182,41 @@ class SpeechDecisionTests(unittest.TestCase):
                 max_transcript_words=2,
             )
 
+    def test_trusted_minimums_must_fit_cross_dimension_maximums(self):
+        for policy, message in (
+            (
+                {"min_transcript_characters": 5,
+                 "max_transcript_utf8_bytes": 4},
+                "min_transcript_characters must not exceed "
+                "max_transcript_utf8_bytes",
+            ),
+            (
+                {"min_transcript_words": 3,
+                 "max_transcript_characters": 4},
+                "min_transcript_words cannot fit within "
+                "max_transcript_characters",
+            ),
+            (
+                {"min_transcript_words": 3,
+                 "max_transcript_utf8_bytes": 4},
+                "min_transcript_words cannot fit within "
+                "max_transcript_utf8_bytes",
+            ),
+        ):
+            with self.subTest(policy=policy), self.assertRaisesRegex(
+                ValueError, f"^{message}$",
+            ):
+                self.decide("a b c", **policy)
+
+        self.assertEqual(
+            self.decide(
+                "a b c", min_transcript_characters=5,
+                max_transcript_characters=5, max_transcript_utf8_bytes=5,
+                min_transcript_words=3,
+            ),
+            SpeechDecision("classify", "a b c", None, 1),
+        )
+
     def test_trusted_word_limit_is_strict(self):
         for limit in (0, -1, MAX_TRANSCRIPT_WORDS + 1, True, False,
                       80.0, "80", None, [], {}):

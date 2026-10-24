@@ -16,6 +16,7 @@ from zentomic.speech import (
     MAX_TRANSCRIPT_CHARS,
     MAX_TRANSCRIPT_UTF8_BYTES,
     MAX_TRANSCRIPT_WORDS,
+    _validate_transcript_policy,
     resolve_speech_gather,
 )
 from zentomic.twiml import (
@@ -345,39 +346,13 @@ def simulate_speech(
         raise ValueError("minimum_confidence_percent must be an integer from 0 to 100 or None")
     if type(require_confidence) is not bool:
         raise ValueError("require_confidence must be a boolean")
-    if (type(min_transcript_characters) is not int
-            or not 1 <= min_transcript_characters <= MAX_TRANSCRIPT_CHARS):
-        raise ValueError(
-            "min_transcript_characters must be an integer from 1 to 2000"
-        )
-    if (type(max_transcript_characters) is not int
-            or not 1 <= max_transcript_characters <= MAX_TRANSCRIPT_CHARS):
-        raise ValueError(
-            "max_transcript_characters must be an integer from 1 to 2000"
-        )
-    if min_transcript_characters > max_transcript_characters:
-        raise ValueError(
-            "min_transcript_characters must not exceed max_transcript_characters"
-        )
-    if (type(max_transcript_utf8_bytes) is not int
-            or not 1 <= max_transcript_utf8_bytes <= MAX_TRANSCRIPT_UTF8_BYTES):
-        raise ValueError(
-            "max_transcript_utf8_bytes must be an integer from 1 to 8000"
-        )
-    if (type(min_transcript_words) is not int
-            or not 1 <= min_transcript_words <= MAX_TRANSCRIPT_WORDS):
-        raise ValueError(
-            "min_transcript_words must be an integer from 1 to 1000"
-        )
-    if (type(max_transcript_words) is not int
-            or not 1 <= max_transcript_words <= MAX_TRANSCRIPT_WORDS):
-        raise ValueError(
-            "max_transcript_words must be an integer from 1 to 1000"
-        )
-    if min_transcript_words > max_transcript_words:
-        raise ValueError(
-            "min_transcript_words must not exceed max_transcript_words"
-        )
+    _validate_transcript_policy(
+        min_transcript_characters=min_transcript_characters,
+        max_transcript_characters=max_transcript_characters,
+        max_transcript_utf8_bytes=max_transcript_utf8_bytes,
+        min_transcript_words=min_transcript_words,
+        max_transcript_words=max_transcript_words,
+    )
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
         timeout=input_timeout, hints=hints, language=language,
@@ -605,6 +580,17 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("synthetic speech transcript minimum cannot exceed its maximum")
     if speech_min_words > speech_max_words:
         parser.error("synthetic speech transcript word minimum cannot exceed its maximum")
+    if speech_min_characters > speech_max_utf8_bytes:
+        parser.error(
+            "synthetic speech transcript minimum cannot fit within its byte limit"
+        )
+    minimum_word_characters = speech_min_words * 2 - 1
+    if (minimum_word_characters > speech_max_characters
+            or minimum_word_characters > speech_max_utf8_bytes):
+        parser.error(
+            "synthetic speech transcript word minimum cannot fit within its "
+            "character and byte limits"
+        )
     if args.business_hours_timezone is not None and args.business_hours_at is None:
         parser.error("--business-hours-timezone requires --business-hours-at")
     if args.business_hours_at is not None and (args.digits or args.speech is not None):

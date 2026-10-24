@@ -322,9 +322,12 @@ class ClaimedSpeechEventTests(unittest.TestCase):
             {"max_transcript_characters": 2001},
             {"max_transcript_utf8_bytes": 0},
             {"max_transcript_utf8_bytes": 8001},
+            {"min_transcript_characters": 5, "max_transcript_utf8_bytes": 4},
             {"min_transcript_words": 0},
             {"min_transcript_words": 1001},
             {"min_transcript_words": 3, "max_transcript_words": 2},
+            {"min_transcript_words": 3, "max_transcript_characters": 4},
+            {"min_transcript_words": 3, "max_transcript_utf8_bytes": 4},
             {"max_transcript_words": 0},
             {"max_transcript_words": 1001},
         ):
