@@ -103,7 +103,9 @@ class SpeechEventTests(unittest.TestCase):
                           {"max_transcript_characters": 0},
                           {"max_transcript_characters": 2001},
                           {"max_transcript_utf8_bytes": 0},
-                          {"max_transcript_utf8_bytes": 8001}):
+                          {"max_transcript_utf8_bytes": 8001},
+                          {"max_transcript_words": 0},
+                          {"max_transcript_words": 1001}):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 self.resolve(callback({"SpeechResult": "Synthetic request"}, "2.0", False),
                              Mock(return_value=True), **overrides)
@@ -166,6 +168,20 @@ class SpeechEventTests(unittest.TestCase):
         )
         self.assertEqual(
             self.resolve(event, Mock(return_value=True), max_transcript_utf8_bytes=4),
+            SpeechDecision("retry", None, None, 1),
+        )
+
+    def test_authenticated_speech_obeys_trusted_word_limit(self):
+        event = callback(
+            {"SpeechResult": "synthetic request", "max_transcript_words": "999"},
+            "2.0", False,
+        )
+        self.assertEqual(
+            self.resolve(event, Mock(return_value=True), max_transcript_words=2),
+            SpeechDecision("classify", "synthetic request", None, 1),
+        )
+        self.assertEqual(
+            self.resolve(event, Mock(return_value=True), max_transcript_words=1),
             SpeechDecision("retry", None, None, 1),
         )
 
@@ -263,6 +279,8 @@ class ClaimedSpeechEventTests(unittest.TestCase):
             {"max_transcript_characters": 2001},
             {"max_transcript_utf8_bytes": 0},
             {"max_transcript_utf8_bytes": 8001},
+            {"max_transcript_words": 0},
+            {"max_transcript_words": 1001},
         ):
             validator = Mock(return_value=True)
             store = InMemoryCallbackClaimStore()

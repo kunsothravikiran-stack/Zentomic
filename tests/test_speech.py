@@ -9,6 +9,7 @@ from zentomic.speech import (
     MAX_CONFIDENCE_CHARACTERS,
     MAX_TRANSCRIPT_CHARS,
     MAX_TRANSCRIPT_UTF8_BYTES,
+    MAX_TRANSCRIPT_WORDS,
     SpeechDecision,
     resolve_speech_gather,
 )
@@ -106,6 +107,28 @@ class SpeechDecisionTests(unittest.TestCase):
                       80.0, "80", None, [], {}):
             with self.subTest(limit=repr(limit)), self.assertRaises(ValueError):
                 self.decide("sales", max_transcript_utf8_bytes=limit)
+
+    def test_trusted_word_limit_bounds_whitespace_delimited_input(self):
+        for speech, limit, expected in (
+            ("one two", 2, "classify"),
+            ("one two", 1, "retry"),
+            ("  one\ttwo\n", 2, "classify"),
+            ("one\u00a0two", 1, "retry"),
+            ("没有空格", 1, "classify"),
+        ):
+            with self.subTest(speech=speech, limit=limit):
+                self.assertEqual(
+                    self.decide(speech, max_transcript_words=limit).action,
+                    expected,
+                )
+        default_boundary = " ".join("x" for _ in range(MAX_TRANSCRIPT_WORDS))
+        self.assertEqual(self.decide(default_boundary).transcript, default_boundary)
+
+    def test_trusted_word_limit_is_strict(self):
+        for limit in (0, -1, MAX_TRANSCRIPT_WORDS + 1, True, False,
+                      80.0, "80", None, [], {}):
+            with self.subTest(limit=repr(limit)), self.assertRaises(ValueError):
+                self.decide("sales", max_transcript_words=limit)
 
     def test_invalid_unicode_never_reaches_classification(self):
         # Python strings (including decoded JSON) may contain surrogate code

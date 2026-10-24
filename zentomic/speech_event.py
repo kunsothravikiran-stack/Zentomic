@@ -11,6 +11,7 @@ from zentomic.callback_claim_store import (
 from zentomic.speech import (
     MAX_TRANSCRIPT_CHARS,
     MAX_TRANSCRIPT_UTF8_BYTES,
+    MAX_TRANSCRIPT_WORDS,
     SpeechDecision,
     _resolve_validated_speech,
     _validate_speech_configuration,
@@ -26,6 +27,7 @@ def resolve_speech_event(
     require_confidence: bool = False,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
+    max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
 ) -> SpeechDecision:
     """Authenticate a speech callback, then propose bounded text admission.
 
@@ -35,8 +37,8 @@ def resolve_speech_event(
     threshold rejects an explicitly lower or malformed provider score, while a
     missing score remains admissible because the provider does not guarantee it,
     unless trusted configuration explicitly requires one.
-    Trusted transcript limits can tighten the global 2000-character and
-    8000-byte ceilings before any text reaches a future classifier.
+    Trusted transcript limits can tighten the global 2000-character,
+    8000-byte and 1000-word ceilings before any text reaches a classifier.
     Policy configuration is validated after authentication. Accepted text
     remains untrusted and is not logged.
 
@@ -60,6 +62,7 @@ def resolve_speech_event(
         require_confidence=require_confidence,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
+        max_transcript_words=max_transcript_words,
     )
 
 
@@ -72,6 +75,7 @@ def resolve_claimed_speech_event(
     require_confidence: bool = False,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
+    max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
 ) -> SpeechDecision:
     """Validate trusted state, authenticate, claim, then admit speech once.
 
@@ -95,6 +99,7 @@ def resolve_claimed_speech_event(
         require_confidence=require_confidence,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
+        max_transcript_words=max_transcript_words,
     )
     fields = validate_and_claim_call_event(
         event, public_url=public_url, validator=validator,
@@ -109,4 +114,5 @@ def resolve_claimed_speech_event(
         require_confidence=require_confidence,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
+        max_transcript_words=max_transcript_words,
     )
