@@ -109,6 +109,18 @@ class SpeechDemoTests(unittest.TestCase):
         )
         self.assertNotIn("synthetic", json.dumps(steps))
 
+    def test_trusted_transcript_minimum_reuses_the_retry_budget(self):
+        with offline_guard():
+            steps = simulate_speech(
+                ["  no  ", "  accepted-private  "], '{"intent":"support"}', ["1"],
+                min_transcript_characters=3,
+            )
+        self.assertEqual(
+            [step["action"] for step in steps],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("accepted-private", json.dumps(steps))
+
     def test_trusted_utf8_byte_limit_reuses_the_retry_budget(self):
         with offline_guard():
             steps = simulate_speech(
@@ -137,6 +149,26 @@ class SpeechDemoTests(unittest.TestCase):
         class UnreadHints(list):
             def __iter__(self):
                 raise AssertionError("invalid policy must fail before hint iteration")
+
+        for minimum in (0, 2001, True, 5.0, "5", None):
+            with self.subTest(minimum=repr(minimum)), offline_guard(), \
+                    patch("zentomic.demo.render_speech_gather") as render:
+                with self.assertRaises(ValueError):
+                    simulate_speech(
+                        unused_inputs(), None, unused_inputs(),
+                        hints=UnreadHints(["sales"]),
+                        min_transcript_characters=minimum,
+                    )
+            render.assert_not_called()
+
+        with offline_guard(), patch(
+            "zentomic.demo.render_speech_gather",
+        ) as render, self.assertRaises(ValueError):
+            simulate_speech(
+                unused_inputs(), None, unused_inputs(),
+                min_transcript_characters=6, max_transcript_characters=5,
+            )
+        render.assert_not_called()
 
         for limit in (0, 2001, True, 5.0, "5", None):
             with self.subTest(limit=repr(limit)), offline_guard(), \
@@ -329,6 +361,57 @@ class SpeechDemoTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 2)
             self.assertEqual(output.getvalue(), "")
             self.assertIn("invalid synthetic speech transcript limit", errors.getvalue())
+            simulate.assert_not_called()
+
+    def test_cli_transcript_minimum_is_strict_private_and_mode_scoped(self):
+        output = io.StringIO()
+        args = [
+            "--speech-min-characters", "3",
+            "--speech", "no", "--speech", "accepted-private",
+            "--classifier-response", '{"intent":"support"}', "1",
+        ]
+        with offline_guard(), redirect_stdout(output):
+            self.assertEqual(main(args), 0)
+        self.assertEqual(
+            [step["action"] for step in json.loads(output.getvalue())["steps"]],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("accepted-private", output.getvalue())
+
+        for args, message in (
+            (["--speech-min-characters", "3"],
+             "--speech-min-characters requires --speech"),
+            (["--speech-min-characters", "private-limit", "--speech", "synthetic",
+              "--classifier-response", '{"intent":"sales"}'],
+             "invalid synthetic speech transcript minimum"),
+            (["--speech-min-characters", "6", "--speech-max-characters", "5",
+              "--speech", "synthetic", "--classifier-response", '{"intent":"sales"}'],
+             "synthetic speech transcript minimum cannot exceed its maximum"),
+        ):
+            output, errors = io.StringIO(), io.StringIO()
+            with self.subTest(args=args), offline_guard(), redirect_stdout(output), \
+                    redirect_stderr(errors), \
+                    patch("zentomic.demo.simulate_speech") as simulate:
+                with self.assertRaises(SystemExit) as error:
+                    main(args)
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn(message, errors.getvalue())
+            self.assertNotIn("private-limit", errors.getvalue())
+            simulate.assert_not_called()
+
+        for value in ("0", "00", "01", "2001", "+1", "1.0"):
+            output, errors = io.StringIO(), io.StringIO()
+            args = ["--speech-min-characters", value, "--speech", "synthetic",
+                    "--classifier-response", '{"intent":"sales"}']
+            with self.subTest(value=value), offline_guard(), redirect_stdout(output), \
+                    redirect_stderr(errors), \
+                    patch("zentomic.demo.simulate_speech") as simulate:
+                with self.assertRaises(SystemExit) as error:
+                    main(args)
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("invalid synthetic speech transcript minimum", errors.getvalue())
             simulate.assert_not_called()
 
     def test_cli_utf8_byte_limit_is_strict_private_and_mode_scoped(self):

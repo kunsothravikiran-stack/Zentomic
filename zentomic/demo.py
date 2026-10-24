@@ -93,6 +93,18 @@ def _parse_speech_max_characters(value: str | None) -> int:
     raise ValueError("speech transcript limit must be an integer from 1 to 2000")
 
 
+def _parse_speech_min_characters(value: str | None) -> int:
+    """Parse an optional minimum trimmed transcript length privately."""
+    if value is None:
+        return 1
+    if (len(value) <= 4 and value.isascii() and value.isdecimal()
+            and not value.startswith("0")):
+        characters = int(value)
+        if characters <= MAX_TRANSCRIPT_CHARS:
+            return characters
+    raise ValueError("speech transcript minimum must be an integer from 1 to 2000")
+
+
 def _parse_speech_max_utf8_bytes(value: str | None) -> int:
     """Parse an optional stricter UTF-8 transcript ceiling without reflection."""
     if value is None:
@@ -282,6 +294,7 @@ def simulate_speech(
     confidences: Iterable[str | None] | None = None,
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -308,9 +321,10 @@ def simulate_speech(
     minimum is configured, explicit scores below it retry. Missing scores stay
     admissible unless trusted configuration requires one. Neither scores nor
     transcripts are returned.
-    Trusted transcript ceilings can reduce the fixed 2000-character, 8000-byte
-    and 1000-word admission bounds without changing collection XML or returning
-    rejected text. Words are separated by Unicode whitespace.
+    Trusted transcript policy can require a minimum trimmed character length or
+    reduce the fixed 2000-character, 8000-byte and 1000-word admission bounds
+    without changing collection XML or returning rejected text. Words are
+    separated by Unicode whitespace.
     """
     if (minimum_confidence_percent is not None
             and (type(minimum_confidence_percent) is not int
@@ -318,10 +332,19 @@ def simulate_speech(
         raise ValueError("minimum_confidence_percent must be an integer from 0 to 100 or None")
     if type(require_confidence) is not bool:
         raise ValueError("require_confidence must be a boolean")
+    if (type(min_transcript_characters) is not int
+            or not 1 <= min_transcript_characters <= MAX_TRANSCRIPT_CHARS):
+        raise ValueError(
+            "min_transcript_characters must be an integer from 1 to 2000"
+        )
     if (type(max_transcript_characters) is not int
             or not 1 <= max_transcript_characters <= MAX_TRANSCRIPT_CHARS):
         raise ValueError(
             "max_transcript_characters must be an integer from 1 to 2000"
+        )
+    if min_transcript_characters > max_transcript_characters:
+        raise ValueError(
+            "min_transcript_characters must not exceed max_transcript_characters"
         )
     if (type(max_transcript_utf8_bytes) is not int
             or not 1 <= max_transcript_utf8_bytes <= MAX_TRANSCRIPT_UTF8_BYTES):
@@ -350,6 +373,7 @@ def simulate_speech(
             confidence=next(confidence_inputs, None),
             minimum_confidence_percent=minimum_confidence_percent,
             require_confidence=require_confidence,
+            min_transcript_characters=min_transcript_characters,
             max_transcript_characters=max_transcript_characters,
             max_transcript_utf8_bytes=max_transcript_utf8_bytes,
             max_transcript_words=max_transcript_words,
@@ -446,6 +470,10 @@ def main(argv: list[str] | None = None) -> int:
         help="retry when the synthetic provider score is missing; requires --speech",
     )
     parser.add_argument(
+        "--speech-min-characters", metavar="COUNT",
+        help="trusted trimmed transcript minimum from 1 to 2000; requires --speech",
+    )
+    parser.add_argument(
         "--speech-max-characters", metavar="COUNT",
         help="trusted transcript ceiling from 1 to 2000; requires --speech",
     )
@@ -476,6 +504,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-minimum-confidence requires --speech")
     if args.speech_require_confidence and args.speech is None:
         parser.error("--speech-require-confidence requires --speech")
+    if args.speech_min_characters is not None and args.speech is None:
+        parser.error("--speech-min-characters requires --speech")
     if args.speech_max_characters is not None and args.speech is None:
         parser.error("--speech-max-characters requires --speech")
     if args.speech_max_bytes is not None and args.speech is None:
@@ -517,6 +547,12 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         parser.error("invalid synthetic speech minimum confidence; use an integer from 0 to 100")
     try:
+        speech_min_characters = _parse_speech_min_characters(
+            args.speech_min_characters,
+        )
+    except ValueError:
+        parser.error("invalid synthetic speech transcript minimum; use an integer from 1 to 2000")
+    try:
         speech_max_characters = _parse_speech_max_characters(
             args.speech_max_characters,
         )
@@ -532,6 +568,8 @@ def main(argv: list[str] | None = None) -> int:
         speech_max_words = _parse_speech_max_words(args.speech_max_words)
     except ValueError:
         parser.error("invalid synthetic speech transcript word limit; use an integer from 1 to 1000")
+    if speech_min_characters > speech_max_characters:
+        parser.error("synthetic speech transcript minimum cannot exceed its maximum")
     if args.business_hours_timezone is not None and args.business_hours_at is None:
         parser.error("--business-hours-timezone requires --business-hours-at")
     if args.business_hours_at is not None and (args.digits or args.speech is not None):
@@ -576,6 +614,7 @@ def main(argv: list[str] | None = None) -> int:
                 confidences=args.speech_confidence,
                 minimum_confidence_percent=speech_minimum_confidence,
                 require_confidence=args.speech_require_confidence,
+                min_transcript_characters=speech_min_characters,
                 max_transcript_characters=speech_max_characters,
                 max_transcript_utf8_bytes=speech_max_utf8_bytes,
                 max_transcript_words=speech_max_words,

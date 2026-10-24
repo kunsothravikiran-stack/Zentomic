@@ -78,6 +78,36 @@ class SpeechDecisionTests(unittest.TestCase):
                     SpeechDecision("retry", None, None, 1),
                 )
 
+    def test_trusted_minimum_counts_trimmed_characters(self):
+        for speech, minimum, expected in (
+            ("x", 1, "classify"),
+            (" x ", 2, "retry"),
+            (" xy ", 2, "classify"),
+            ("\u2003xy\n", 3, "retry"),
+            ("\u2003xyz\n", 3, "classify"),
+        ):
+            with self.subTest(speech=repr(speech), minimum=minimum):
+                decision = self.decide(
+                    speech, min_transcript_characters=minimum,
+                )
+                self.assertEqual(decision.action, expected)
+                if expected == "classify":
+                    self.assertEqual(decision.transcript, speech)
+
+    def test_trusted_minimum_is_strict_and_cannot_exceed_maximum(self):
+        for minimum in (0, -1, MAX_TRANSCRIPT_CHARS + 1, True, False,
+                        2.0, "2", None, [], {}):
+            with self.subTest(minimum=repr(minimum)), self.assertRaises(ValueError):
+                self.decide("sales", min_transcript_characters=minimum)
+        with self.assertRaisesRegex(
+            ValueError,
+            "^min_transcript_characters must not exceed max_transcript_characters$",
+        ):
+            self.decide(
+                "sales", min_transcript_characters=6,
+                max_transcript_characters=5,
+            )
+
     def test_trusted_transcript_limit_is_strict(self):
         for limit in (0, -1, MAX_TRANSCRIPT_CHARS + 1, True, False,
                       80.0, "80", None, [], {}):

@@ -457,23 +457,25 @@ synthetic behavior on
 `simulate_speech`. This does not measure recognition quality, authenticate a
 caller, or make confidence sufficient for routing or confirmation.
 
-Preview stricter trusted transcript ceilings with `--speech-max-characters`,
-`--speech-max-bytes`, `--speech-max-words`, or the matching keyword-only options
-on `simulate_speech`:
+Preview trusted transcript length policy with `--speech-min-characters`,
+`--speech-max-characters`, `--speech-max-bytes`, `--speech-max-words`, or the
+matching keyword-only options on `simulate_speech`:
 
 ```sh
-python -m zentomic.demo --speech-max-characters 80 --speech-max-bytes 320 --speech-max-words 12 --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
+python -m zentomic.demo --speech-min-characters 3 --speech-max-characters 80 --speech-max-bytes 320 --speech-max-words 12 --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
 ```
 
-Character values are canonical integers from 1 through 2000; byte values are
-from 1 through 8000; word values are from 1 through 1000. Speech exceeding any
-configured ceiling follows the same finite retry/fallback budget and is never
+Minimum and maximum character values are canonical integers from 1 through
+2000, and the minimum cannot exceed the maximum. The minimum counts characters
+after trimming surrounding Unicode whitespace. Byte values are from 1 through
+8000; word values are from 1 through 1000. Speech outside any configured bound
+follows the same finite retry/fallback budget and is never
 returned in JSON. Defaults preserve every previously valid transcript. Character
 and byte limits include surrounding whitespace; words are nonempty segments
 separated by Unicode whitespace. Byte length is measured after strict UTF-8
 encoding. Limits are reused across retries and never change collection XML or
 keypad confirmation. Invalid values exit 2 without partial JSON or reflecting
-the value. All three flags require `--speech`. These are local admission and
+the value. All four flags require `--speech`. These are local admission and
 classifier-input bounds, not provider recording, model token, cost, or whole-call
 limits. Word counts are not token counts and do not segment languages without
 whitespace.
@@ -1454,10 +1456,14 @@ human target. The fixed ceilings are `MAX_TRANSCRIPT_CHARS` at 2000 Unicode
 characters, `MAX_TRANSCRIPT_UTF8_BYTES` at 8000 bytes, and
 `MAX_TRANSCRIPT_WORDS` at 1000 whitespace-delimited words. Trusted workspace
 policy may lower `max_transcript_characters`, `max_transcript_utf8_bytes`, or
-`max_transcript_words` to keep future classifier inputs smaller. Character and
-byte limits include surrounding whitespace; the byte limit is measured after
-strict UTF-8 encoding. Words are nonempty segments separated by Unicode
-whitespace, so this is not a linguistic segmenter or model-token limit.
+`max_transcript_words` to keep future classifier inputs smaller. It may also
+raise `min_transcript_characters` from its default of 1 to avoid classifier work
+for noise-like short results. The minimum counts characters after trimming
+surrounding Unicode whitespace and cannot exceed the maximum character policy.
+Maximum character and byte limits include surrounding whitespace; the byte
+limit is measured after strict UTF-8 encoding. Words are nonempty segments
+separated by Unicode whitespace, so this is not a linguistic segmenter or
+model-token limit.
 Accepted text is preserved.
 Surrogate code points in Python strings are rejected without replacement or
 normalization, so admitted text can be encoded for a classifier dependency.
@@ -1829,8 +1835,10 @@ When trusted `minimum_confidence_percent` is configured, authenticated
 budget. An omitted score never blocks otherwise valid speech unless trusted
 `require_confidence=True` is also configured. The presence rule can be used
 without a threshold, in which case any valid bounded score is admissible.
-Trusted `max_transcript_characters` can reduce the fixed 2000-character ceiling;
-trusted `max_transcript_utf8_bytes` can independently reduce the fixed 8000-byte
+Trusted `min_transcript_characters` can require a minimum trimmed length before
+classification. Trusted `max_transcript_characters` can reduce the fixed
+2000-character ceiling; trusted `max_transcript_utf8_bytes` can independently
+reduce the fixed 8000-byte
 ceiling; trusted `max_transcript_words` can reduce the fixed 1000-word ceiling.
 Authenticated callback fields cannot raise or replace any of these policies.
 

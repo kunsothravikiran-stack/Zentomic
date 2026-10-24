@@ -25,6 +25,7 @@ def resolve_speech_event(
     fallback_target: str, attempts: int, max_attempts: int = 3,
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -37,8 +38,9 @@ def resolve_speech_event(
     threshold rejects an explicitly lower or malformed provider score, while a
     missing score remains admissible because the provider does not guarantee it,
     unless trusted configuration explicitly requires one.
-    Trusted transcript limits can tighten the global 2000-character,
-    8000-byte and 1000-word ceilings before any text reaches a classifier.
+    Trusted transcript policy can require a minimum trimmed length or tighten
+    the global 2000-character, 8000-byte and 1000-word ceilings before any text
+    reaches a classifier.
     Policy configuration is validated after authentication. Accepted text
     remains untrusted and is not logged.
 
@@ -60,6 +62,7 @@ def resolve_speech_event(
         confidence=fields.get("Confidence"),
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         max_transcript_words=max_transcript_words,
@@ -73,6 +76,7 @@ def resolve_claimed_speech_event(
     fallback_target: str, attempts: int, max_attempts: int = 3,
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -97,6 +101,7 @@ def resolve_claimed_speech_event(
         max_attempts=max_attempts,
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         max_transcript_words=max_transcript_words,
@@ -112,6 +117,7 @@ def resolve_claimed_speech_event(
         max_attempts=max_attempts, confidence=fields.get("Confidence"),
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         max_transcript_words=max_transcript_words,

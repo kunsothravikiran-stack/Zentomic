@@ -33,6 +33,7 @@ def _validate_speech_configuration(
     *, fallback_target: str, attempts: int, max_attempts: int,
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -44,10 +45,19 @@ def _validate_speech_configuration(
         raise ValueError("minimum_confidence_percent must be an integer from 0 to 100 or None")
     if type(require_confidence) is not bool:
         raise ValueError("require_confidence must be a boolean")
+    if (type(min_transcript_characters) is not int
+            or not 1 <= min_transcript_characters <= MAX_TRANSCRIPT_CHARS):
+        raise ValueError(
+            "min_transcript_characters must be an integer from 1 to 2000"
+        )
     if (type(max_transcript_characters) is not int
             or not 1 <= max_transcript_characters <= MAX_TRANSCRIPT_CHARS):
         raise ValueError(
             "max_transcript_characters must be an integer from 1 to 2000"
+        )
+    if min_transcript_characters > max_transcript_characters:
+        raise ValueError(
+            "min_transcript_characters must not exceed max_transcript_characters"
         )
     if (type(max_transcript_utf8_bytes) is not int
             or not 1 <= max_transcript_utf8_bytes <= MAX_TRANSCRIPT_UTF8_BYTES):
@@ -90,17 +100,25 @@ def _resolve_validated_speech(
     attempts: int, max_attempts: int, confidence: str | None = None,
     minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
 ) -> SpeechDecision:
     """Admit speech after the caller validated and snapshotted its budget."""
     if (attempts < max_attempts and isinstance(speech, str)
-            and len(speech) <= max_transcript_characters and speech.strip()
+            and len(speech) <= max_transcript_characters):
+        stripped_speech = speech.strip()
+        admissible = (
+            len(stripped_speech) >= min_transcript_characters
             and _confidence_meets_minimum(
                 confidence, minimum_confidence_percent,
                 require_confidence=require_confidence,
-            )):
+            )
+        )
+    else:
+        admissible = False
+    if admissible:
         try:
             encoded_speech = speech.encode("utf-8")
         except UnicodeEncodeError:
@@ -120,6 +138,7 @@ def resolve_speech_gather(
     speech: str | None, *, fallback_target: str, attempts: int, max_attempts: int = 3,
     confidence: str | None = None, minimum_confidence_percent: int | None = None,
     require_confidence: bool = False,
+    min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -133,11 +152,13 @@ def resolve_speech_gather(
     remains admissible because the field is not guaranteed, unless trusted
     configuration explicitly requires it. Under either confidence policy, a
     present score must be a bounded decimal from 0 through 1. The trusted
-    transcript limits are integers from 1 through the fixed 2000-character,
-    8000-byte and 1000-word ceilings. Character and byte limits include
-    surrounding whitespace; words are nonempty Unicode-whitespace-delimited
-    segments. Byte length is measured from strict UTF-8 encoding; accepted
-    text is returned unchanged.
+    minimum transcript length is an integer from 1 through 2000 and cannot
+    exceed the configured character ceiling. It counts characters after
+    trimming surrounding Unicode whitespace. Maximum transcript limits are
+    integers from 1 through the fixed 2000-character, 8000-byte and 1000-word
+    ceilings. Maximum character and byte limits include surrounding whitespace;
+    words are nonempty Unicode-whitespace-delimited segments. Byte length is
+    measured from strict UTF-8 encoding; accepted text is returned unchanged.
     Surrogate code points are rejected, not silently replaced or repaired.
     Valid text on the last attempt may be classified, but an already exhausted
     budget always falls back.
@@ -152,6 +173,7 @@ def resolve_speech_gather(
         max_attempts=max_attempts,
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         max_transcript_words=max_transcript_words,
@@ -161,6 +183,7 @@ def resolve_speech_gather(
         confidence=confidence,
         minimum_confidence_percent=minimum_confidence_percent,
         require_confidence=require_confidence,
+        min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         max_transcript_words=max_transcript_words,

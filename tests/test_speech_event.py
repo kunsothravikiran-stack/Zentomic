@@ -100,6 +100,10 @@ class SpeechEventTests(unittest.TestCase):
                           {"fallback_target": ""},
                           {"minimum_confidence_percent": 101},
                           {"require_confidence": 1},
+                          {"min_transcript_characters": 0},
+                          {"min_transcript_characters": 2001},
+                          {"min_transcript_characters": 6,
+                           "max_transcript_characters": 5},
                           {"max_transcript_characters": 0},
                           {"max_transcript_characters": 2001},
                           {"max_transcript_utf8_bytes": 0},
@@ -153,6 +157,24 @@ class SpeechEventTests(unittest.TestCase):
         self.assertEqual(
             self.resolve(
                 event, Mock(return_value=True), max_transcript_characters=16,
+            ),
+            SpeechDecision("retry", None, None, 1),
+        )
+
+    def test_authenticated_speech_obeys_trusted_minimum_not_callback_fields(self):
+        event = callback(
+            {"SpeechResult": "  ok  ", "min_transcript_characters": "999"},
+            "2.0", False,
+        )
+        self.assertEqual(
+            self.resolve(
+                event, Mock(return_value=True), min_transcript_characters=2,
+            ),
+            SpeechDecision("classify", "  ok  ", None, 1),
+        )
+        self.assertEqual(
+            self.resolve(
+                event, Mock(return_value=True), min_transcript_characters=3,
             ),
             SpeechDecision("retry", None, None, 1),
         )
@@ -275,6 +297,9 @@ class ClaimedSpeechEventTests(unittest.TestCase):
             {"max_attempts": 0},
             {"minimum_confidence_percent": 101},
             {"require_confidence": "true"},
+            {"min_transcript_characters": 0},
+            {"min_transcript_characters": 2001},
+            {"min_transcript_characters": 6, "max_transcript_characters": 5},
             {"max_transcript_characters": 0},
             {"max_transcript_characters": 2001},
             {"max_transcript_utf8_bytes": 0},
