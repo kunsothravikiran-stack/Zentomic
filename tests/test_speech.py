@@ -154,6 +154,34 @@ class SpeechDecisionTests(unittest.TestCase):
         default_boundary = " ".join("x" for _ in range(MAX_TRANSCRIPT_WORDS))
         self.assertEqual(self.decide(default_boundary).transcript, default_boundary)
 
+    def test_trusted_word_minimum_bounds_whitespace_delimited_input(self):
+        for speech, minimum, expected in (
+            ("one", 1, "classify"),
+            ("one", 2, "retry"),
+            ("  one\ttwo\n", 2, "classify"),
+            ("one\u00a0two", 3, "retry"),
+            ("没有空格", 2, "retry"),
+        ):
+            with self.subTest(speech=speech, minimum=minimum):
+                decision = self.decide(speech, min_transcript_words=minimum)
+                self.assertEqual(decision.action, expected)
+                if expected == "classify":
+                    self.assertEqual(decision.transcript, speech)
+
+    def test_trusted_word_minimum_is_strict_and_cannot_exceed_maximum(self):
+        for minimum in (0, -1, MAX_TRANSCRIPT_WORDS + 1, True, False,
+                        2.0, "2", None, [], {}):
+            with self.subTest(minimum=repr(minimum)), self.assertRaises(ValueError):
+                self.decide("sales please", min_transcript_words=minimum)
+        with self.assertRaisesRegex(
+            ValueError,
+            "^min_transcript_words must not exceed max_transcript_words$",
+        ):
+            self.decide(
+                "sales please", min_transcript_words=3,
+                max_transcript_words=2,
+            )
+
     def test_trusted_word_limit_is_strict(self):
         for limit in (0, -1, MAX_TRANSCRIPT_WORDS + 1, True, False,
                       80.0, "80", None, [], {}):

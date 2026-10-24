@@ -28,6 +28,7 @@ def resolve_speech_event(
     min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
+    min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
 ) -> SpeechDecision:
     """Authenticate a speech callback, then propose bounded text admission.
@@ -65,6 +66,7 @@ def resolve_speech_event(
         min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
+        min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
     )
 
@@ -79,6 +81,7 @@ def resolve_claimed_speech_event(
     min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
+    min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
 ) -> SpeechDecision:
     """Validate trusted state, authenticate, claim, then admit speech once.
@@ -104,6 +107,7 @@ def resolve_claimed_speech_event(
         min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
+        min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
     )
     fields = validate_and_claim_call_event(
@@ -120,5 +124,6 @@ def resolve_claimed_speech_event(
         min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
+        min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
     )
