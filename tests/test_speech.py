@@ -285,6 +285,65 @@ class SpeechDecisionTests(unittest.TestCase):
                 if expected == "classify":
                     self.assertEqual(decision.transcript, speech)
 
+    def test_trusted_line_minimum_bounds_unicode_multiline_input(self):
+        for speech, minimum, expected in (
+            ("sales", 1, "classify"),
+            ("sales", 2, "retry"),
+            ("sales\nsupport", 2, "classify"),
+            ("sales\r\nsupport", 3, "retry"),
+            ("sales\u2028support\u2029billing", 3, "classify"),
+        ):
+            with self.subTest(speech=repr(speech), minimum=minimum):
+                decision = self.decide(speech, min_transcript_lines=minimum)
+                self.assertEqual(decision.action, expected)
+                if expected == "classify":
+                    self.assertEqual(decision.transcript, speech)
+
+    def test_trusted_line_minimum_is_strict_and_cannot_exceed_maximum(self):
+        for minimum in (0, -1, MAX_TRANSCRIPT_LINES + 1, True, False,
+                        2.0, "2", None, [], {}):
+            with self.subTest(minimum=repr(minimum)), self.assertRaises(ValueError):
+                self.decide("sales", min_transcript_lines=minimum)
+        with self.assertRaisesRegex(
+            ValueError,
+            "^min_transcript_lines must not exceed max_transcript_lines$",
+        ):
+            self.decide(
+                "sales\nsupport", min_transcript_lines=2,
+                max_transcript_lines=1,
+            )
+
+    def test_line_and_word_minimums_must_fit_shared_structural_limits(self):
+        for policy in (
+            {"min_transcript_lines": 3, "max_transcript_characters": 2},
+            {"min_transcript_lines": 3, "max_transcript_utf8_bytes": 2},
+            {"min_transcript_words": 2, "min_transcript_lines": 3,
+             "max_transcript_characters": 3},
+            {"min_transcript_words": 2, "min_transcript_lines": 3,
+             "max_transcript_utf8_bytes": 3},
+            {"min_transcript_characters": 3, "min_transcript_lines": 3,
+             "max_transcript_characters": 3},
+            {"min_transcript_utf8_bytes": 9, "min_transcript_lines": 2,
+             "max_transcript_characters": 3, "max_transcript_words": 1},
+        ):
+            with self.subTest(policy=policy), self.assertRaises(ValueError):
+                self.decide("a\nb c", **policy)
+        self.assertEqual(
+            self.decide(
+                "a\nb c", min_transcript_words=2, min_transcript_lines=2,
+                max_transcript_characters=5, max_transcript_utf8_bytes=5,
+            ),
+            SpeechDecision("classify", "a\nb c", None, 1),
+        )
+        self.assertEqual(
+            self.decide(
+                "\n\U00010000\U00010000", min_transcript_characters=2,
+                min_transcript_utf8_bytes=8, min_transcript_lines=2,
+                max_transcript_characters=3, max_transcript_words=1,
+            ),
+            SpeechDecision("classify", "\n\U00010000\U00010000", None, 1),
+        )
+
     def test_trusted_line_limit_is_strict(self):
         for limit in (0, -1, MAX_TRANSCRIPT_LINES + 1, True, False,
                       2.0, "2", None, [], {}):

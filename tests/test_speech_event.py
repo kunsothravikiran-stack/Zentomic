@@ -123,6 +123,10 @@ class SpeechEventTests(unittest.TestCase):
                            "max_transcript_words": 2},
                           {"max_transcript_words": 0},
                           {"max_transcript_words": 1001},
+                          {"min_transcript_lines": 0},
+                          {"min_transcript_lines": MAX_TRANSCRIPT_LINES + 1},
+                          {"min_transcript_lines": 2,
+                           "max_transcript_lines": 1},
                           {"max_transcript_lines": 0},
                           {"max_transcript_lines": MAX_TRANSCRIPT_LINES + 1}):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
@@ -264,6 +268,20 @@ class SpeechEventTests(unittest.TestCase):
             SpeechDecision("retry", None, None, 1),
         )
 
+    def test_authenticated_speech_obeys_trusted_line_minimum_not_callback_fields(self):
+        event = callback(
+            {"SpeechResult": "synthetic\nrequest", "min_transcript_lines": "999"},
+            "2.0", False,
+        )
+        self.assertEqual(
+            self.resolve(event, Mock(return_value=True), min_transcript_lines=2),
+            SpeechDecision("classify", "synthetic\nrequest", None, 1),
+        )
+        self.assertEqual(
+            self.resolve(event, Mock(return_value=True), min_transcript_lines=3),
+            SpeechDecision("retry", None, None, 1),
+        )
+
 
 class ClaimedSpeechEventTests(unittest.TestCase):
     def resolve(self, event, claimer, validator=None, **overrides):
@@ -344,6 +362,16 @@ class ClaimedSpeechEventTests(unittest.TestCase):
                 )
                 self.assertEqual(decision.action, action)
 
+    def test_claimed_line_minimum_is_snapshotted_before_claim(self):
+        for speech, action in (("request", "retry"), ("synthetic\nrequest", "classify")):
+            with self.subTest(speech=speech):
+                decision = self.resolve(
+                    callback({"SpeechResult": speech}, "2.0", False),
+                    InMemoryCallbackClaimStore(),
+                    min_transcript_lines=2,
+                )
+                self.assertEqual(decision.action, action)
+
     def test_rejected_callback_does_not_consume_the_step(self):
         for fields, valid in (
             ({}, False),
@@ -386,6 +414,11 @@ class ClaimedSpeechEventTests(unittest.TestCase):
              "max_transcript_characters": 3},
             {"max_transcript_words": 0},
             {"max_transcript_words": 1001},
+            {"min_transcript_lines": 0},
+            {"min_transcript_lines": MAX_TRANSCRIPT_LINES + 1},
+            {"min_transcript_lines": 2, "max_transcript_lines": 1},
+            {"min_transcript_words": 2, "min_transcript_lines": 3,
+             "max_transcript_characters": 3},
             {"max_transcript_lines": 0},
             {"max_transcript_lines": MAX_TRANSCRIPT_LINES + 1},
         ):

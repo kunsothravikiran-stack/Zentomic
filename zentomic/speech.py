@@ -37,6 +37,7 @@ def _validate_transcript_policy(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> None:
     """Validate trusted transcript bounds, including cross-limit feasibility."""
@@ -82,10 +83,19 @@ def _validate_transcript_policy(
         raise ValueError(
             "min_transcript_words must not exceed max_transcript_words"
         )
+    if (type(min_transcript_lines) is not int
+            or not 1 <= min_transcript_lines <= MAX_TRANSCRIPT_LINES):
+        raise ValueError(
+            "min_transcript_lines must be an integer from 1 to 2000"
+        )
     if (type(max_transcript_lines) is not int
             or not 1 <= max_transcript_lines <= MAX_TRANSCRIPT_LINES):
         raise ValueError(
             "max_transcript_lines must be an integer from 1 to 2000"
+        )
+    if min_transcript_lines > max_transcript_lines:
+        raise ValueError(
+            "min_transcript_lines must not exceed max_transcript_lines"
         )
 
     # Every character occupies at least one UTF-8 byte. Each nonempty word
@@ -105,12 +115,55 @@ def _validate_transcript_policy(
         raise ValueError(
             "min_transcript_words cannot fit within max_transcript_utf8_bytes"
         )
-    # A Unicode scalar occupies at most four UTF-8 bytes. At least N-1
-    # separator characters are needed for N words, and Python-recognized
-    # Unicode whitespace occupies at most three bytes per character.
-    maximum_content_bytes = (
-        max_transcript_characters * 4 - (min_transcript_words - 1)
-    )
+    if min_transcript_lines > max_transcript_characters:
+        raise ValueError(
+            "min_transcript_lines cannot fit within max_transcript_characters"
+        )
+    if min_transcript_lines > max_transcript_utf8_bytes:
+        raise ValueError(
+            "min_transcript_lines cannot fit within max_transcript_utf8_bytes"
+        )
+    minimum_separators = max(min_transcript_words - 1, min_transcript_lines - 1)
+    minimum_structural_characters = min_transcript_words + minimum_separators
+    if min_transcript_words == 1 and min_transcript_lines > 1:
+        leading_line_characters = (
+            min_transcript_characters + min_transcript_lines - 1
+        )
+        minimum_policy_characters = leading_line_characters
+        if max_transcript_words >= 2:
+            internal_line_characters = max(
+                min_transcript_characters, min_transcript_lines + 1,
+            )
+            minimum_policy_characters = min(
+                leading_line_characters, internal_line_characters,
+            )
+    else:
+        minimum_policy_characters = max(
+            min_transcript_characters, minimum_structural_characters,
+        )
+    if minimum_policy_characters > max_transcript_characters:
+        raise ValueError(
+            "minimum transcript words and lines cannot fit within "
+            "max_transcript_characters"
+        )
+    if minimum_policy_characters > max_transcript_utf8_bytes:
+        raise ValueError(
+            "minimum transcript words and lines cannot fit within "
+            "max_transcript_utf8_bytes"
+        )
+    # A Unicode scalar occupies at most four UTF-8 bytes. Required word and
+    # line separators can share characters, and Python-recognized Unicode
+    # whitespace occupies at most three bytes per character.
+    if max_transcript_words == 1 and min_transcript_lines > 1:
+        # With only one word, required line separators must sit outside the
+        # trimmed content and cannot help meet its byte minimum.
+        maximum_content_bytes = (
+            max_transcript_characters - (min_transcript_lines - 1)
+        ) * 4
+    else:
+        maximum_content_bytes = (
+            max_transcript_characters * 4 - minimum_separators
+        )
     if min_transcript_utf8_bytes > maximum_content_bytes:
         raise ValueError(
             "min_transcript_utf8_bytes cannot fit within max_transcript_characters "
@@ -128,6 +181,7 @@ def _validate_speech_configuration(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> GatherDecision:
     """Return the collection budget after validating trusted speech policy."""
@@ -144,6 +198,7 @@ def _validate_speech_configuration(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
     )
     return resolve_gather(
@@ -183,6 +238,7 @@ def _resolve_validated_speech(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> SpeechDecision:
     """Admit speech after the caller validated and snapshotted its budget."""
@@ -212,7 +268,7 @@ def _resolve_validated_speech(
             if (min_transcript_utf8_bytes <= stripped_byte_count
                     and len(encoded_speech) <= max_transcript_utf8_bytes
                     and min_transcript_words <= word_count <= max_transcript_words
-                    and line_count <= max_transcript_lines):
+                    and min_transcript_lines <= line_count <= max_transcript_lines):
                 return SpeechDecision("classify", speech, None, budget.attempts)
     action = "retry" if budget.action == "retry" else "fallback"
     return SpeechDecision(action, None, budget.target, budget.attempts)
@@ -228,6 +284,7 @@ def resolve_speech_gather(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> SpeechDecision:
     """Admit bounded nonblank text, or retry silence within a trusted budget.
@@ -245,7 +302,9 @@ def resolve_speech_gather(
     count is an integer from 1 through 8000 and measures the same trimmed text.
     The trusted minimum word count is
     an integer from 1 through 1000 and cannot exceed the configured word ceiling.
-    Maximum transcript limits are integers from 1 through the fixed
+    The trusted minimum line count is an integer from 1 through 2000 and cannot
+    exceed the configured line ceiling. Maximum transcript limits are integers
+    from 1 through the fixed
     2000-character, 8000-byte, 1000-word and 2000-line ceilings. Maximum
     character and byte limits include surrounding whitespace; words are
     nonempty Unicode-whitespace-delimited segments. Lines use Python's Unicode
@@ -271,6 +330,7 @@ def resolve_speech_gather(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
     )
     return _resolve_validated_speech(
@@ -284,5 +344,6 @@ def resolve_speech_gather(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
     )

@@ -32,6 +32,7 @@ def resolve_speech_event(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> SpeechDecision:
     """Authenticate a speech callback, then propose bounded text admission.
@@ -43,8 +44,8 @@ def resolve_speech_event(
     missing score remains admissible because the provider does not guarantee it,
     unless trusted configuration explicitly requires one.
     Trusted transcript policy can require minimum trimmed character, UTF-8 byte
-    and word counts or tighten the global 2000-character, 8000-byte, 1000-word
-    and 2000-line ceilings before any text reaches a classifier.
+    word, and line counts or tighten the global 2000-character, 8000-byte,
+    1000-word and 2000-line ceilings before any text reaches a classifier.
     Policy configuration is validated after authentication. Accepted text
     remains untrusted and is not logged.
 
@@ -72,6 +73,7 @@ def resolve_speech_event(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
     )
 
@@ -89,6 +91,7 @@ def resolve_claimed_speech_event(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> SpeechDecision:
     """Validate trusted state, authenticate, claim, then admit speech once.
@@ -117,6 +120,7 @@ def resolve_claimed_speech_event(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
     )
     fields = validate_and_claim_call_event(
@@ -136,5 +140,6 @@ def resolve_claimed_speech_event(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
     )

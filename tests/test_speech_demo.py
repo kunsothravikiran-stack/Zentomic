@@ -181,6 +181,18 @@ class SpeechDemoTests(unittest.TestCase):
         )
         self.assertNotIn("accepted private request", json.dumps(steps))
 
+    def test_trusted_line_minimum_reuses_the_retry_budget(self):
+        with offline_guard():
+            steps = simulate_speech(
+                ["noise", "accepted\nprivate request"],
+                '{"intent":"support"}', ["1"], min_transcript_lines=2,
+            )
+        self.assertEqual(
+            [step["action"] for step in steps],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("accepted", json.dumps(steps))
+
     def test_invalid_transcript_limit_fails_before_other_inputs(self):
         class UnreadHints(list):
             def __iter__(self):
@@ -261,6 +273,17 @@ class SpeechDemoTests(unittest.TestCase):
                     )
             render.assert_not_called()
 
+        for minimum in (0, 2001, True, 5.0, "5", None):
+            with self.subTest(line_minimum=repr(minimum)), offline_guard(), \
+                    patch("zentomic.demo.render_speech_gather") as render:
+                with self.assertRaises(ValueError):
+                    simulate_speech(
+                        unused_inputs(), None, unused_inputs(),
+                        hints=UnreadHints(["sales"]),
+                        min_transcript_lines=minimum,
+                    )
+            render.assert_not_called()
+
         with offline_guard(), patch(
             "zentomic.demo.render_speech_gather",
         ) as render, self.assertRaises(ValueError):
@@ -281,6 +304,18 @@ class SpeechDemoTests(unittest.TestCase):
              "max_transcript_utf8_bytes": 12,
              "min_transcript_words": 2,
              "max_transcript_characters": 3},
+            {"min_transcript_lines": 3,
+             "max_transcript_characters": 2},
+            {"min_transcript_words": 2,
+             "min_transcript_lines": 3,
+             "max_transcript_characters": 3},
+            {"min_transcript_characters": 3,
+             "min_transcript_lines": 3,
+             "max_transcript_characters": 3},
+            {"min_transcript_utf8_bytes": 9,
+             "min_transcript_lines": 2,
+             "max_transcript_characters": 3,
+             "max_transcript_words": 1},
         ):
             with self.subTest(policy=policy), offline_guard(), patch(
                 "zentomic.demo.render_speech_gather",
@@ -751,6 +786,59 @@ class SpeechDemoTests(unittest.TestCase):
                           errors.getvalue())
             simulate.assert_not_called()
 
+    def test_cli_line_minimum_is_strict_private_and_mode_scoped(self):
+        output = io.StringIO()
+        args = [
+            "--speech-min-lines", "2",
+            "--speech", "noise", "--speech", "accepted\nprivate request",
+            "--classifier-response", '{"intent":"support"}', "1",
+        ]
+        with offline_guard(), redirect_stdout(output):
+            self.assertEqual(main(args), 0)
+        self.assertEqual(
+            [step["action"] for step in json.loads(output.getvalue())["steps"]],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("accepted", output.getvalue())
+
+        for args, message in (
+            (["--speech-min-lines", "2"],
+             "--speech-min-lines requires --speech"),
+            (["--speech-min-lines", "private-limit", "--speech", "synthetic",
+              "--classifier-response", '{"intent":"sales"}'],
+             "invalid synthetic speech transcript line minimum"),
+            (["--speech-min-lines", "2", "--speech-max-lines", "1",
+              "--speech", "synthetic\nrequest",
+              "--classifier-response", '{"intent":"sales"}'],
+             "synthetic speech transcript line minimum cannot exceed its maximum"),
+        ):
+            output, errors = io.StringIO(), io.StringIO()
+            with self.subTest(args=args), offline_guard(), redirect_stdout(output), \
+                    redirect_stderr(errors), \
+                    patch("zentomic.demo.simulate_speech") as simulate:
+                with self.assertRaises(SystemExit) as error:
+                    main(args)
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn(message, errors.getvalue())
+            self.assertNotIn("private-limit", errors.getvalue())
+            simulate.assert_not_called()
+
+        for value in ("0", "00", "01", "2001", "+1", "1.0"):
+            output, errors = io.StringIO(), io.StringIO()
+            args = ["--speech-min-lines", value, "--speech", "synthetic",
+                    "--classifier-response", '{"intent":"sales"}']
+            with self.subTest(value=value), offline_guard(), redirect_stdout(output), \
+                    redirect_stderr(errors), \
+                    patch("zentomic.demo.simulate_speech") as simulate:
+                with self.assertRaises(SystemExit) as error:
+                    main(args)
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("invalid synthetic speech transcript line minimum",
+                          errors.getvalue())
+            simulate.assert_not_called()
+
     def test_cli_cross_dimension_policy_fails_before_simulation(self):
         base = ["--speech", "synthetic", "--classifier-response", '{"intent":"sales"}']
         for policy, message in (
@@ -767,6 +855,23 @@ class SpeechDemoTests(unittest.TestCase):
                 ["--speech-min-words", "3", "--speech-max-bytes", "4"],
                 "synthetic speech transcript word minimum cannot fit within its "
                 "character and byte limits",
+            ),
+            (
+                ["--speech-min-lines", "3", "--speech-max-characters", "2"],
+                "synthetic speech transcript line minimum cannot fit within its "
+                "character and byte limits",
+            ),
+            (
+                ["--speech-min-words", "2", "--speech-min-lines", "3",
+                 "--speech-max-characters", "3"],
+                "synthetic speech transcript word and line minimums cannot fit within "
+                "their character and byte limits",
+            ),
+            (
+                ["--speech-min-characters", "3", "--speech-min-lines", "3",
+                 "--speech-max-characters", "3"],
+                "synthetic speech transcript word and line minimums cannot fit within "
+                "their character and byte limits",
             ),
         ):
             output, errors = io.StringIO(), io.StringIO()

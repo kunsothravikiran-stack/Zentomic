@@ -167,6 +167,18 @@ def _parse_speech_max_lines(value: str | None) -> int:
     raise ValueError("speech transcript line limit must be an integer from 1 to 2000")
 
 
+def _parse_speech_min_lines(value: str | None) -> int:
+    """Parse an optional minimum Unicode-line transcript count privately."""
+    if value is None:
+        return 1
+    if (len(value) <= 4 and value.isascii() and value.isdecimal()
+            and not value.startswith("0")):
+        lines = int(value)
+        if lines <= MAX_TRANSCRIPT_LINES:
+            return lines
+    raise ValueError("speech transcript line minimum must be an integer from 1 to 2000")
+
+
 def simulate_business_hours(
     instants: Iterable[datetime], *, timezone_name: str = "America/New_York",
 ) -> list[dict]:
@@ -338,6 +350,7 @@ def simulate_speech(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
@@ -362,9 +375,9 @@ def simulate_speech(
     minimum is configured, explicit scores below it retry. Missing scores stay
     admissible unless trusted configuration requires one. Neither scores nor
     transcripts are returned.
-    Trusted transcript policy can require minimum trimmed character, UTF-8 byte
-    and word counts or reduce the fixed 2000-character, 8000-byte, 1000-word and
-    2000-line admission bounds without changing collection XML or returning
+    Trusted transcript policy can require minimum trimmed character, UTF-8 byte,
+    word, and line counts or reduce the fixed 2000-character, 8000-byte,
+    1000-word and 2000-line admission bounds without changing collection XML or returning
     rejected text. Words are separated by Unicode whitespace; lines use
     Python's Unicode line-boundary rules.
     """
@@ -381,6 +394,7 @@ def simulate_speech(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
     )
     collection = render_speech_gather(
@@ -406,6 +420,7 @@ def simulate_speech(
             max_transcript_utf8_bytes=max_transcript_utf8_bytes,
             min_transcript_words=min_transcript_words,
             max_transcript_words=max_transcript_words,
+            min_transcript_lines=min_transcript_lines,
             max_transcript_lines=max_transcript_lines,
         )
         attempts = decision.attempts
@@ -524,6 +539,10 @@ def main(argv: list[str] | None = None) -> int:
         help="trusted whitespace-delimited ceiling from 1 to 1000; requires --speech",
     )
     parser.add_argument(
+        "--speech-min-lines", metavar="COUNT",
+        help="trusted Unicode-line minimum from 1 to 2000; requires --speech",
+    )
+    parser.add_argument(
         "--speech-max-lines", metavar="COUNT",
         help="trusted Unicode-line ceiling from 1 to 2000; requires --speech",
     )
@@ -558,6 +577,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-min-words requires --speech")
     if args.speech_max_words is not None and args.speech is None:
         parser.error("--speech-max-words requires --speech")
+    if args.speech_min_lines is not None and args.speech is None:
+        parser.error("--speech-min-lines requires --speech")
     if args.speech_max_lines is not None and args.speech is None:
         parser.error("--speech-max-lines requires --speech")
     if (args.speech_confidence is not None
@@ -627,6 +648,10 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         parser.error("invalid synthetic speech transcript word limit; use an integer from 1 to 1000")
     try:
+        speech_min_lines = _parse_speech_min_lines(args.speech_min_lines)
+    except ValueError:
+        parser.error("invalid synthetic speech transcript line minimum; use an integer from 1 to 2000")
+    try:
         speech_max_lines = _parse_speech_max_lines(args.speech_max_lines)
     except ValueError:
         parser.error("invalid synthetic speech transcript line limit; use an integer from 1 to 2000")
@@ -636,6 +661,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("synthetic speech transcript word minimum cannot exceed its maximum")
     if speech_min_utf8_bytes > speech_max_utf8_bytes:
         parser.error("synthetic speech transcript byte minimum cannot exceed its maximum")
+    if speech_min_lines > speech_max_lines:
+        parser.error("synthetic speech transcript line minimum cannot exceed its maximum")
     if speech_min_characters > speech_max_utf8_bytes:
         parser.error(
             "synthetic speech transcript minimum cannot fit within its byte limit"
@@ -647,9 +674,40 @@ def main(argv: list[str] | None = None) -> int:
             "synthetic speech transcript word minimum cannot fit within its "
             "character and byte limits"
         )
-    maximum_content_bytes = (
-        speech_max_characters * 4 - (speech_min_words - 1)
-    )
+    if (speech_min_lines > speech_max_characters
+            or speech_min_lines > speech_max_utf8_bytes):
+        parser.error(
+            "synthetic speech transcript line minimum cannot fit within its "
+            "character and byte limits"
+        )
+    minimum_separators = max(speech_min_words - 1, speech_min_lines - 1)
+    minimum_structural_characters = speech_min_words + minimum_separators
+    if speech_min_words == 1 and speech_min_lines > 1:
+        leading_line_characters = speech_min_characters + speech_min_lines - 1
+        minimum_policy_characters = leading_line_characters
+        if speech_max_words >= 2:
+            minimum_policy_characters = min(
+                leading_line_characters,
+                max(speech_min_characters, speech_min_lines + 1),
+            )
+    else:
+        minimum_policy_characters = max(
+            speech_min_characters, minimum_structural_characters,
+        )
+    if (minimum_policy_characters > speech_max_characters
+            or minimum_policy_characters > speech_max_utf8_bytes):
+        parser.error(
+            "synthetic speech transcript word and line minimums cannot fit within "
+            "their character and byte limits"
+        )
+    if speech_max_words == 1 and speech_min_lines > 1:
+        maximum_content_bytes = (
+            speech_max_characters - (speech_min_lines - 1)
+        ) * 4
+    else:
+        maximum_content_bytes = (
+            speech_max_characters * 4 - minimum_separators
+        )
     if speech_min_utf8_bytes > maximum_content_bytes:
         parser.error(
             "synthetic speech transcript byte minimum cannot fit within its "
@@ -705,6 +763,7 @@ def main(argv: list[str] | None = None) -> int:
                 max_transcript_utf8_bytes=speech_max_utf8_bytes,
                 min_transcript_words=speech_min_words,
                 max_transcript_words=speech_max_words,
+                min_transcript_lines=speech_min_lines,
                 max_transcript_lines=speech_max_lines,
             )
         except ValueError:
