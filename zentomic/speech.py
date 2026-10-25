@@ -11,6 +11,7 @@ from zentomic.gather import GatherDecision, resolve_gather
 MAX_TRANSCRIPT_CHARS = 2000
 MAX_TRANSCRIPT_UTF8_BYTES = MAX_TRANSCRIPT_CHARS * 4
 MAX_TRANSCRIPT_WORDS = MAX_TRANSCRIPT_CHARS // 2
+MAX_TRANSCRIPT_LINES = MAX_TRANSCRIPT_CHARS
 MAX_CONFIDENCE_CHARACTERS = 32
 _CONFIDENCE = re.compile(r"(?:0(?:\.[0-9]+)?|1(?:\.0+)?)", re.ASCII)
 
@@ -36,6 +37,7 @@ def _validate_transcript_policy(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> None:
     """Validate trusted transcript bounds, including cross-limit feasibility."""
     if (type(min_transcript_characters) is not int
@@ -80,6 +82,11 @@ def _validate_transcript_policy(
         raise ValueError(
             "min_transcript_words must not exceed max_transcript_words"
         )
+    if (type(max_transcript_lines) is not int
+            or not 1 <= max_transcript_lines <= MAX_TRANSCRIPT_LINES):
+        raise ValueError(
+            "max_transcript_lines must be an integer from 1 to 2000"
+        )
 
     # Every character occupies at least one UTF-8 byte. Each nonempty word
     # needs at least one character, with at least one whitespace character
@@ -121,6 +128,7 @@ def _validate_speech_configuration(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> GatherDecision:
     """Return the collection budget after validating trusted speech policy."""
     if (minimum_confidence_percent is not None
@@ -136,6 +144,7 @@ def _validate_speech_configuration(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        max_transcript_lines=max_transcript_lines,
     )
     return resolve_gather(
         None, {}, fallback_target=fallback_target,
@@ -174,6 +183,7 @@ def _resolve_validated_speech(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> SpeechDecision:
     """Admit speech after the caller validated and snapshotted its budget."""
     if (attempts < max_attempts and isinstance(speech, str)
@@ -197,10 +207,12 @@ def _resolve_validated_speech(
             # Split at most one segment beyond the trusted limit. This bounds
             # temporary work while treating all Unicode whitespace consistently.
             word_count = len(speech.split(None, max_transcript_words))
+            line_count = len(speech.splitlines()) or 1
             stripped_byte_count = len(stripped_speech.encode("utf-8"))
             if (min_transcript_utf8_bytes <= stripped_byte_count
                     and len(encoded_speech) <= max_transcript_utf8_bytes
-                    and min_transcript_words <= word_count <= max_transcript_words):
+                    and min_transcript_words <= word_count <= max_transcript_words
+                    and line_count <= max_transcript_lines):
                 return SpeechDecision("classify", speech, None, budget.attempts)
     action = "retry" if budget.action == "retry" else "fallback"
     return SpeechDecision(action, None, budget.target, budget.attempts)
@@ -216,6 +228,7 @@ def resolve_speech_gather(
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
+    max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
 ) -> SpeechDecision:
     """Admit bounded nonblank text, or retry silence within a trusted budget.
 
@@ -233,10 +246,11 @@ def resolve_speech_gather(
     The trusted minimum word count is
     an integer from 1 through 1000 and cannot exceed the configured word ceiling.
     Maximum transcript limits are integers from 1 through the fixed
-    2000-character, 8000-byte and 1000-word ceilings. Maximum character and byte
-    limits include surrounding whitespace; words are nonempty
-    Unicode-whitespace-delimited segments. Byte length is measured from strict
-    UTF-8 encoding; accepted text is returned unchanged.
+    2000-character, 8000-byte, 1000-word and 2000-line ceilings. Maximum
+    character and byte limits include surrounding whitespace; words are
+    nonempty Unicode-whitespace-delimited segments. Lines use Python's Unicode
+    line-boundary rules. Byte length is measured from strict UTF-8 encoding;
+    accepted text is returned unchanged.
     Surrogate code points are rejected, not silently replaced or repaired.
     Valid text on the last attempt may be classified, but an already exhausted
     budget always falls back.
@@ -257,6 +271,7 @@ def resolve_speech_gather(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        max_transcript_lines=max_transcript_lines,
     )
     return _resolve_validated_speech(
         speech, budget=budget, attempts=attempts, max_attempts=max_attempts,
@@ -269,4 +284,5 @@ def resolve_speech_gather(
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
+        max_transcript_lines=max_transcript_lines,
     )

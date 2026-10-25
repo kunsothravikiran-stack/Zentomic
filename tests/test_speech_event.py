@@ -11,6 +11,7 @@ from zentomic.callback_claim_store import (
 )
 from zentomic.speech import (
     MAX_TRANSCRIPT_CHARS,
+    MAX_TRANSCRIPT_LINES,
     MAX_TRANSCRIPT_UTF8_BYTES,
     SpeechDecision,
 )
@@ -121,7 +122,9 @@ class SpeechEventTests(unittest.TestCase):
                           {"min_transcript_words": 3,
                            "max_transcript_words": 2},
                           {"max_transcript_words": 0},
-                          {"max_transcript_words": 1001}):
+                          {"max_transcript_words": 1001},
+                          {"max_transcript_lines": 0},
+                          {"max_transcript_lines": MAX_TRANSCRIPT_LINES + 1}):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 self.resolve(callback({"SpeechResult": "Synthetic request"}, "2.0", False),
                              Mock(return_value=True), **overrides)
@@ -247,6 +250,20 @@ class SpeechEventTests(unittest.TestCase):
             SpeechDecision("retry", None, None, 1),
         )
 
+    def test_authenticated_speech_obeys_trusted_line_limit_not_callback_fields(self):
+        event = callback(
+            {"SpeechResult": "synthetic\nrequest", "max_transcript_lines": "999"},
+            "2.0", False,
+        )
+        self.assertEqual(
+            self.resolve(event, Mock(return_value=True), max_transcript_lines=2),
+            SpeechDecision("classify", "synthetic\nrequest", None, 1),
+        )
+        self.assertEqual(
+            self.resolve(event, Mock(return_value=True), max_transcript_lines=1),
+            SpeechDecision("retry", None, None, 1),
+        )
+
 
 class ClaimedSpeechEventTests(unittest.TestCase):
     def resolve(self, event, claimer, validator=None, **overrides):
@@ -369,6 +386,8 @@ class ClaimedSpeechEventTests(unittest.TestCase):
              "max_transcript_characters": 3},
             {"max_transcript_words": 0},
             {"max_transcript_words": 1001},
+            {"max_transcript_lines": 0},
+            {"max_transcript_lines": MAX_TRANSCRIPT_LINES + 1},
         ):
             validator = Mock(return_value=True)
             store = InMemoryCallbackClaimStore()

@@ -8,6 +8,7 @@ from zentomic.intent import resolve_intent
 from zentomic.speech import (
     MAX_CONFIDENCE_CHARACTERS,
     MAX_TRANSCRIPT_CHARS,
+    MAX_TRANSCRIPT_LINES,
     MAX_TRANSCRIPT_UTF8_BYTES,
     MAX_TRANSCRIPT_WORDS,
     SpeechDecision,
@@ -269,6 +270,26 @@ class SpeechDecisionTests(unittest.TestCase):
                       80.0, "80", None, [], {}):
             with self.subTest(limit=repr(limit)), self.assertRaises(ValueError):
                 self.decide("sales", max_transcript_words=limit)
+
+    def test_trusted_line_limit_bounds_unicode_multiline_input(self):
+        for speech, limit, expected in (
+            ("sales", 1, "classify"),
+            ("sales\nsupport", 1, "retry"),
+            ("sales\r\nsupport", 2, "classify"),
+            ("sales\u2028support\u2029billing", 2, "retry"),
+            ("sales\u2028support\u2029billing", 3, "classify"),
+        ):
+            with self.subTest(speech=repr(speech), limit=limit):
+                decision = self.decide(speech, max_transcript_lines=limit)
+                self.assertEqual(decision.action, expected)
+                if expected == "classify":
+                    self.assertEqual(decision.transcript, speech)
+
+    def test_trusted_line_limit_is_strict(self):
+        for limit in (0, -1, MAX_TRANSCRIPT_LINES + 1, True, False,
+                      2.0, "2", None, [], {}):
+            with self.subTest(limit=repr(limit)), self.assertRaises(ValueError):
+                self.decide("sales", max_transcript_lines=limit)
 
     def test_invalid_unicode_never_reaches_classification(self):
         # Python strings (including decoded JSON) may contain surrogate code

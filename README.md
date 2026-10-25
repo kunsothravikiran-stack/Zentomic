@@ -459,11 +459,11 @@ caller, or make confidence sufficient for routing or confirmation.
 
 Preview trusted transcript length policy with `--speech-min-characters`,
 `--speech-max-characters`, `--speech-min-bytes`, `--speech-max-bytes`,
-`--speech-min-words`,
-`--speech-max-words`, or the matching keyword-only options on `simulate_speech`:
+`--speech-min-words`, `--speech-max-words`, `--speech-max-lines`, or the matching
+keyword-only options on `simulate_speech`:
 
 ```sh
-python -m zentomic.demo --speech-min-characters 3 --speech-max-characters 80 --speech-min-bytes 3 --speech-max-bytes 320 --speech-min-words 2 --speech-max-words 12 --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
+python -m zentomic.demo --speech-min-characters 3 --speech-max-characters 80 --speech-min-bytes 3 --speech-max-bytes 320 --speech-min-words 2 --speech-max-words 12 --speech-max-lines 1 --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
 ```
 
 Minimum and maximum character values are canonical integers from 1 through
@@ -481,11 +481,12 @@ instead of consuming the retry budget. Speech outside any configured bound
 follows the same finite retry/fallback budget and is never
 returned in JSON. Defaults preserve every previously valid transcript. Maximum
 character and byte limits include surrounding whitespace; words are nonempty
-segments
-separated by Unicode whitespace. Byte length is measured after strict UTF-8
+segments separated by Unicode whitespace. The line ceiling is a canonical
+integer from 1 through 2000 and uses Python's Unicode line-boundary rules.
+Byte length is measured after strict UTF-8
 encoding. Limits are reused across retries and never change collection XML or
 keypad confirmation. Invalid values exit 2 without partial JSON or reflecting
-the value. All six flags require `--speech`. These are local admission and
+the value. All seven flags require `--speech`. These are local admission and
 classifier-input bounds, not provider recording, model token, cost, or whole-call
 limits. Word counts are not token counts and do not segment languages without
 whitespace.
@@ -1464,9 +1465,11 @@ the current speech step. Missing, non-string, blank, oversized, or invalid
 Unicode text retries within the budget, then falls back to the configured
 human target. The fixed ceilings are `MAX_TRANSCRIPT_CHARS` at 2000 Unicode
 characters, `MAX_TRANSCRIPT_UTF8_BYTES` at 8000 bytes, and
-`MAX_TRANSCRIPT_WORDS` at 1000 whitespace-delimited words. Trusted workspace
+`MAX_TRANSCRIPT_WORDS` at 1000 whitespace-delimited words. The compatibility
+default for `MAX_TRANSCRIPT_LINES` is 2000. Trusted workspace
 policy may lower `max_transcript_characters`, `max_transcript_utf8_bytes`, or
-`max_transcript_words` to keep future classifier inputs smaller. It may also
+`max_transcript_words`, or may set `max_transcript_lines`, to keep future
+classifier inputs smaller. It may also
 raise `min_transcript_characters`, `min_transcript_utf8_bytes`, or
 `min_transcript_words` from their defaults of 1 to avoid classifier work for
 noise-like short results. Minimum characters and bytes are counted after
@@ -1479,7 +1482,9 @@ combinations fail before authentication or collection attempts are consumed.
 Maximum character and byte limits include surrounding whitespace; the byte
 limit is measured after strict UTF-8 encoding. Words are nonempty segments
 separated by Unicode whitespace, so this is not a linguistic segmenter or
-model-token limit.
+model-token limit. Lines use Python's Unicode line-boundary rules; limiting them
+can reject unexpected multiline provider output before prompt construction but
+is not prompt-injection protection.
 Accepted text is preserved.
 Surrogate code points in Python strings are rejected without replacement or
 normalization, so admitted text can be encoded for a classifier dependency.
@@ -1858,7 +1863,9 @@ minimum trimmed UTF-8 size, while trusted `max_transcript_utf8_bytes` can
 independently reduce the fixed 8000-byte
 ceiling. Trusted `min_transcript_words` can require a minimum
 whitespace-delimited word count; trusted `max_transcript_words` can reduce the
-fixed 1000-word ceiling. Cross-dimension policy is validated for feasibility:
+fixed 1000-word ceiling. Trusted `max_transcript_lines` can reduce the fixed
+2000-line compatibility ceiling using Python's Unicode line-boundary rules.
+Cross-dimension policy is validated for feasibility:
 minimum characters must fit within the byte ceiling, and minimum words must fit
 within both character and byte ceilings. The byte minimum must also be reachable
 within the character ceiling after the required word separators are reserved.
