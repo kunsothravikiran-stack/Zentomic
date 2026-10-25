@@ -457,14 +457,19 @@ synthetic behavior on
 `simulate_speech`. This does not measure recognition quality, authenticate a
 caller, or make confidence sufficient for routing or confirmation.
 
-Preview trusted transcript length policy with `--speech-min-characters`,
+Preview trusted transcript admission policy with `--speech-min-characters`,
 `--speech-max-characters`, `--speech-min-bytes`, `--speech-max-bytes`,
 `--speech-min-words`, `--speech-max-words`, `--speech-min-lines`,
-`--speech-max-lines`, or the matching keyword-only options on `simulate_speech`:
+`--speech-max-lines`, `--speech-require-alphanumeric`, or the matching
+keyword-only options on `simulate_speech`:
 
 ```sh
 python -m zentomic.demo --speech-min-characters 3 --speech-max-characters 80 --speech-min-bytes 3 --speech-max-bytes 320 --speech-min-words 2 --speech-max-words 12 --speech-min-lines 1 --speech-max-lines 1 --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
 ```
+
+Use `--speech-require-alphanumeric` to retry punctuation-, symbol-, or
+combining-mark-only recognition results before classification. The check uses
+Unicode letter and number semantics, so it does not restrict speech to ASCII.
 
 Minimum and maximum character values are canonical integers from 1 through
 2000, and the minimum cannot exceed the maximum. The minimum counts characters
@@ -490,10 +495,10 @@ line-boundary rules.
 Byte length is measured after strict UTF-8
 encoding. Limits are reused across retries and never change collection XML or
 keypad confirmation. Invalid values exit 2 without partial JSON or reflecting
-the value. All eight flags require `--speech`. These are local admission and
-classifier-input bounds, not provider recording, model token, cost, or whole-call
-limits. Word counts are not token counts and do not segment languages without
-whitespace.
+the value. All nine policy flags require `--speech`. These are local admission
+and classifier-input bounds, not provider recording, model token, cost, or
+whole-call limits. Word counts are not token counts and do not segment languages
+without whitespace.
 
 This mode adds a `stage` field (`speech` or `confirmation`) so attempt counts
 are not confused across stages. A `classify` decision means speech was admitted,
@@ -1492,7 +1497,10 @@ and line separators can share whitespace, but their combined minimum must fit
 within the character and byte ceilings. Limiting lines can reject unexpected
 multiline provider output before prompt construction but is not
 prompt-injection protection.
-Accepted text is preserved.
+Setting `require_transcript_alphanumeric=True` also rejects otherwise bounded
+text that contains no Unicode letter or number. This opt-in noise filter admits
+letters and numbers across scripts, preserves accepted text unchanged, and is
+not language detection, intent validation, or prompt-injection protection.
 Surrogate code points in Python strings are rejected without replacement or
 normalization, so admitted text can be encoded for a classifier dependency.
 The form decoder already rejects malformed UTF-8; this also protects direct
@@ -1873,6 +1881,8 @@ whitespace-delimited word count; trusted `max_transcript_words` can reduce the
 fixed 1000-word ceiling. Trusted `min_transcript_lines` can require a minimum
 line count, while trusted `max_transcript_lines` can reduce the fixed 2000-line
 compatibility ceiling using Python's Unicode line-boundary rules.
+Trusted `require_transcript_alphanumeric=True` retries punctuation-, symbol-,
+and combining-mark-only results while accepting Unicode letters and numbers.
 Cross-dimension policy is validated for feasibility:
 minimum characters must fit within the byte ceiling, and minimum words must fit
 within both character and byte ceilings. The byte minimum must also be reachable

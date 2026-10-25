@@ -350,6 +350,28 @@ class SpeechDecisionTests(unittest.TestCase):
             with self.subTest(limit=repr(limit)), self.assertRaises(ValueError):
                 self.decide("sales", max_transcript_lines=limit)
 
+    def test_optional_alphanumeric_policy_filters_noise_without_rewriting_text(self):
+        for speech in ("...?!", "😀 🎉", "\u0301\u0308", "---\n***"):
+            with self.subTest(speech=repr(speech)):
+                self.assertEqual(self.decide(speech).transcript, speech)
+                self.assertEqual(
+                    self.decide(speech, require_transcript_alphanumeric=True),
+                    SpeechDecision("retry", None, None, 1),
+                )
+        for speech in ("sales!", "తెలుగు", "１２３", "e\u0301"):
+            with self.subTest(speech=repr(speech)):
+                self.assertEqual(
+                    self.decide(speech, require_transcript_alphanumeric=True),
+                    SpeechDecision("classify", speech, None, 1),
+                )
+
+    def test_alphanumeric_policy_flag_is_strict(self):
+        for value in (0, 1, "true", None, [], {}):
+            with self.subTest(value=repr(value)), self.assertRaisesRegex(
+                ValueError, "^require_transcript_alphanumeric must be a boolean$",
+            ):
+                self.decide("sales", require_transcript_alphanumeric=value)
+
     def test_invalid_unicode_never_reaches_classification(self):
         # Python strings (including decoded JSON) may contain surrogate code
         # points that cannot be sent as UTF-8 to a classifier dependency.

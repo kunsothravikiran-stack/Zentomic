@@ -39,6 +39,7 @@ def _validate_transcript_policy(
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
     min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
+    require_transcript_alphanumeric: bool = False,
 ) -> None:
     """Validate trusted transcript bounds, including cross-limit feasibility."""
     if (type(min_transcript_characters) is not int
@@ -97,6 +98,8 @@ def _validate_transcript_policy(
         raise ValueError(
             "min_transcript_lines must not exceed max_transcript_lines"
         )
+    if type(require_transcript_alphanumeric) is not bool:
+        raise ValueError("require_transcript_alphanumeric must be a boolean")
 
     # Every character occupies at least one UTF-8 byte. Each nonempty word
     # needs at least one character, with at least one whitespace character
@@ -183,6 +186,7 @@ def _validate_speech_configuration(
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
     min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
+    require_transcript_alphanumeric: bool = False,
 ) -> GatherDecision:
     """Return the collection budget after validating trusted speech policy."""
     if (minimum_confidence_percent is not None
@@ -200,6 +204,7 @@ def _validate_speech_configuration(
         max_transcript_words=max_transcript_words,
         min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
+        require_transcript_alphanumeric=require_transcript_alphanumeric,
     )
     return resolve_gather(
         None, {}, fallback_target=fallback_target,
@@ -240,6 +245,7 @@ def _resolve_validated_speech(
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
     min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
+    require_transcript_alphanumeric: bool = False,
 ) -> SpeechDecision:
     """Admit speech after the caller validated and snapshotted its budget."""
     if (attempts < max_attempts and isinstance(speech, str)
@@ -247,6 +253,8 @@ def _resolve_validated_speech(
         stripped_speech = speech.strip()
         admissible = (
             len(stripped_speech) >= min_transcript_characters
+            and (not require_transcript_alphanumeric
+                 or any(character.isalnum() for character in stripped_speech))
             and _confidence_meets_minimum(
                 confidence, minimum_confidence_percent,
                 require_confidence=require_confidence,
@@ -286,6 +294,7 @@ def resolve_speech_gather(
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
     min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
+    require_transcript_alphanumeric: bool = False,
 ) -> SpeechDecision:
     """Admit bounded nonblank text, or retry silence within a trusted budget.
 
@@ -309,7 +318,9 @@ def resolve_speech_gather(
     character and byte limits include surrounding whitespace; words are
     nonempty Unicode-whitespace-delimited segments. Lines use Python's Unicode
     line-boundary rules. Byte length is measured from strict UTF-8 encoding;
-    accepted text is returned unchanged.
+    accepted text is returned unchanged. Optional alphanumeric policy requires
+    at least one Unicode letter or number, rejecting punctuation-, symbol-, and
+    mark-only recognition results without imposing an ASCII-only language rule.
     Surrogate code points are rejected, not silently replaced or repaired.
     Valid text on the last attempt may be classified, but an already exhausted
     budget always falls back.
@@ -332,6 +343,7 @@ def resolve_speech_gather(
         max_transcript_words=max_transcript_words,
         min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
+        require_transcript_alphanumeric=require_transcript_alphanumeric,
     )
     return _resolve_validated_speech(
         speech, budget=budget, attempts=attempts, max_attempts=max_attempts,
@@ -346,4 +358,5 @@ def resolve_speech_gather(
         max_transcript_words=max_transcript_words,
         min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
+        require_transcript_alphanumeric=require_transcript_alphanumeric,
     )

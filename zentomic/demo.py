@@ -352,6 +352,7 @@ def simulate_speech(
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
     min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
+    require_transcript_alphanumeric: bool = False,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -379,7 +380,8 @@ def simulate_speech(
     word, and line counts or reduce the fixed 2000-character, 8000-byte,
     1000-word and 2000-line admission bounds without changing collection XML or returning
     rejected text. Words are separated by Unicode whitespace; lines use
-    Python's Unicode line-boundary rules.
+    Python's Unicode line-boundary rules. Optional alphanumeric policy retries
+    punctuation-, symbol-, and mark-only transcripts before classification.
     """
     if (minimum_confidence_percent is not None
             and (type(minimum_confidence_percent) is not int
@@ -396,6 +398,7 @@ def simulate_speech(
         max_transcript_words=max_transcript_words,
         min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
+        require_transcript_alphanumeric=require_transcript_alphanumeric,
     )
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
@@ -422,6 +425,7 @@ def simulate_speech(
             max_transcript_words=max_transcript_words,
             min_transcript_lines=min_transcript_lines,
             max_transcript_lines=max_transcript_lines,
+            require_transcript_alphanumeric=require_transcript_alphanumeric,
         )
         attempts = decision.attempts
         step = {"stage": "speech", "action": decision.action, "attempts": attempts}
@@ -515,6 +519,10 @@ def main(argv: list[str] | None = None) -> int:
         help="retry when the synthetic provider score is missing; requires --speech",
     )
     parser.add_argument(
+        "--speech-require-alphanumeric", action="store_true",
+        help="retry transcripts without a Unicode letter or number; requires --speech",
+    )
+    parser.add_argument(
         "--speech-min-characters", metavar="COUNT",
         help="trusted trimmed transcript minimum from 1 to 2000; requires --speech",
     )
@@ -565,6 +573,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-minimum-confidence requires --speech")
     if args.speech_require_confidence and args.speech is None:
         parser.error("--speech-require-confidence requires --speech")
+    if args.speech_require_alphanumeric and args.speech is None:
+        parser.error("--speech-require-alphanumeric requires --speech")
     if args.speech_min_characters is not None and args.speech is None:
         parser.error("--speech-min-characters requires --speech")
     if args.speech_max_characters is not None and args.speech is None:
@@ -765,6 +775,7 @@ def main(argv: list[str] | None = None) -> int:
                 max_transcript_words=speech_max_words,
                 min_transcript_lines=speech_min_lines,
                 max_transcript_lines=speech_max_lines,
+                require_transcript_alphanumeric=args.speech_require_alphanumeric,
             )
         except ValueError:
             parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "

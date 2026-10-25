@@ -193,6 +193,31 @@ class SpeechDemoTests(unittest.TestCase):
         )
         self.assertNotIn("accepted", json.dumps(steps))
 
+    def test_alphanumeric_requirement_reuses_the_retry_budget(self):
+        with offline_guard():
+            steps = simulate_speech(
+                ["...?!", "accepted private request"],
+                '{"intent":"support"}', ["1"],
+                require_transcript_alphanumeric=True,
+            )
+        self.assertEqual(
+            [step["action"] for step in steps],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("accepted private request", json.dumps(steps))
+
+    def test_alphanumeric_requirement_is_strict_and_precedes_collection(self):
+        with offline_guard(), patch(
+            "zentomic.demo.render_speech_gather",
+        ) as render, self.assertRaisesRegex(
+            ValueError, "^require_transcript_alphanumeric must be a boolean$",
+        ):
+            simulate_speech(
+                unused_inputs(), None, unused_inputs(),
+                require_transcript_alphanumeric=1,
+            )
+        render.assert_not_called()
+
     def test_invalid_transcript_limit_fails_before_other_inputs(self):
         class UnreadHints(list):
             def __iter__(self):
@@ -823,6 +848,31 @@ class SpeechDemoTests(unittest.TestCase):
             self.assertIn(message, errors.getvalue())
             self.assertNotIn("private-limit", errors.getvalue())
             simulate.assert_not_called()
+
+    def test_cli_alphanumeric_requirement_is_private_and_mode_scoped(self):
+        output = io.StringIO()
+        args = [
+            "--speech-require-alphanumeric",
+            "--speech", "...?!", "--speech", "accepted private request",
+            "--classifier-response", '{"intent":"support"}', "1",
+        ]
+        with offline_guard(), redirect_stdout(output):
+            self.assertEqual(main(args), 0)
+        self.assertEqual(
+            [step["action"] for step in json.loads(output.getvalue())["steps"]],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("accepted private request", output.getvalue())
+
+        output, errors = io.StringIO(), io.StringIO()
+        with offline_guard(), redirect_stdout(output), redirect_stderr(errors), \
+                patch("zentomic.demo.simulate_speech") as simulate:
+            with self.assertRaises(SystemExit) as error:
+                main(["--speech-require-alphanumeric"])
+        self.assertEqual(error.exception.code, 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("--speech-require-alphanumeric requires --speech", errors.getvalue())
+        simulate.assert_not_called()
 
         for value in ("0", "00", "01", "2001", "+1", "1.0"):
             output, errors = io.StringIO(), io.StringIO()
