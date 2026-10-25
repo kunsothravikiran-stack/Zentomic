@@ -32,6 +32,7 @@ class SpeechDecision:
 def _validate_transcript_policy(
     *, min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
+    min_transcript_utf8_bytes: int = 1,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -51,10 +52,19 @@ def _validate_transcript_policy(
         raise ValueError(
             "min_transcript_characters must not exceed max_transcript_characters"
         )
+    if (type(min_transcript_utf8_bytes) is not int
+            or not 1 <= min_transcript_utf8_bytes <= MAX_TRANSCRIPT_UTF8_BYTES):
+        raise ValueError(
+            "min_transcript_utf8_bytes must be an integer from 1 to 8000"
+        )
     if (type(max_transcript_utf8_bytes) is not int
             or not 1 <= max_transcript_utf8_bytes <= MAX_TRANSCRIPT_UTF8_BYTES):
         raise ValueError(
             "max_transcript_utf8_bytes must be an integer from 1 to 8000"
+        )
+    if min_transcript_utf8_bytes > max_transcript_utf8_bytes:
+        raise ValueError(
+            "min_transcript_utf8_bytes must not exceed max_transcript_utf8_bytes"
         )
     if (type(min_transcript_words) is not int
             or not 1 <= min_transcript_words <= MAX_TRANSCRIPT_WORDS):
@@ -88,6 +98,17 @@ def _validate_transcript_policy(
         raise ValueError(
             "min_transcript_words cannot fit within max_transcript_utf8_bytes"
         )
+    # A Unicode scalar occupies at most four UTF-8 bytes. At least N-1
+    # separator characters are needed for N words, and Python-recognized
+    # Unicode whitespace occupies at most three bytes per character.
+    maximum_content_bytes = (
+        max_transcript_characters * 4 - (min_transcript_words - 1)
+    )
+    if min_transcript_utf8_bytes > maximum_content_bytes:
+        raise ValueError(
+            "min_transcript_utf8_bytes cannot fit within max_transcript_characters "
+            "and min_transcript_words"
+        )
 
 
 def _validate_speech_configuration(
@@ -96,6 +117,7 @@ def _validate_speech_configuration(
     require_confidence: bool = False,
     min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
+    min_transcript_utf8_bytes: int = 1,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -110,6 +132,7 @@ def _validate_speech_configuration(
     _validate_transcript_policy(
         min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
+        min_transcript_utf8_bytes=min_transcript_utf8_bytes,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
@@ -147,6 +170,7 @@ def _resolve_validated_speech(
     require_confidence: bool = False,
     min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
+    min_transcript_utf8_bytes: int = 1,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -173,7 +197,9 @@ def _resolve_validated_speech(
             # Split at most one segment beyond the trusted limit. This bounds
             # temporary work while treating all Unicode whitespace consistently.
             word_count = len(speech.split(None, max_transcript_words))
-            if (len(encoded_speech) <= max_transcript_utf8_bytes
+            stripped_byte_count = len(stripped_speech.encode("utf-8"))
+            if (min_transcript_utf8_bytes <= stripped_byte_count
+                    and len(encoded_speech) <= max_transcript_utf8_bytes
                     and min_transcript_words <= word_count <= max_transcript_words):
                 return SpeechDecision("classify", speech, None, budget.attempts)
     action = "retry" if budget.action == "retry" else "fallback"
@@ -186,6 +212,7 @@ def resolve_speech_gather(
     require_confidence: bool = False,
     min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
+    min_transcript_utf8_bytes: int = 1,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -201,7 +228,9 @@ def resolve_speech_gather(
     present score must be a bounded decimal from 0 through 1. The trusted
     minimum transcript length is an integer from 1 through 2000 and cannot
     exceed the configured character ceiling. It counts characters after
-    trimming surrounding Unicode whitespace. The trusted minimum word count is
+    trimming surrounding Unicode whitespace. The trusted minimum UTF-8 byte
+    count is an integer from 1 through 8000 and measures the same trimmed text.
+    The trusted minimum word count is
     an integer from 1 through 1000 and cannot exceed the configured word ceiling.
     Maximum transcript limits are integers from 1 through the fixed
     2000-character, 8000-byte and 1000-word ceilings. Maximum character and byte
@@ -224,6 +253,7 @@ def resolve_speech_gather(
         require_confidence=require_confidence,
         min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
+        min_transcript_utf8_bytes=min_transcript_utf8_bytes,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
@@ -235,6 +265,7 @@ def resolve_speech_gather(
         require_confidence=require_confidence,
         min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
+        min_transcript_utf8_bytes=min_transcript_utf8_bytes,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,

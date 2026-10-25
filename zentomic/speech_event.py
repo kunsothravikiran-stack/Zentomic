@@ -27,6 +27,7 @@ def resolve_speech_event(
     require_confidence: bool = False,
     min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
+    min_transcript_utf8_bytes: int = 1,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -39,9 +40,9 @@ def resolve_speech_event(
     threshold rejects an explicitly lower or malformed provider score, while a
     missing score remains admissible because the provider does not guarantee it,
     unless trusted configuration explicitly requires one.
-    Trusted transcript policy can require a minimum trimmed length or tighten
-    the global 2000-character, 8000-byte and 1000-word ceilings before any text
-    reaches a classifier.
+    Trusted transcript policy can require minimum trimmed character, UTF-8 byte
+    and word counts or tighten the global 2000-character, 8000-byte and
+    1000-word ceilings before any text reaches a classifier.
     Policy configuration is validated after authentication. Accepted text
     remains untrusted and is not logged.
 
@@ -65,6 +66,7 @@ def resolve_speech_event(
         require_confidence=require_confidence,
         min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
+        min_transcript_utf8_bytes=min_transcript_utf8_bytes,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
@@ -80,6 +82,7 @@ def resolve_claimed_speech_event(
     require_confidence: bool = False,
     min_transcript_characters: int = 1,
     max_transcript_characters: int = MAX_TRANSCRIPT_CHARS,
+    min_transcript_utf8_bytes: int = 1,
     max_transcript_utf8_bytes: int = MAX_TRANSCRIPT_UTF8_BYTES,
     min_transcript_words: int = 1,
     max_transcript_words: int = MAX_TRANSCRIPT_WORDS,
@@ -106,6 +109,7 @@ def resolve_claimed_speech_event(
         require_confidence=require_confidence,
         min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
+        min_transcript_utf8_bytes=min_transcript_utf8_bytes,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,
@@ -123,6 +127,7 @@ def resolve_claimed_speech_event(
         require_confidence=require_confidence,
         min_transcript_characters=min_transcript_characters,
         max_transcript_characters=max_transcript_characters,
+        min_transcript_utf8_bytes=min_transcript_utf8_bytes,
         max_transcript_utf8_bytes=max_transcript_utf8_bytes,
         min_transcript_words=min_transcript_words,
         max_transcript_words=max_transcript_words,

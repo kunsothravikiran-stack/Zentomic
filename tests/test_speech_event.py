@@ -9,7 +9,11 @@ from zentomic.callback_claim_store import (
     CallbackReplayError,
     InMemoryCallbackClaimStore,
 )
-from zentomic.speech import MAX_TRANSCRIPT_CHARS, SpeechDecision
+from zentomic.speech import (
+    MAX_TRANSCRIPT_CHARS,
+    MAX_TRANSCRIPT_UTF8_BYTES,
+    SpeechDecision,
+)
 from zentomic.speech_event import resolve_claimed_speech_event, resolve_speech_event
 
 
@@ -106,6 +110,10 @@ class SpeechEventTests(unittest.TestCase):
                            "max_transcript_characters": 5},
                           {"max_transcript_characters": 0},
                           {"max_transcript_characters": 2001},
+                          {"min_transcript_utf8_bytes": 0},
+                          {"min_transcript_utf8_bytes": MAX_TRANSCRIPT_UTF8_BYTES + 1},
+                          {"min_transcript_utf8_bytes": 6,
+                           "max_transcript_utf8_bytes": 5},
                           {"max_transcript_utf8_bytes": 0},
                           {"max_transcript_utf8_bytes": 8001},
                           {"min_transcript_words": 0},
@@ -194,6 +202,20 @@ class SpeechEventTests(unittest.TestCase):
         )
         self.assertEqual(
             self.resolve(event, Mock(return_value=True), max_transcript_utf8_bytes=4),
+            SpeechDecision("retry", None, None, 1),
+        )
+
+    def test_authenticated_speech_obeys_trusted_utf8_byte_minimum(self):
+        event = callback(
+            {"SpeechResult": " é ", "min_transcript_utf8_bytes": "999"},
+            "2.0", False,
+        )
+        self.assertEqual(
+            self.resolve(event, Mock(return_value=True), min_transcript_utf8_bytes=2),
+            SpeechDecision("classify", " é ", None, 1),
+        )
+        self.assertEqual(
+            self.resolve(event, Mock(return_value=True), min_transcript_utf8_bytes=3),
             SpeechDecision("retry", None, None, 1),
         )
 
@@ -295,6 +317,16 @@ class ClaimedSpeechEventTests(unittest.TestCase):
                 )
                 self.assertEqual(decision.action, action)
 
+    def test_claimed_utf8_byte_minimum_is_snapshotted_before_claim(self):
+        for speech, action in (("e", "retry"), ("é", "classify")):
+            with self.subTest(speech=speech):
+                decision = self.resolve(
+                    callback({"SpeechResult": speech}, "2.0", False),
+                    InMemoryCallbackClaimStore(),
+                    min_transcript_utf8_bytes=2,
+                )
+                self.assertEqual(decision.action, action)
+
     def test_rejected_callback_does_not_consume_the_step(self):
         for fields, valid in (
             ({}, False),
@@ -320,6 +352,9 @@ class ClaimedSpeechEventTests(unittest.TestCase):
             {"min_transcript_characters": 6, "max_transcript_characters": 5},
             {"max_transcript_characters": 0},
             {"max_transcript_characters": 2001},
+            {"min_transcript_utf8_bytes": 0},
+            {"min_transcript_utf8_bytes": MAX_TRANSCRIPT_UTF8_BYTES + 1},
+            {"min_transcript_utf8_bytes": 6, "max_transcript_utf8_bytes": 5},
             {"max_transcript_utf8_bytes": 0},
             {"max_transcript_utf8_bytes": 8001},
             {"min_transcript_characters": 5, "max_transcript_utf8_bytes": 4},
@@ -328,6 +363,10 @@ class ClaimedSpeechEventTests(unittest.TestCase):
             {"min_transcript_words": 3, "max_transcript_words": 2},
             {"min_transcript_words": 3, "max_transcript_characters": 4},
             {"min_transcript_words": 3, "max_transcript_utf8_bytes": 4},
+            {"min_transcript_utf8_bytes": 12,
+             "max_transcript_utf8_bytes": 12,
+             "min_transcript_words": 2,
+             "max_transcript_characters": 3},
             {"max_transcript_words": 0},
             {"max_transcript_words": 1001},
         ):

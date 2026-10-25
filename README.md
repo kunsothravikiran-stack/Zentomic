@@ -458,29 +458,34 @@ synthetic behavior on
 caller, or make confidence sufficient for routing or confirmation.
 
 Preview trusted transcript length policy with `--speech-min-characters`,
-`--speech-max-characters`, `--speech-max-bytes`, `--speech-min-words`,
+`--speech-max-characters`, `--speech-min-bytes`, `--speech-max-bytes`,
+`--speech-min-words`,
 `--speech-max-words`, or the matching keyword-only options on `simulate_speech`:
 
 ```sh
-python -m zentomic.demo --speech-min-characters 3 --speech-max-characters 80 --speech-max-bytes 320 --speech-min-words 2 --speech-max-words 12 --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
+python -m zentomic.demo --speech-min-characters 3 --speech-max-characters 80 --speech-min-bytes 3 --speech-max-bytes 320 --speech-min-words 2 --speech-max-words 12 --speech 'synthetic request' --classifier-response '{"intent":"support"}' 1
 ```
 
 Minimum and maximum character values are canonical integers from 1 through
 2000, and the minimum cannot exceed the maximum. The minimum counts characters
-after trimming surrounding Unicode whitespace. Byte values are from 1 through
-8000; minimum and maximum word values are from 1 through 1000, and the minimum
-cannot exceed the maximum. The minimum character count must also fit within the
-byte ceiling. Because adjacent nonempty words require at least one separating
-whitespace character, the minimum word count must fit within both the character
-and byte ceilings. Contradictory policy is rejected before collection begins
+after trimming surrounding Unicode whitespace. Minimum and maximum byte values
+are canonical integers from 1 through 8000, and the minimum cannot exceed the
+maximum. The byte minimum measures the trimmed content while the byte maximum
+includes surrounding whitespace. Minimum and maximum word values are from 1
+through 1000, and the minimum cannot exceed the maximum. The minimum character
+count must also fit within the byte ceiling. Because adjacent nonempty words
+require at least one separating whitespace character, minimum word and byte
+counts must fit within the character and byte ceilings. Contradictory policy is
+rejected before collection begins
 instead of consuming the retry budget. Speech outside any configured bound
 follows the same finite retry/fallback budget and is never
-returned in JSON. Defaults preserve every previously valid transcript. Character
-and byte limits include surrounding whitespace; words are nonempty segments
+returned in JSON. Defaults preserve every previously valid transcript. Maximum
+character and byte limits include surrounding whitespace; words are nonempty
+segments
 separated by Unicode whitespace. Byte length is measured after strict UTF-8
 encoding. Limits are reused across retries and never change collection XML or
 keypad confirmation. Invalid values exit 2 without partial JSON or reflecting
-the value. All five flags require `--speech`. These are local admission and
+the value. All six flags require `--speech`. These are local admission and
 classifier-input bounds, not provider recording, model token, cost, or whole-call
 limits. Word counts are not token counts and do not segment languages without
 whitespace.
@@ -1462,13 +1467,15 @@ characters, `MAX_TRANSCRIPT_UTF8_BYTES` at 8000 bytes, and
 `MAX_TRANSCRIPT_WORDS` at 1000 whitespace-delimited words. Trusted workspace
 policy may lower `max_transcript_characters`, `max_transcript_utf8_bytes`, or
 `max_transcript_words` to keep future classifier inputs smaller. It may also
-raise `min_transcript_characters` or `min_transcript_words` from their defaults
-of 1 to avoid classifier work for noise-like short results. Minimum characters
-are counted after trimming surrounding Unicode whitespace. Each minimum cannot
-exceed its matching maximum policy. Minimum characters must fit under the byte
-ceiling, and a minimum of N whitespace-delimited words requires room for at
-least `2N - 1` characters and UTF-8 bytes. Impossible combinations fail before
-authentication or collection attempts are consumed.
+raise `min_transcript_characters`, `min_transcript_utf8_bytes`, or
+`min_transcript_words` from their defaults of 1 to avoid classifier work for
+noise-like short results. Minimum characters and bytes are counted after
+trimming surrounding Unicode whitespace. Each minimum cannot exceed its
+matching maximum policy. Minimum characters must fit under the byte ceiling,
+and a minimum of N whitespace-delimited words requires room for at least
+`2N - 1` characters and UTF-8 bytes. The byte minimum must be reachable within
+the character ceiling after those separators are reserved. Impossible
+combinations fail before authentication or collection attempts are consumed.
 Maximum character and byte limits include surrounding whitespace; the byte
 limit is measured after strict UTF-8 encoding. Words are nonempty segments
 separated by Unicode whitespace, so this is not a linguistic segmenter or
@@ -1846,13 +1853,15 @@ budget. An omitted score never blocks otherwise valid speech unless trusted
 without a threshold, in which case any valid bounded score is admissible.
 Trusted `min_transcript_characters` can require a minimum trimmed length before
 classification. Trusted `max_transcript_characters` can reduce the fixed
-2000-character ceiling; trusted `max_transcript_utf8_bytes` can independently
-reduce the fixed 8000-byte
+2000-character ceiling. Trusted `min_transcript_utf8_bytes` can require a
+minimum trimmed UTF-8 size, while trusted `max_transcript_utf8_bytes` can
+independently reduce the fixed 8000-byte
 ceiling. Trusted `min_transcript_words` can require a minimum
 whitespace-delimited word count; trusted `max_transcript_words` can reduce the
 fixed 1000-word ceiling. Cross-dimension policy is validated for feasibility:
 minimum characters must fit within the byte ceiling, and minimum words must fit
-within both character and byte ceilings.
+within both character and byte ceilings. The byte minimum must also be reachable
+within the character ceiling after the required word separators are reserved.
 Authenticated callback fields cannot raise or replace any of these policies.
 
 The result is a `SpeechDecision`, not a classifier call or routing decision.

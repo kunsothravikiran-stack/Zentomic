@@ -132,6 +132,36 @@ class SpeechDecisionTests(unittest.TestCase):
             "😀" * MAX_TRANSCRIPT_CHARS,
         )
 
+    def test_trusted_utf8_byte_minimum_counts_trimmed_content(self):
+        for speech, minimum, expected in (
+            ("e", 1, "classify"),
+            ("e", 2, "retry"),
+            ("é", 2, "classify"),
+            ("  é  ", 3, "retry"),
+            ("\u2003😀\n", 4, "classify"),
+        ):
+            with self.subTest(speech=repr(speech), minimum=minimum):
+                decision = self.decide(
+                    speech, min_transcript_utf8_bytes=minimum,
+                )
+                self.assertEqual(decision.action, expected)
+                if expected == "classify":
+                    self.assertEqual(decision.transcript, speech)
+
+    def test_trusted_utf8_byte_minimum_is_strict_and_bounded(self):
+        for minimum in (0, -1, MAX_TRANSCRIPT_UTF8_BYTES + 1, True, False,
+                        2.0, "2", None, [], {}):
+            with self.subTest(minimum=repr(minimum)), self.assertRaises(ValueError):
+                self.decide("sales", min_transcript_utf8_bytes=minimum)
+        with self.assertRaisesRegex(
+            ValueError,
+            "^min_transcript_utf8_bytes must not exceed max_transcript_utf8_bytes$",
+        ):
+            self.decide(
+                "sales", min_transcript_utf8_bytes=6,
+                max_transcript_utf8_bytes=5,
+            )
+
     def test_trusted_utf8_byte_limit_is_strict(self):
         for limit in (0, -1, MAX_TRANSCRIPT_UTF8_BYTES + 1, True, False,
                       80.0, "80", None, [], {}):
@@ -202,6 +232,14 @@ class SpeechDecisionTests(unittest.TestCase):
                 "min_transcript_words cannot fit within "
                 "max_transcript_utf8_bytes",
             ),
+            (
+                {"min_transcript_utf8_bytes": 12,
+                 "max_transcript_utf8_bytes": 12,
+                 "min_transcript_words": 2,
+                 "max_transcript_characters": 3},
+                "min_transcript_utf8_bytes cannot fit within "
+                "max_transcript_characters and min_transcript_words",
+            ),
         ):
             with self.subTest(policy=policy), self.assertRaisesRegex(
                 ValueError, f"^{message}$",
@@ -215,6 +253,15 @@ class SpeechDecisionTests(unittest.TestCase):
                 min_transcript_words=3,
             ),
             SpeechDecision("classify", "a b c", None, 1),
+        )
+        multibyte_boundary = "\U00010000\u3000\U00010000"
+        self.assertEqual(
+            self.decide(
+                multibyte_boundary, min_transcript_utf8_bytes=11,
+                max_transcript_utf8_bytes=11, min_transcript_words=2,
+                max_transcript_characters=3,
+            ),
+            SpeechDecision("classify", multibyte_boundary, None, 1),
         )
 
     def test_trusted_word_limit_is_strict(self):
