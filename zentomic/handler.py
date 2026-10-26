@@ -6,15 +6,17 @@ from typing import Any
 
 
 def _response(status: int, payload: dict, *, head: bool = False, **headers: str) -> dict:
+    body = json.dumps(payload, separators=(",", ":"))
     return {
         "statusCode": status,
         "headers": {
             "Content-Type": "application/json",
+            "Content-Length": str(len(body.encode("utf-8"))),
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
             **headers,
         },
-        "body": "" if head else json.dumps(payload, separators=(",", ":")),
+        "body": "" if head else body,
         "isBase64Encoded": False,
     }
 

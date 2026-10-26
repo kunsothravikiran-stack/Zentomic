@@ -35,6 +35,10 @@ class HandlerTests(unittest.TestCase):
             with self.subTest(event=event):
                 result = lambda_handler(event, None)
                 self.assertEqual(result["headers"]["Content-Type"], "application/json")
+                self.assertEqual(
+                    result["headers"]["Content-Length"],
+                    str(len(result["body"].encode("utf-8"))),
+                )
                 self.assertEqual(result["headers"]["Cache-Control"], "no-store")
                 self.assertEqual(result["headers"]["X-Content-Type-Options"], "nosniff")
                 self.assertIs(result["isBase64Encoded"], False)
@@ -60,11 +64,16 @@ class HandlerTests(unittest.TestCase):
         for factory in (rest_event, http_event):
             for path, status in (("/health", 200), ("/missing", 404), (None, 400), ("", 400)):
                 with self.subTest(format=factory.__name__, path=path):
-                    expected = lambda_handler(factory(path=path), None)
+                    get_result = lambda_handler(factory(path=path), None)
+                    expected = copy.deepcopy(get_result)
                     expected["body"] = ""
                     result = lambda_handler(factory("HEAD", path), None)
                     self.assertEqual(result, expected)
                     self.assertEqual(result["statusCode"], status)
+                    self.assertEqual(
+                        result["headers"]["Content-Length"],
+                        str(len(get_result["body"].encode("utf-8"))),
+                    )
 
     def test_explicit_v1_head_and_v2_method_precedence(self):
         events = (
