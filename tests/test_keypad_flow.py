@@ -51,7 +51,9 @@ class KeypadFlowTests(unittest.TestCase):
         self.assertEqual(response["statusCode"], 200)
         self.assertIs(response["isBase64Encoded"], False)
         self.assertEqual(response["headers"], {
-            "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store",
+            "Content-Type": "application/xml; charset=utf-8",
+            "Content-Length": str(len(response["body"].encode("utf-8"))),
+            "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         })
         return decision, fromstring(response["body"])

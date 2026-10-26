@@ -35,6 +35,7 @@ def twiml_response(xml: str) -> dict[str, Any]:
         "statusCode": 200,
         "headers": {
             "Content-Type": "application/xml; charset=utf-8",
+            "Content-Length": str(len(encoded)),
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         },

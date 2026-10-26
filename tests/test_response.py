@@ -25,6 +25,7 @@ class TwimlResponseTests(unittest.TestCase):
                 self.assertEqual(result, {
                     "statusCode": 200,
                     "headers": {"Content-Type": "application/xml; charset=utf-8",
+                                "Content-Length": str(len(xml.encode("utf-8"))),
                                 "Cache-Control": "no-store",
                                 "X-Content-Type-Options": "nosniff"},
                     "body": xml,
@@ -41,6 +42,8 @@ class TwimlResponseTests(unittest.TestCase):
         response = json.loads(json.dumps(twiml_response(xml), ensure_ascii=False))
         self.assertEqual(fromstring(response["body"]).find("Say").text, prompt)
         self.assertEqual(response["body"].encode("utf-8"), xml.encode("utf-8"))
+        self.assertEqual(response["headers"]["Content-Length"],
+                         str(len(xml.encode("utf-8"))))
 
     def test_invalid_body_errors_are_generic(self):
         for body in (None, b"<Response/>", {}, [], 1, True, "", " \t\n",
@@ -58,7 +61,10 @@ class TwimlResponseTests(unittest.TestCase):
         )
         for body in bodies:
             with self.subTest(bytes=len(body.encode("utf-8"))):
-                self.assertIs(twiml_response(body)["body"], body)
+                response = twiml_response(body)
+                self.assertIs(response["body"], body)
+                self.assertEqual(response["headers"]["Content-Length"],
+                                 str(len(body.encode("utf-8"))))
 
         for body in ("x" * (MAX_TWIML_BYTES + 1),
                      "\u00e9" * (MAX_TWIML_BYTES // 2 + 1)):
@@ -94,6 +100,7 @@ class TwimlResponseTests(unittest.TestCase):
         self.assertEqual(second["statusCode"], 200)
         self.assertEqual(second["headers"], {
             "Content-Type": "application/xml; charset=utf-8",
+            "Content-Length": str(len(second["body"].encode("utf-8"))),
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         })
