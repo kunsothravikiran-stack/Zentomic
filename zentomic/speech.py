@@ -40,6 +40,7 @@ def _validate_transcript_policy(
     min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
     require_transcript_alphanumeric: bool = False,
+    require_transcript_letter: bool = False,
 ) -> None:
     """Validate trusted transcript bounds, including cross-limit feasibility."""
     if (type(min_transcript_characters) is not int
@@ -100,6 +101,8 @@ def _validate_transcript_policy(
         )
     if type(require_transcript_alphanumeric) is not bool:
         raise ValueError("require_transcript_alphanumeric must be a boolean")
+    if type(require_transcript_letter) is not bool:
+        raise ValueError("require_transcript_letter must be a boolean")
 
     # Every character occupies at least one UTF-8 byte. Each nonempty word
     # needs at least one character, with at least one whitespace character
@@ -187,6 +190,7 @@ def _validate_speech_configuration(
     min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
     require_transcript_alphanumeric: bool = False,
+    require_transcript_letter: bool = False,
 ) -> GatherDecision:
     """Return the collection budget after validating trusted speech policy."""
     if (minimum_confidence_percent is not None
@@ -205,6 +209,7 @@ def _validate_speech_configuration(
         min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
         require_transcript_alphanumeric=require_transcript_alphanumeric,
+        require_transcript_letter=require_transcript_letter,
     )
     return resolve_gather(
         None, {}, fallback_target=fallback_target,
@@ -246,6 +251,7 @@ def _resolve_validated_speech(
     min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
     require_transcript_alphanumeric: bool = False,
+    require_transcript_letter: bool = False,
 ) -> SpeechDecision:
     """Admit speech after the caller validated and snapshotted its budget."""
     if (attempts < max_attempts and isinstance(speech, str)
@@ -255,6 +261,8 @@ def _resolve_validated_speech(
             len(stripped_speech) >= min_transcript_characters
             and (not require_transcript_alphanumeric
                  or any(character.isalnum() for character in stripped_speech))
+            and (not require_transcript_letter
+                 or any(character.isalpha() for character in stripped_speech))
             and _confidence_meets_minimum(
                 confidence, minimum_confidence_percent,
                 require_confidence=require_confidence,
@@ -295,6 +303,7 @@ def resolve_speech_gather(
     min_transcript_lines: int = 1,
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
     require_transcript_alphanumeric: bool = False,
+    require_transcript_letter: bool = False,
 ) -> SpeechDecision:
     """Admit bounded nonblank text, or retry silence within a trusted budget.
 
@@ -321,6 +330,7 @@ def resolve_speech_gather(
     accepted text is returned unchanged. Optional alphanumeric policy requires
     at least one Unicode letter or number, rejecting punctuation-, symbol-, and
     mark-only recognition results without imposing an ASCII-only language rule.
+    A separate optional letter policy also rejects numeric-only results.
     Surrogate code points are rejected, not silently replaced or repaired.
     Valid text on the last attempt may be classified, but an already exhausted
     budget always falls back.
@@ -344,6 +354,7 @@ def resolve_speech_gather(
         min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
         require_transcript_alphanumeric=require_transcript_alphanumeric,
+        require_transcript_letter=require_transcript_letter,
     )
     return _resolve_validated_speech(
         speech, budget=budget, attempts=attempts, max_attempts=max_attempts,
@@ -359,4 +370,5 @@ def resolve_speech_gather(
         min_transcript_lines=min_transcript_lines,
         max_transcript_lines=max_transcript_lines,
         require_transcript_alphanumeric=require_transcript_alphanumeric,
+        require_transcript_letter=require_transcript_letter,
     )

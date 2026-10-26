@@ -460,7 +460,8 @@ caller, or make confidence sufficient for routing or confirmation.
 Preview trusted transcript admission policy with `--speech-min-characters`,
 `--speech-max-characters`, `--speech-min-bytes`, `--speech-max-bytes`,
 `--speech-min-words`, `--speech-max-words`, `--speech-min-lines`,
-`--speech-max-lines`, `--speech-require-alphanumeric`, or the matching
+`--speech-max-lines`, `--speech-require-alphanumeric`,
+`--speech-require-letter`, or the matching
 keyword-only options on `simulate_speech`:
 
 ```sh
@@ -470,6 +471,8 @@ python -m zentomic.demo --speech-min-characters 3 --speech-max-characters 80 --s
 Use `--speech-require-alphanumeric` to retry punctuation-, symbol-, or
 combining-mark-only recognition results before classification. The check uses
 Unicode letter and number semantics, so it does not restrict speech to ASCII.
+Use the stricter `--speech-require-letter` when numeric-only recognition should
+also retry. Both flags are opt-in and require speech mode.
 
 Minimum and maximum character values are canonical integers from 1 through
 2000, and the minimum cannot exceed the maximum. The minimum counts characters
@@ -1501,6 +1504,9 @@ Setting `require_transcript_alphanumeric=True` also rejects otherwise bounded
 text that contains no Unicode letter or number. This opt-in noise filter admits
 letters and numbers across scripts, preserves accepted text unchanged, and is
 not language detection, intent validation, or prompt-injection protection.
+Setting `require_transcript_letter=True` additionally rejects numeric-only text
+while admitting alphabetic characters across scripts. Callback fields cannot
+enable or disable either trusted workspace policy.
 Surrogate code points in Python strings are rejected without replacement or
 normalization, so admitted text can be encoded for a classifier dependency.
 The form decoder already rejects malformed UTF-8; this also protects direct

@@ -372,6 +372,27 @@ class SpeechDecisionTests(unittest.TestCase):
             ):
                 self.decide("sales", require_transcript_alphanumeric=value)
 
+    def test_optional_letter_policy_filters_numeric_noise_across_scripts(self):
+        for speech in ("12345", "１２３", "... 42", "Ⅻ"):
+            with self.subTest(speech=repr(speech)):
+                self.assertEqual(
+                    self.decide(speech, require_transcript_letter=True),
+                    SpeechDecision("retry", None, None, 1),
+                )
+        for speech in ("sales 2", "తెలుగు", "é", "e\u0301"):
+            with self.subTest(speech=repr(speech)):
+                self.assertEqual(
+                    self.decide(speech, require_transcript_letter=True),
+                    SpeechDecision("classify", speech, None, 1),
+                )
+
+    def test_letter_policy_flag_is_strict(self):
+        for value in (0, 1, "true", None, [], {}):
+            with self.subTest(value=repr(value)), self.assertRaisesRegex(
+                ValueError, "^require_transcript_letter must be a boolean$",
+            ):
+                self.decide("sales", require_transcript_letter=value)
+
     def test_invalid_unicode_never_reaches_classification(self):
         # Python strings (including decoded JSON) may contain surrogate code
         # points that cannot be sent as UTF-8 to a classifier dependency.
