@@ -107,6 +107,7 @@ class SpeechEventTests(unittest.TestCase):
                           {"require_confidence": 1},
                           {"require_transcript_alphanumeric": 1},
                           {"require_transcript_letter": 1},
+                          {"require_transcript_printable": 1},
                           {"min_transcript_characters": 0},
                           {"min_transcript_characters": 2001},
                           {"min_transcript_characters": 6,
@@ -317,6 +318,22 @@ class SpeechEventTests(unittest.TestCase):
             SpeechDecision("retry", None, None, 1),
         )
 
+    def test_authenticated_speech_obeys_trusted_printable_policy(self):
+        event = callback(
+            {"SpeechResult": "hidden\u200btext", "require_transcript_printable": "false"},
+            "2.0", False,
+        )
+        self.assertEqual(
+            self.resolve(event, Mock(return_value=True)),
+            SpeechDecision("classify", "hidden\u200btext", None, 1),
+        )
+        self.assertEqual(
+            self.resolve(
+                event, Mock(return_value=True), require_transcript_printable=True,
+            ),
+            SpeechDecision("retry", None, None, 1),
+        )
+
 
 class ClaimedSpeechEventTests(unittest.TestCase):
     def resolve(self, event, claimer, validator=None, **overrides):
@@ -427,6 +444,17 @@ class ClaimedSpeechEventTests(unittest.TestCase):
                 )
                 self.assertEqual(decision.action, action)
 
+    def test_claimed_printable_policy_is_snapshotted_before_claim(self):
+        for speech, action in (("hidden\u200btext", "retry"),
+                               ("printable request", "classify")):
+            with self.subTest(speech=repr(speech)):
+                decision = self.resolve(
+                    callback({"SpeechResult": speech}, "2.0", False),
+                    InMemoryCallbackClaimStore(),
+                    require_transcript_printable=True,
+                )
+                self.assertEqual(decision.action, action)
+
     def test_rejected_callback_does_not_consume_the_step(self):
         for fields, valid in (
             ({}, False),
@@ -449,6 +477,8 @@ class ClaimedSpeechEventTests(unittest.TestCase):
             {"require_confidence": "true"},
             {"require_transcript_alphanumeric": "true"},
             {"require_transcript_letter": "true"},
+            {"require_transcript_printable": "true"},
+            {"require_transcript_printable": True, "min_transcript_lines": 2},
             {"min_transcript_characters": 0},
             {"min_transcript_characters": 2001},
             {"min_transcript_characters": 6, "max_transcript_characters": 5},

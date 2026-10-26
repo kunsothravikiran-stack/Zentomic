@@ -242,6 +242,31 @@ class SpeechDemoTests(unittest.TestCase):
             )
         render.assert_not_called()
 
+    def test_printable_requirement_reuses_the_retry_budget(self):
+        with offline_guard():
+            steps = simulate_speech(
+                ["hidden\u200btext", "accepted private request"],
+                '{"intent":"support"}', ["1"],
+                require_transcript_printable=True,
+            )
+        self.assertEqual(
+            [step["action"] for step in steps],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("accepted private request", json.dumps(steps))
+
+    def test_printable_requirement_is_strict_and_precedes_collection(self):
+        with offline_guard(), patch(
+            "zentomic.demo.render_speech_gather",
+        ) as render, self.assertRaisesRegex(
+            ValueError, "^require_transcript_printable must be a boolean$",
+        ):
+            simulate_speech(
+                unused_inputs(), None, unused_inputs(),
+                require_transcript_printable=1,
+            )
+        render.assert_not_called()
+
     def test_invalid_transcript_limit_fails_before_other_inputs(self):
         class UnreadHints(list):
             def __iter__(self):
@@ -921,6 +946,47 @@ class SpeechDemoTests(unittest.TestCase):
         self.assertEqual(error.exception.code, 2)
         self.assertEqual(output.getvalue(), "")
         self.assertIn("--speech-require-letter requires --speech", errors.getvalue())
+        simulate.assert_not_called()
+
+    def test_cli_printable_requirement_is_private_and_mode_scoped(self):
+        output = io.StringIO()
+        args = [
+            "--speech-require-printable",
+            "--speech", "hidden\u200btext", "--speech", "accepted private request",
+            "--classifier-response", '{"intent":"support"}', "1",
+        ]
+        with offline_guard(), redirect_stdout(output):
+            self.assertEqual(main(args), 0)
+        self.assertEqual(
+            [step["action"] for step in json.loads(output.getvalue())["steps"]],
+            ["gather", "retry", "classify", "gather", "route"],
+        )
+        self.assertNotIn("accepted private request", output.getvalue())
+
+        output, errors = io.StringIO(), io.StringIO()
+        with offline_guard(), redirect_stdout(output), redirect_stderr(errors), \
+                patch("zentomic.demo.simulate_speech") as simulate:
+            with self.assertRaises(SystemExit) as error:
+                main(["--speech-require-printable"])
+        self.assertEqual(error.exception.code, 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("--speech-require-printable requires --speech", errors.getvalue())
+        simulate.assert_not_called()
+
+        output, errors = io.StringIO(), io.StringIO()
+        with offline_guard(), redirect_stdout(output), redirect_stderr(errors), \
+                patch("zentomic.demo.simulate_speech") as simulate:
+            with self.assertRaises(SystemExit) as error:
+                main([
+                    "--speech-require-printable", "--speech-min-lines", "2",
+                    "--speech", "request", "--classifier-response", "{}",
+                ])
+        self.assertEqual(error.exception.code, 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn(
+            "printable synthetic speech cannot require multiple transcript lines",
+            errors.getvalue(),
+        )
         simulate.assert_not_called()
 
         for value in ("0", "00", "01", "2001", "+1", "1.0"):

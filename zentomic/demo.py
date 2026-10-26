@@ -354,6 +354,7 @@ def simulate_speech(
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
     require_transcript_alphanumeric: bool = False,
     require_transcript_letter: bool = False,
+    require_transcript_printable: bool = False,
 ) -> list[dict]:
     """Admit synthetic speech, then a supplied classifier fixture and keypad input.
 
@@ -383,7 +384,9 @@ def simulate_speech(
     rejected text. Words are separated by Unicode whitespace; lines use
     Python's Unicode line-boundary rules. Optional alphanumeric policy retries
     punctuation-, symbol-, and mark-only transcripts before classification;
-    optional letter policy also retries numeric-only transcripts.
+    optional letter policy also retries numeric-only transcripts. Optional
+    printable policy retries transcripts containing any non-printable code
+    point, including line separators and invisible control or format text.
     """
     if (minimum_confidence_percent is not None
             and (type(minimum_confidence_percent) is not int
@@ -402,6 +405,7 @@ def simulate_speech(
         max_transcript_lines=max_transcript_lines,
         require_transcript_alphanumeric=require_transcript_alphanumeric,
         require_transcript_letter=require_transcript_letter,
+        require_transcript_printable=require_transcript_printable,
     )
     collection = render_speech_gather(
         "How can we help? Say sales or support.", action_path="/voice/speech",
@@ -430,6 +434,7 @@ def simulate_speech(
             max_transcript_lines=max_transcript_lines,
             require_transcript_alphanumeric=require_transcript_alphanumeric,
             require_transcript_letter=require_transcript_letter,
+            require_transcript_printable=require_transcript_printable,
         )
         attempts = decision.attempts
         step = {"stage": "speech", "action": decision.action, "attempts": attempts}
@@ -531,6 +536,10 @@ def main(argv: list[str] | None = None) -> int:
         help="retry transcripts without a Unicode letter; requires --speech",
     )
     parser.add_argument(
+        "--speech-require-printable", action="store_true",
+        help="retry transcripts containing non-printable text; requires --speech",
+    )
+    parser.add_argument(
         "--speech-min-characters", metavar="COUNT",
         help="trusted trimmed transcript minimum from 1 to 2000; requires --speech",
     )
@@ -585,6 +594,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--speech-require-alphanumeric requires --speech")
     if args.speech_require_letter and args.speech is None:
         parser.error("--speech-require-letter requires --speech")
+    if args.speech_require_printable and args.speech is None:
+        parser.error("--speech-require-printable requires --speech")
     if args.speech_min_characters is not None and args.speech is None:
         parser.error("--speech-min-characters requires --speech")
     if args.speech_max_characters is not None and args.speech is None:
@@ -683,6 +694,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("synthetic speech transcript byte minimum cannot exceed its maximum")
     if speech_min_lines > speech_max_lines:
         parser.error("synthetic speech transcript line minimum cannot exceed its maximum")
+    if args.speech_require_printable and speech_min_lines > 1:
+        parser.error(
+            "printable synthetic speech cannot require multiple transcript lines"
+        )
     if speech_min_characters > speech_max_utf8_bytes:
         parser.error(
             "synthetic speech transcript minimum cannot fit within its byte limit"
@@ -787,6 +802,7 @@ def main(argv: list[str] | None = None) -> int:
                 max_transcript_lines=speech_max_lines,
                 require_transcript_alphanumeric=args.speech_require_alphanumeric,
                 require_transcript_letter=args.speech_require_letter,
+                require_transcript_printable=args.speech_require_printable,
             )
         except ValueError:
             parser.error("invalid synthetic speech hints: use at most 500 nonblank single-line "

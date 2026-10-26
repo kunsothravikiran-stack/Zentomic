@@ -461,7 +461,7 @@ Preview trusted transcript admission policy with `--speech-min-characters`,
 `--speech-max-characters`, `--speech-min-bytes`, `--speech-max-bytes`,
 `--speech-min-words`, `--speech-max-words`, `--speech-min-lines`,
 `--speech-max-lines`, `--speech-require-alphanumeric`,
-`--speech-require-letter`, or the matching
+`--speech-require-letter`, `--speech-require-printable`, or the matching
 keyword-only options on `simulate_speech`:
 
 ```sh
@@ -472,7 +472,10 @@ Use `--speech-require-alphanumeric` to retry punctuation-, symbol-, or
 combining-mark-only recognition results before classification. The check uses
 Unicode letter and number semantics, so it does not restrict speech to ASCII.
 Use the stricter `--speech-require-letter` when numeric-only recognition should
-also retry. Both flags are opt-in and require speech mode.
+also retry. Use `--speech-require-printable` to retry transcripts containing
+line separators, invisible controls or format characters, while retaining
+ordinary Unicode letters, numbers, punctuation, and emoji. All three flags are
+opt-in and require speech mode.
 
 Minimum and maximum character values are canonical integers from 1 through
 2000, and the minimum cannot exceed the maximum. The minimum counts characters
@@ -1506,7 +1509,12 @@ letters and numbers across scripts, preserves accepted text unchanged, and is
 not language detection, intent validation, or prompt-injection protection.
 Setting `require_transcript_letter=True` additionally rejects numeric-only text
 while admitting alphabetic characters across scripts. Callback fields cannot
-enable or disable either trusted workspace policy.
+enable or disable these trusted workspace policies. Setting
+`require_transcript_printable=True` rejects any non-printable code point across
+the complete original transcript, including surrounding whitespace. Because
+Python-recognized line boundaries are non-printable, that option cannot be
+combined with `min_transcript_lines` greater than 1. Invalid combinations fail
+before authentication or collection attempts are consumed.
 Surrogate code points in Python strings are rejected without replacement or
 normalization, so admitted text can be encoded for a classifier dependency.
 The form decoder already rejects malformed UTF-8; this also protects direct
@@ -1889,6 +1897,8 @@ line count, while trusted `max_transcript_lines` can reduce the fixed 2000-line
 compatibility ceiling using Python's Unicode line-boundary rules.
 Trusted `require_transcript_alphanumeric=True` retries punctuation-, symbol-,
 and combining-mark-only results while accepting Unicode letters and numbers.
+Trusted `require_transcript_printable=True` retries results containing control,
+format, surrogate, or line-separator code points across the original text.
 Cross-dimension policy is validated for feasibility:
 minimum characters must fit within the byte ceiling, and minimum words must fit
 within both character and byte ceilings. The byte minimum must also be reachable

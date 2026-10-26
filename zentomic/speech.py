@@ -41,6 +41,7 @@ def _validate_transcript_policy(
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
     require_transcript_alphanumeric: bool = False,
     require_transcript_letter: bool = False,
+    require_transcript_printable: bool = False,
 ) -> None:
     """Validate trusted transcript bounds, including cross-limit feasibility."""
     if (type(min_transcript_characters) is not int
@@ -103,6 +104,12 @@ def _validate_transcript_policy(
         raise ValueError("require_transcript_alphanumeric must be a boolean")
     if type(require_transcript_letter) is not bool:
         raise ValueError("require_transcript_letter must be a boolean")
+    if type(require_transcript_printable) is not bool:
+        raise ValueError("require_transcript_printable must be a boolean")
+    if require_transcript_printable and min_transcript_lines > 1:
+        raise ValueError(
+            "require_transcript_printable cannot require multiple transcript lines"
+        )
 
     # Every character occupies at least one UTF-8 byte. Each nonempty word
     # needs at least one character, with at least one whitespace character
@@ -191,6 +198,7 @@ def _validate_speech_configuration(
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
     require_transcript_alphanumeric: bool = False,
     require_transcript_letter: bool = False,
+    require_transcript_printable: bool = False,
 ) -> GatherDecision:
     """Return the collection budget after validating trusted speech policy."""
     if (minimum_confidence_percent is not None
@@ -210,6 +218,7 @@ def _validate_speech_configuration(
         max_transcript_lines=max_transcript_lines,
         require_transcript_alphanumeric=require_transcript_alphanumeric,
         require_transcript_letter=require_transcript_letter,
+        require_transcript_printable=require_transcript_printable,
     )
     return resolve_gather(
         None, {}, fallback_target=fallback_target,
@@ -252,6 +261,7 @@ def _resolve_validated_speech(
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
     require_transcript_alphanumeric: bool = False,
     require_transcript_letter: bool = False,
+    require_transcript_printable: bool = False,
 ) -> SpeechDecision:
     """Admit speech after the caller validated and snapshotted its budget."""
     if (attempts < max_attempts and isinstance(speech, str)
@@ -263,6 +273,7 @@ def _resolve_validated_speech(
                  or any(character.isalnum() for character in stripped_speech))
             and (not require_transcript_letter
                  or any(character.isalpha() for character in stripped_speech))
+            and (not require_transcript_printable or speech.isprintable())
             and _confidence_meets_minimum(
                 confidence, minimum_confidence_percent,
                 require_confidence=require_confidence,
@@ -304,6 +315,7 @@ def resolve_speech_gather(
     max_transcript_lines: int = MAX_TRANSCRIPT_LINES,
     require_transcript_alphanumeric: bool = False,
     require_transcript_letter: bool = False,
+    require_transcript_printable: bool = False,
 ) -> SpeechDecision:
     """Admit bounded nonblank text, or retry silence within a trusted budget.
 
@@ -331,6 +343,10 @@ def resolve_speech_gather(
     at least one Unicode letter or number, rejecting punctuation-, symbol-, and
     mark-only recognition results without imposing an ASCII-only language rule.
     A separate optional letter policy also rejects numeric-only results.
+    Optional printable policy rejects control, format, surrogate, and line
+    separator characters across the entire original transcript. It cannot be
+    combined with a minimum of multiple lines because Python line boundaries
+    are non-printable.
     Surrogate code points are rejected, not silently replaced or repaired.
     Valid text on the last attempt may be classified, but an already exhausted
     budget always falls back.
@@ -355,6 +371,7 @@ def resolve_speech_gather(
         max_transcript_lines=max_transcript_lines,
         require_transcript_alphanumeric=require_transcript_alphanumeric,
         require_transcript_letter=require_transcript_letter,
+        require_transcript_printable=require_transcript_printable,
     )
     return _resolve_validated_speech(
         speech, budget=budget, attempts=attempts, max_attempts=max_attempts,
@@ -371,4 +388,5 @@ def resolve_speech_gather(
         max_transcript_lines=max_transcript_lines,
         require_transcript_alphanumeric=require_transcript_alphanumeric,
         require_transcript_letter=require_transcript_letter,
+        require_transcript_printable=require_transcript_printable,
     )
