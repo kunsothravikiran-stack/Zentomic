@@ -518,9 +518,10 @@ to shell-history and process-list exposure; no real calls or messages occur.
 
 ## Routing and voice helpers
 
-Also implemented: a pure single-digit IVR menu resolver. It selects an opaque
-target identifier for digits `0` through `9`, with an explicit fallback for
-missing, malformed, or unmapped input. It does not dial or expose a new endpoint.
+Also implemented: a pure single-symbol IVR menu resolver. It selects an opaque
+target identifier for the twelve DTMF symbols `0` through `9`, `*`, and `#`,
+with an explicit fallback for missing, malformed, or unmapped input. It does
+not dial or expose a new endpoint.
 
 ```python
 from zentomic.routing import resolve_dtmf
@@ -533,13 +534,14 @@ target = resolve_dtmf(
 assert target == "support"
 ```
 
-Menus may be empty or contain up to ten single ASCII digit keys. The resolver
-examines at most eleven keys and rejects an oversized mapping before copying
+Menus may be empty or contain up to twelve single DTMF symbol keys. The resolver
+examines at most thirteen keys and rejects an oversized mapping before copying
 its values. Targets and the required fallback must be nonblank UTF-8 strings
 of at most 256 bytes;
 invalid configuration raises `ValueError` before selecting a route. Input is
 not trimmed or coerced, so
-multi-digit values, whitespace, Unicode digits, `*`, and `#` use the fallback.
+multi-symbol values, whitespace, Unicode digits, and non-DTMF characters use
+the fallback.
 The resolver does not log input, mutate the menu, or access the environment or
 network. Identifiers are returned unchanged. A future integration must load an
 authorized workspace's menu and resolve its targets within that same workspace;
@@ -718,8 +720,8 @@ distributed persistence, clock freshness, deployment or telephony delivery.
 
 ### Bounded input retries
 
-`resolve_gather` wraps the single-digit resolver with a finite collection
-budget. This lets a future IVR adapter reprompt on silence or invalid digits
+`resolve_gather` wraps the single-symbol resolver with a finite collection
+budget. This lets a future IVR adapter reprompt on silence or invalid symbols
 without trapping callers in an endless menu:
 
 ```python
@@ -736,9 +738,9 @@ assert (decision.action, decision.target, decision.attempts) == ("retry", None, 
 ```
 
 `attempts` counts completed collections before this input, including silence;
-the immutable result includes the updated count. Configured digits return
+the immutable result includes the updated count. Configured symbols return
 `route`, including a key explicitly mapped to reception. Missing, malformed,
-or unmapped digits return `retry` with no target until the last allowed attempt,
+or unmapped symbols return `retry` with no target until the last allowed attempt,
 then `fallback`. Valid input on the last attempt still routes. An already
 exhausted budget always falls back and leaves the count unchanged. Counts must
 be nonnegative integers and the maximum must be a positive integer (default 3);
@@ -757,11 +759,11 @@ assert (decision.action, decision.target, decision.attempts) == ("hangup", None,
 ```
 
 The default `None` leaves all existing routing behavior unchanged. A configured
-hangup key must be an unused single ASCII digit from `0` through `9`; overlap
-with a route is an error, not a precedence rule. Input matches exactly without
-normalization. Hangup consumes one attempt, including on the last allowed
+hangup key must be an unused single DTMF symbol (`0` through `9`, `*`, or `#`);
+overlap with a route is an error, not a precedence rule. Input matches exactly
+without normalization. Hangup consumes one attempt, including on the last allowed
 collection. An already exhausted budget still falls back without incrementing
-or acting on the digit. Invalid configuration is rejected in either case.
+or acting on the symbol. Invalid configuration is rejected in either case.
 Use trusted menu configuration and mention the exit key in the collection
 prompt. For `hangup`, a future adapter must persist the terminal decision and
 return `render_hangup()` (described below), never reprompt or dial the fallback.
@@ -1018,7 +1020,8 @@ xml = render_dtmf_gather(
 
 The generated `Gather` collects one keypad character, uses POST, and requests a
 callback even on silence (`actionOnEmptyResult="true"`). No finish key is used,
-so `*` and `#` can reach the resolver as invalid input. These attributes follow
+so `*` and `#` reach the resolver and can be configured as routes or the hangup
+symbol. These attributes follow
 the [Twilio Gather reference](https://www.twilio.com/docs/voice/twiml/gather).
 Prompt markup is escaped as text, and invalid XML characters are rejected.
 Project limits are 1000 prompt characters and a 1–60 second timeout (default 5).
@@ -1841,7 +1844,7 @@ signature, account/call binding, and bounded keypad policies. Supply a trusted
 workspace route mapping and session attempt count. Only authenticated `Digits`
 is consumed; request fields cannot replace routes, attempt limits, fallback,
 or the hangup key. Missing digits use the existing silence/retry behavior.
-The route mapping is bounded to ten entries and copied before invoking the
+The route mapping is bounded to twelve entries and copied before invoking the
 injected validator, so oversized configuration cannot trigger an unbounded
 copy and changes to the original mapping during validation do not change this
 decision.
@@ -2477,7 +2480,7 @@ always falls back without incrementing. All configuration is validated first.
 Pass `hangup_digit="9"` to optionally offer an explicit exit during confirmation.
 For a known pending intent with budget remaining, that exact digit returns
 `GatherDecision("hangup", None, attempts + 1)`, including on the last attempt.
-The key must be a single ASCII digit other than the reserved `1` and `2`;
+The key must be a single DTMF symbol other than the reserved `1` and `2`;
 invalid keys are rejected even for unknown intents or exhausted budgets.
 The default `None` preserves existing behavior. Missing/unknown intents and
 exhausted budgets still fall back, even if the exit key was pressed. Mention
@@ -2622,7 +2625,8 @@ These are deterministic offline policy checks, not runtime timeout enforcement.
 ## Layout
 
 - `zentomic/handler.py`: health route and API Gateway proxy response handling.
-- `zentomic/routing.py`: deterministic single-digit menu selection and fallback.
+- `zentomic/routing.py`: deterministic single-symbol DTMF menu selection and
+  fallback.
 - `zentomic/gather.py`: bounded collection retries with immutable decisions.
 - `zentomic/gather_event.py`: authenticated keypad decisions with optional replay claims.
 - `zentomic/budget.py`: individual and combined whole-call time/count admission and timeouts.
@@ -2736,7 +2740,7 @@ transaction. Do not retry an effect merely because a response was lost.
 
 `resolve_claimed_gather_event` applies this seam to one bounded keypad step. It
 first snapshots and validates routes, destinations, retry counts and the hangup
-digit, then authenticates, binds and claims before resolving `Digits`. That
+symbol, then authenticates, binds and claims before resolving `Digits`. That
 ordering prevents bad trusted policy or rejected transport from poisoning a
 valid step and prevents a replay from reaching collection policy. The helper
 still does not persist the returned attempt count or execute its decision.

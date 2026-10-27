@@ -34,19 +34,22 @@ class RoutingTests(unittest.TestCase):
             fallback_target="reception",
         )
 
-    def test_routes_each_configured_digit(self):
+    def test_routes_each_configured_symbol(self):
         for digit, target in self.routes.items():
             with self.subTest(digit=digit):
                 self.assertEqual(self.resolve(digit), target)
 
-    def test_supports_all_ten_digits(self):
-        routes = {str(i): f"team-{i}" for i in range(10)}
+    def test_supports_all_twelve_dtmf_symbols(self):
+        routes = {
+            symbol: f"team-{index}"
+            for index, symbol in enumerate("0123456789*#")
+        }
         for digit, target in routes.items():
             with self.subTest(digit=digit):
                 self.assertEqual(self.resolve(digit, routes), target)
 
-    def test_rejects_more_than_ten_routes_before_copying_values(self):
-        with self.assertRaisesRegex(ValueError, "^routes must contain at most 10 entries$"):
+    def test_rejects_more_than_twelve_routes_before_copying_values(self):
+        with self.assertRaisesRegex(ValueError, "^routes must contain at most 12 entries$"):
             self.resolve("1", OversizedMenu())
 
     def test_unmapped_digit_and_empty_menu_use_fallback(self):
@@ -54,7 +57,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(self.resolve("1", {}), "reception")
 
     def test_missing_or_malformed_input_uses_fallback(self):
-        for digits in (None, "", "12", " 1", "1 ", "1\n", "*", "#", "x", "１", "١", 1, True, [], {}):
+        for digits in (None, "", "12", " 1", "1 ", "1\n", "x", "１", "١", 1, True, [], {}):
             with self.subTest(digits=digits):
                 self.assertEqual(self.resolve(digits), "reception")
 
@@ -64,7 +67,7 @@ class RoutingTests(unittest.TestCase):
                 resolve_dtmf("1", routes, fallback_target="reception")
 
     def test_invalid_keys_are_rejected_even_for_missing_input(self):
-        for digit in (None, 1, True, "", "12", " 1", "*", "#", "１", "١"):
+        for digit in (None, 1, True, "", "12", " 1", "x", "１", "١"):
             with self.subTest(digit=digit), self.assertRaises(ValueError):
                 self.resolve(None, {digit: "sales"})
 

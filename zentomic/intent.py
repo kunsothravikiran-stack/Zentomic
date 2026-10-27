@@ -5,7 +5,7 @@ from itertools import islice
 
 from zentomic.gather import GatherDecision, _resolve_validated_gather
 from zentomic.labels import _valid_intent_label
-from zentomic.routing import _valid_target
+from zentomic.routing import DTMF_SYMBOLS, _valid_target
 
 
 MAX_INTENT_ROUTES = 128
@@ -79,8 +79,8 @@ def _validate_intent_confirmation_configuration(
     menu = _validate_intent_routes(routes, fallback_target=fallback_target)
     if hangup_digit is not None:
         if (not isinstance(hangup_digit, str) or len(hangup_digit) != 1
-                or hangup_digit not in "0123456789"):
-            raise ValueError("hangup_digit must be a single ASCII digit or None")
+                or hangup_digit not in DTMF_SYMBOLS):
+            raise ValueError("hangup_digit must be a single DTMF symbol or None")
         if hangup_digit in ("1", "2"):
             raise ValueError("hangup_digit must not overlap a configured route")
 
@@ -120,7 +120,7 @@ def resolve_intent_confirmation(
     Silence or invalid input retries within the existing collection budget.
     Missing/unknown intents and exhausted budgets always fall back. Every
     completed collection consumes an attempt unless already exhausted.
-    An optional ASCII digit other than 1 or 2 ends an active, known-intent
+    An optional DTMF symbol other than 1 or 2 ends an active, known-intent
     confirmation with no destination. It follows the same collection budget.
 
     The pending intent and attempt count must come from authenticated,

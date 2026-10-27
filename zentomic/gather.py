@@ -1,10 +1,10 @@
-"""Bounded, offline retry policy for single-digit IVR collection."""
+"""Bounded, offline retry policy for single-symbol IVR collection."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from zentomic.routing import _snapshot_dtmf_routes, resolve_dtmf
+from zentomic.routing import DTMF_SYMBOLS, _snapshot_dtmf_routes, resolve_dtmf
 
 
 @dataclass(frozen=True)
@@ -31,8 +31,8 @@ def _validate_gather_configuration(
     resolve_dtmf(None, menu, fallback_target=fallback_target)
     if hangup_digit is not None:
         if (not isinstance(hangup_digit, str) or len(hangup_digit) != 1
-                or hangup_digit not in "0123456789"):
-            raise ValueError("hangup_digit must be a single ASCII digit or None")
+                or hangup_digit not in DTMF_SYMBOLS):
+            raise ValueError("hangup_digit must be a single DTMF symbol or None")
         if hangup_digit in menu:
             raise ValueError("hangup_digit must not overlap a configured route")
     return menu
@@ -43,20 +43,20 @@ def _resolve_validated_gather(
     attempts: int, max_attempts: int, hangup_digit: str | None,
 ) -> GatherDecision:
     """Resolve input after the caller validated and privately copied policy."""
-    valid_digit = (
+    valid_symbol = (
         isinstance(digits, str) and len(digits) == 1
-        and digits in "0123456789"
+        and digits in DTMF_SYMBOLS
     )
-    target = menu.get(digits, fallback_target) if valid_digit else fallback_target
+    target = menu.get(digits, fallback_target) if valid_symbol else fallback_target
     if attempts >= max_attempts:
         return GatherDecision("fallback", fallback_target, attempts)
 
     completed = attempts + 1
-    if hangup_digit is not None and valid_digit and digits == hangup_digit:
+    if hangup_digit is not None and valid_symbol and digits == hangup_digit:
         return GatherDecision("hangup", None, completed)
     # Membership distinguishes a configured reception key from invalid input
     # that happens to resolve to the same fallback destination.
-    if valid_digit and digits in menu:
+    if valid_symbol and digits in menu:
         return GatherDecision("route", target, completed)
     if completed < max_attempts:
         return GatherDecision("retry", None, completed)
@@ -78,7 +78,7 @@ def resolve_gather(
     malformed, or unmapped input retries only while the budget allows it.
     An exhausted budget always falls back, even for otherwise valid input.
     Every configuration entry is validated before making any decision.
-    An optional unused ASCII digit explicitly ends the call with no target.
+    An optional unused DTMF symbol explicitly ends the call with no target.
     It consumes one attempt and is honored only while the budget is active.
 
     This pure helper does not collect digits, persist state, or send TwiML.

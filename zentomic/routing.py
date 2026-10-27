@@ -1,10 +1,11 @@
-"""Pure single-digit IVR menu routing, without telephony or persistence."""
+"""Pure single-symbol IVR menu routing, without telephony or persistence."""
 
 from collections.abc import Mapping
 from itertools import islice
 
 
-MAX_DTMF_ROUTES = 10
+DTMF_SYMBOLS = "0123456789*#"
+MAX_DTMF_ROUTES = len(DTMF_SYMBOLS)
 MAX_TARGET_IDENTIFIER_BYTES = 256
 
 
@@ -23,15 +24,15 @@ def _valid_target(value: object) -> bool:
 
 
 def _snapshot_dtmf_routes(routes: Mapping[str, str]) -> dict[str, str]:
-    """Copy at most one single-digit menu without unbounded iteration."""
+    """Copy at most one keypad menu without unbounded iteration."""
     if not isinstance(routes, Mapping):
         raise ValueError("routes must be a mapping")
-    # There are only ten valid ASCII digit keys. Read one extra key before
+    # There are only twelve valid DTMF symbol keys. Read one extra key before
     # copying values so an invalid, unexpectedly large mapping is rejected
     # without allocating or iterating over all of it.
     keys = tuple(islice(routes, MAX_DTMF_ROUTES + 1))
     if len(keys) > MAX_DTMF_ROUTES:
-        raise ValueError("routes must contain at most 10 entries")
+        raise ValueError("routes must contain at most 12 entries")
     return {key: routes[key] for key in keys}
 
 
@@ -41,7 +42,7 @@ def resolve_dtmf(
     *,
     fallback_target: str,
 ) -> str:
-    """Resolve one ASCII digit to an opaque, workspace-local target identifier.
+    """Resolve one standard DTMF symbol to an opaque workspace-local target.
 
     Missing, malformed, or unmapped input returns the configured fallback.
     Configuration errors raise ValueError, even when the input would fall back.
@@ -56,11 +57,11 @@ def resolve_dtmf(
     # Snapshot the caller's menu and validate every entry before routing.
     menu = _snapshot_dtmf_routes(routes)
     for digit, target in menu.items():
-        if not isinstance(digit, str) or len(digit) != 1 or digit not in "0123456789":
-            raise ValueError("route keys must be single ASCII digits")
+        if not isinstance(digit, str) or len(digit) != 1 or digit not in DTMF_SYMBOLS:
+            raise ValueError("route keys must be single DTMF symbols")
         if not _valid_target(target):
             raise ValueError("route targets must be nonblank UTF-8 strings of at most 256 bytes")
 
-    if not isinstance(digits, str) or len(digits) != 1 or digits not in "0123456789":
+    if not isinstance(digits, str) or len(digits) != 1 or digits not in DTMF_SYMBOLS:
         return fallback_target
     return menu.get(digits, fallback_target)

@@ -48,6 +48,28 @@ class GatherEventTests(unittest.TestCase):
                         validator.assert_called_once()
                         self.assertEqual(event, original)
 
+    def test_authenticated_star_and_pound_use_trusted_keypad_policy(self):
+        validator = Mock(return_value=True)
+        self.assertEqual(
+            self.resolve(
+                callback({"Digits": "*"}, "2.0", False),
+                validator,
+                {"*": "demo-operator"},
+                hangup_digit="#",
+            ),
+            GatherDecision("route", "demo-operator", 1),
+        )
+        validator.reset_mock()
+        self.assertEqual(
+            self.resolve(
+                callback({"Digits": "#"}, "2.0", False),
+                validator,
+                {"*": "demo-operator"},
+                hangup_digit="#",
+            ),
+            GatherDecision("hangup", None, 1),
+        )
+
     def test_failed_authentication_or_identity_never_consumes_policy(self):
         for fields, valid in (({}, False), ({}, 1),
                               ({"AccountSid": "other-account"}, True),
@@ -95,7 +117,7 @@ class GatherEventTests(unittest.TestCase):
 
     def test_oversized_route_container_fails_before_validator_or_value_copy(self):
         validator = Mock(return_value=True)
-        with self.assertRaisesRegex(ValueError, "^routes must contain at most 10 entries$"):
+        with self.assertRaisesRegex(ValueError, "^routes must contain at most 12 entries$"):
             self.resolve(callback({}, "2.0", False), validator, OversizedMenu())
         validator.assert_not_called()
 

@@ -62,7 +62,7 @@ class IntentConfirmationTests(unittest.TestCase):
         self.assertEqual((result.action, result.target), ("route", "team/Reception"))
 
     def test_explicit_exit_consumes_one_attempt_without_a_destination(self):
-        for digit in "03456789":
+        for digit in "03456789*#":
             for attempts in (0, 2):
                 with self.subTest(digit=digit, attempts=attempts):
                     result = self.resolve(digit, hangup_digit=digit, attempts=attempts)
@@ -88,7 +88,7 @@ class IntentConfirmationTests(unittest.TestCase):
 
     def test_exit_configuration_always_rejects_reserved_or_invalid_keys(self):
         for base in ({}, {"intent": None}, {"routes": {}}, {"attempts": 3}):
-            for digit in ("1", "2", "", "99", "９", "*", "#", " 9", 9, True, [], {}):
+            for digit in ("1", "2", "", "99", "９", "x", " 9", 9, True, [], {}):
                 with self.subTest(base=base, digit=digit), self.assertRaises(ValueError):
                     self.resolve("9", hangup_digit=digit, **base)
 

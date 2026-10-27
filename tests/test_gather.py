@@ -27,7 +27,7 @@ class GatherTests(unittest.TestCase):
         self.assertEqual(self.decide("0"), GatherDecision("route", "reception", 1))
 
     def test_invalid_input_consumes_one_attempt_and_retries(self):
-        for digits in (None, "", "9", "11", " 1", "１", "*", "#", 1, True, [], {}):
+        for digits in (None, "", "9", "11", " 1", "１", "x", 1, True, [], {}):
             with self.subTest(digits=digits):
                 self.assertEqual(self.decide(digits), GatherDecision("retry", None, 1))
 
@@ -77,7 +77,7 @@ class GatherTests(unittest.TestCase):
                 self.decide("1", attempts=3, **config)
 
     def test_oversized_menu_is_rejected_before_copying_values(self):
-        with self.assertRaisesRegex(ValueError, "^routes must contain at most 10 entries$"):
+        with self.assertRaisesRegex(ValueError, "^routes must contain at most 12 entries$"):
             self.decide("1", routes=OversizedMenu())
 
     def test_empty_menu_obeys_same_budget(self):
@@ -114,9 +114,15 @@ class GatherTests(unittest.TestCase):
             self.decide("9", routes={"9": "sales"}),
             GatherDecision("route", "sales", 1),
         )
+        for symbol in "*#":
+            with self.subTest(symbol=symbol):
+                self.assertEqual(
+                    self.decide(symbol, routes={symbol: "sales"}),
+                    GatherDecision("route", "sales", 1),
+                )
 
     def test_hangup_requires_exact_input_without_coercion(self):
-        for digits in (None, "", " 9", "9 ", "99", "９", "*", "#", 9, True, [], {}):
+        for digits in (None, "", " 9", "9 ", "99", "９", "x", 9, True, [], {}):
             with self.subTest(digits=digits):
                 self.assertEqual(
                     self.decide(digits, hangup_digit="9"),
@@ -135,7 +141,7 @@ class GatherTests(unittest.TestCase):
                 )
 
     def test_invalid_hangup_configuration_rejected_even_when_exhausted(self):
-        for value in ("", "99", " 9", "９", "*", "#", 9, True, [], {}, "0", "1"):
+        for value in ("", "99", " 9", "９", "x", 9, True, [], {}, "0", "1"):
             for attempts in (0, 3):
                 with self.subTest(value=value, attempts=attempts), self.assertRaises(ValueError):
                     self.decide("9", hangup_digit=value, attempts=attempts)
@@ -145,8 +151,8 @@ class GatherTests(unittest.TestCase):
             with self.subTest(config=config), self.assertRaises(ValueError):
                 self.decide("9", hangup_digit="9", **config)
 
-    def test_any_unused_ascii_digit_can_end_an_empty_menu(self):
-        for digit in "0123456789":
+    def test_any_unused_dtmf_symbol_can_end_an_empty_menu(self):
+        for digit in "0123456789*#":
             with self.subTest(digit=digit):
                 self.assertEqual(
                     self.decide(digit, routes={}, hangup_digit=digit, max_attempts=1),
