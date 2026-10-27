@@ -13,6 +13,9 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
             "Content-Type": "application/json; charset=utf-8",
             "Content-Length": str(len(body.encode("utf-8"))),
             "Cache-Control": "no-store",
+            # The health payload is fixed public metadata, so simple browser
+            # checks may read success and error responses across origins.
+            "Access-Control-Allow-Origin": "*",
             "X-Content-Type-Options": "nosniff",
             **headers,
         },

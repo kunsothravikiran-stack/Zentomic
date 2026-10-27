@@ -43,6 +43,7 @@ class HandlerTests(unittest.TestCase):
                     str(len(result["body"].encode("utf-8"))),
                 )
                 self.assertEqual(result["headers"]["Cache-Control"], "no-store")
+                self.assertEqual(result["headers"]["Access-Control-Allow-Origin"], "*")
                 self.assertEqual(result["headers"]["X-Content-Type-Options"], "nosniff")
                 self.assertIs(result["isBase64Encoded"], False)
                 self.assertIsInstance(json.loads(result["body"]), dict)
