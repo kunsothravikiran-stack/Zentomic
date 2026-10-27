@@ -10,7 +10,7 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
     return {
         "statusCode": status,
         "headers": {
-            "Content-Type": "application/json",
+            "Content-Type": "application/json; charset=utf-8",
             "Content-Length": str(len(body.encode("utf-8"))),
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",

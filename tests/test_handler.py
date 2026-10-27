@@ -34,7 +34,7 @@ class HandlerTests(unittest.TestCase):
         for event in (http_event(), rest_event(path="/missing"), rest_event("POST"), {}):
             with self.subTest(event=event):
                 result = lambda_handler(event, None)
-                self.assertEqual(result["headers"]["Content-Type"], "application/json")
+                self.assertEqual(\n                    result["headers"]["Content-Type"],\n                    "application/json; charset=utf-8",\n                )
                 self.assertEqual(
                     result["headers"]["Content-Length"],
                     str(len(result["body"].encode("utf-8"))),
