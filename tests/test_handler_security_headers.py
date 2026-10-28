@@ -34,7 +34,21 @@ class HandlerSecurityHeaderTests(unittest.TestCase):
                 response = lambda_handler(event, None)
                 self.assertEqual(response["headers"]["Content-Security-Policy"], expected)
 
-    def test_security_header_does_not_change_payload_or_head_semantics(self):
+    def test_referrer_policy_suppresses_endpoint_disclosure_for_every_response(self):
+        events = (
+            rest_event(),
+            http_event("HEAD"),
+            rest_event(path="/missing"),
+            rest_event("POST"),
+            {},
+            {**rest_event(), "version": "3.0"},
+        )
+        for event in events:
+            with self.subTest(event=event):
+                response = lambda_handler(event, None)
+                self.assertEqual(response["headers"]["Referrer-Policy"], "no-referrer")
+
+    def test_security_headers_do_not_change_payload_or_head_semantics(self):
         get_response = lambda_handler(http_event(), None)
         head_response = lambda_handler(http_event("HEAD"), None)
 
