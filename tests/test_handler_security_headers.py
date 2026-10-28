@@ -34,6 +34,24 @@ class HandlerSecurityHeaderTests(unittest.TestCase):
                 response = lambda_handler(event, None)
                 self.assertEqual(response["headers"]["Content-Security-Policy"], expected)
 
+    def test_permissions_policy_disables_device_features_for_every_response(self):
+        expected = (
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+            "microphone=(), payment=(), usb=()"
+        )
+        events = (
+            rest_event(),
+            http_event("HEAD"),
+            rest_event(path="/missing"),
+            rest_event("POST"),
+            {},
+            {**rest_event(), "version": "3.0"},
+        )
+        for event in events:
+            with self.subTest(event=event):
+                response = lambda_handler(event, None)
+                self.assertEqual(response["headers"]["Permissions-Policy"], expected)
+
     def test_referrer_policy_suppresses_endpoint_disclosure_for_every_response(self):
         events = (
             rest_event(),

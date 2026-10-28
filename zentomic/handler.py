@@ -19,6 +19,11 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
             # If a JSON response is opened as a document, deny executable,
             # embedded, and navigational capabilities in modern browsers.
             "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+            # The endpoint never needs browser-controlled device capabilities.
+            "Permissions-Policy": (
+                "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+                "microphone=(), payment=(), usb=()"
+            ),
             # Do not disclose the health endpoint's URL through a Referer
             # header if a browser follows or embeds content from this response.
             "Referrer-Policy": "no-referrer",
