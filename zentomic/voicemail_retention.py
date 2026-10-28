@@ -1,0 +1,531 @@
+"""Bounded voicemail retention-worker orchestration."""
+
+import json
+from collections.abc import Mapping
+from dataclasses import dataclass
+from itertools import islice
+from typing import Literal, Protocol
+
+from zentomic.voicemail_status_store import (
+    DueVoicemailExpiry,
+    list_due_voicemail_recording_status_expiries,
+    purge_due_voicemail_recording_status_expiry,
+    VoicemailStatusConflictError,
+    VoicemailStatusDueExpiryStore,
+    VoicemailStatusDuePurgeStore,
+)
+
+
+VoicemailExpiryPurgeFollowUpAction = Literal["none", "drain", "retry"]
+VoicemailExpiryPurgeTelemetryValue = (
+    int | bool | str | tuple[str, ...]
+)
+VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION = 1
+VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES = 4096
+# 10 / 3 is slightly greater than log2(10), making this a conservative
+# pre-conversion guard for a decimal integer that cannot fit the byte limit.
+_TELEMETRY_INTEGER_CONVERSION_MAX_BITS = (
+    VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES * 10 + 2
+) // 3
+_TELEMETRY_FIELDS = frozenset({
+    "schema_version",
+    "discovered",
+    "purged",
+    "conflicted",
+    "no_receipt",
+    "unconfirmed",
+    "discovery_limit_reached",
+    "follow_up_recommended",
+    "follow_up_action",
+    "follow_up_reasons",
+})
+_TELEMETRY_FIELD_MAX_CHARACTERS = max(map(len, _TELEMETRY_FIELDS))
+
+
+class VoicemailStatusDueExpiryPurgeStore(
+    VoicemailStatusDueExpiryStore, VoicemailStatusDuePurgeStore, Protocol,
+):
+    """Discovery and conditional cleanup boundaries supplied by an adapter."""
+
+
+@dataclass(frozen=True)
+class VoicemailExpiryPurgeBatchCounts:
+    """Stable scalar metrics for one bounded cleanup pass."""
+
+    discovered: int
+    purged: int
+    conflicted: int
+    missing: int
+    discovery_limit_reached: bool
+
+    def __post_init__(self) -> None:
+        """Reject telemetry values that cannot describe one complete batch."""
+        for name in ("discovered", "purged", "conflicted", "missing"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} count must be a nonnegative integer")
+        if type(self.discovery_limit_reached) is not bool:
+            raise ValueError("discovery_limit_reached must be an exact boolean")
+        if self.discovery_limit_reached and self.discovered == 0:
+            raise ValueError("an empty batch cannot reach the discovery limit")
+        if self.purged + self.conflicted + self.missing != self.discovered:
+            raise ValueError("outcome counts must classify every discovered candidate")
+
+    @property
+    def no_receipt(self) -> int:
+        """Return candidates for which no atomic purge receipt was returned.
+
+        ``missing`` is retained as the original field name for compatibility,
+        but a ``None`` adapter result does not prove the key is absent without
+        a separate read. Workers should publish this clearer metric name.
+        """
+        return self.missing
+
+    @property
+    def unconfirmed(self) -> int:
+        """Return candidates that did not produce a confirmed purge receipt."""
+        return self.conflicted + self.no_receipt
+
+    @property
+    def follow_up_recommended(self) -> bool:
+        """Return whether a worker should schedule another bounded pass.
+
+        Saturation may hide additional due work. Conflicts and missing
+        receipts leave the observed candidate unconfirmed, so a later pass is
+        also appropriate even when discovery did not fill the batch.
+        """
+        return self.follow_up_action != "none"
+
+    @property
+    def follow_up_action(self) -> VoicemailExpiryPurgeFollowUpAction:
+        """Return the worker scheduling class for this batch.
+
+        Unconfirmed candidates take precedence over saturation so a worker can
+        apply its retry backoff instead of repeatedly selecting the same stale
+        prefix. A fully confirmed saturated batch can be drained immediately.
+        """
+        if self.unconfirmed > 0:
+            return "retry"
+        if self.discovery_limit_reached:
+            return "drain"
+        return "none"
+
+    @property
+    def follow_up_reasons(self) -> tuple[str, ...]:
+        """Return stable reason codes for the conservative scheduling hint."""
+        reasons: list[str] = []
+        if self.discovery_limit_reached:
+            reasons.append("discovery_limit_reached")
+        if self.conflicted > 0:
+            reasons.append("conflicted")
+        if self.no_receipt > 0:
+            reasons.append("no_receipt")
+        return tuple(reasons)
+
+    def as_telemetry(
+        self,
+    ) -> dict[str, VoicemailExpiryPurgeTelemetryValue]:
+        """Return canonical JSON-compatible fields for worker telemetry.
+
+        The legacy ``missing`` name is intentionally omitted in favor of
+        ``no_receipt`` so structured logs do not claim a storage observation
+        that the batch never performed. A fresh dictionary is returned on
+        every call so consumers cannot mutate the immutable count summary.
+        """
+        return {
+            "schema_version": VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION,
+            "discovered": self.discovered,
+            "purged": self.purged,
+            "conflicted": self.conflicted,
+            "no_receipt": self.no_receipt,
+            "unconfirmed": self.unconfirmed,
+            "discovery_limit_reached": self.discovery_limit_reached,
+            "follow_up_recommended": self.follow_up_recommended,
+            "follow_up_action": self.follow_up_action,
+            "follow_up_reasons": self.follow_up_reasons,
+        }
+
+    def to_telemetry_json(self) -> str:
+        """Return deterministic compact JSON for logs and queue records.
+
+        Sorting fields and removing insignificant whitespace makes equivalent
+        batches byte-for-byte comparable without changing the versioned
+        telemetry schema. ``allow_nan=False`` keeps the producer strict even
+        if a future schema adds numeric values that JSON cannot represent.
+        """
+        if max(
+            self.discovered,
+            self.purged,
+            self.conflicted,
+            self.missing,
+        ).bit_length() > _TELEMETRY_INTEGER_CONVERSION_MAX_BITS:
+            raise ValueError(
+                "telemetry JSON must not exceed "
+                f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"
+            )
+        payload = json.dumps(
+            self.as_telemetry(),
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        if len(payload.encode("utf-8")) > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
+            raise ValueError(
+                "telemetry JSON must not exceed "
+                f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"
+            )
+        return payload
+
+    def to_telemetry_json_bytes(self) -> bytes:
+        """Return the deterministic telemetry JSON encoded as UTF-8 bytes.
+
+        Queue and object-storage adapters commonly require bytes. Keeping the
+        encoding beside the canonical serializer prevents adapters from
+        choosing an incompatible encoding or maintaining their own JSON
+        settings.
+        """
+        return self.to_telemetry_json().encode("utf-8")
+
+    @classmethod
+    def from_telemetry(
+        cls, telemetry: Mapping[str, object],
+    ) -> "VoicemailExpiryPurgeBatchCounts":
+        """Validate and restore counts from a versioned telemetry object.
+
+        Both the tuple emitted directly by :meth:`as_telemetry` and the list
+        produced by a JSON round trip are accepted for ``follow_up_reasons``.
+        Derived fields must agree with the scalar outcomes so consumers do not
+        act on a corrupted or partially upgraded telemetry record.
+        """
+        if not isinstance(telemetry, Mapping):
+            raise ValueError("telemetry must be a mapping")
+        try:
+            keys = tuple(islice(telemetry, len(_TELEMETRY_FIELDS) + 1))
+        except Exception:
+            raise ValueError("telemetry mapping is unavailable") from None
+        if (
+            len(keys) != len(_TELEMETRY_FIELDS)
+            or any(
+                type(key) is not str
+                or len(key) > _TELEMETRY_FIELD_MAX_CHARACTERS
+                for key in keys
+            )
+            or set(keys) != _TELEMETRY_FIELDS
+        ):
+            raise ValueError("telemetry fields must exactly match schema version 1")
+        try:
+            telemetry = {key: telemetry[key] for key in keys}
+        except Exception:
+            raise ValueError("telemetry mapping is unavailable") from None
+        schema_version = telemetry["schema_version"]
+        if (
+            type(schema_version) is not int
+            or schema_version != VOICEMAIL_EXPIRY_PURGE_TELEMETRY_SCHEMA_VERSION
+        ):
+            raise ValueError("unsupported voicemail purge telemetry schema version")
+
+        for field in ("discovered", "purged", "conflicted", "no_receipt"):
+            value = telemetry[field]
+            if (
+                type(value) is int
+                and value >= 0
+                and value.bit_length() > _TELEMETRY_INTEGER_CONVERSION_MAX_BITS
+            ):
+                raise ValueError("telemetry count exceeds the supported size")
+
+        counts = cls(
+            discovered=telemetry["discovered"],
+            purged=telemetry["purged"],
+            conflicted=telemetry["conflicted"],
+            missing=telemetry["no_receipt"],
+            discovery_limit_reached=telemetry["discovery_limit_reached"],
+        )
+        expected = counts.as_telemetry()
+        for field in (
+            "unconfirmed",
+            "follow_up_recommended",
+            "follow_up_action",
+        ):
+            actual = telemetry[field]
+            if type(actual) is not type(expected[field]) or actual != expected[field]:
+                raise ValueError(f"telemetry {field} does not match scalar outcomes")
+
+        reasons = telemetry["follow_up_reasons"]
+        if (
+            type(reasons) not in (list, tuple)
+            or len(reasons) > len(expected["follow_up_reasons"])
+            or any(type(reason) is not str for reason in reasons)
+            or tuple(reasons) != expected["follow_up_reasons"]
+        ):
+            raise ValueError(
+                "telemetry follow_up_reasons does not match scalar outcomes"
+            )
+        return counts
+
+    @classmethod
+    def from_telemetry_json(
+        cls, payload: str | bytes | bytearray | memoryview,
+    ) -> "VoicemailExpiryPurgeBatchCounts":
+        """Validate and restore counts from a strict JSON telemetry object.
+
+        Duplicate object fields are rejected instead of silently taking the
+        last value. Non-standard JSON constants such as ``NaN`` and
+        ``Infinity`` are also rejected before the versioned schema is checked.
+        Input is bounded before decoding so an untrusted queue record cannot
+        make this small telemetry parser consume unbounded memory.
+        """
+        if not isinstance(payload, (str, bytes, bytearray, memoryview)):
+            raise ValueError("telemetry JSON must be text or a byte buffer")
+        if isinstance(payload, str):
+            # Read the built-in string value instead of overridable subclass
+            # hooks so validation and parsing inspect the same text.
+            payload = str.__str__(payload)
+            payload_size = len(payload)
+        else:
+            try:
+                payload_buffer = (
+                    payload if isinstance(payload, memoryview)
+                    else memoryview(payload)
+                )
+                payload_size = payload_buffer.nbytes
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "telemetry JSON byte buffer is unavailable"
+                ) from None
+        if payload_size > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
+            raise ValueError(
+                "telemetry JSON must not exceed "
+                f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"
+            )
+        if isinstance(payload, str):
+            try:
+                payload_size = len(payload.encode("utf-8"))
+            except UnicodeEncodeError:
+                raise ValueError(
+                    "telemetry JSON text must be valid UTF-8"
+                ) from None
+            if payload_size > VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES:
+                raise ValueError(
+                    "telemetry JSON must not exceed "
+                    f"{VOICEMAIL_EXPIRY_PURGE_TELEMETRY_MAX_BYTES} UTF-8 bytes"
+                )
+        else:
+            try:
+                payload = payload_buffer.tobytes().decode("utf-8")
+            except UnicodeDecodeError:
+                raise ValueError(
+                    "telemetry JSON bytes must be valid utf-8"
+                ) from None
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "telemetry JSON byte buffer is unavailable"
+                ) from None
+
+        def reject_duplicate_fields(
+            pairs: list[tuple[str, object]],
+        ) -> dict[str, object]:
+            restored: dict[str, object] = {}
+            for key, value in pairs:
+                if key in restored:
+                    raise ValueError(
+                        "telemetry JSON contains a duplicate object field"
+                    )
+                restored[key] = value
+            return restored
+
+        def reject_nonstandard_constant(value: str) -> object:
+            raise ValueError(
+                f"telemetry JSON contains non-standard constant {value!r}"
+            )
+
+        try:
+            telemetry = json.loads(
+                payload,
+                object_pairs_hook=reject_duplicate_fields,
+                parse_constant=reject_nonstandard_constant,
+            )
+        except (json.JSONDecodeError, RecursionError):
+            raise ValueError("telemetry JSON is invalid") from None
+        return cls.from_telemetry(telemetry)
+
+
+@dataclass(frozen=True)
+class VoicemailExpiryPurgeBatchReport:
+    """Immutable outcome partitions for one bounded cleanup pass."""
+
+    discovered: tuple[DueVoicemailExpiry, ...]
+    purged: tuple[DueVoicemailExpiry, ...]
+    conflicted: tuple[DueVoicemailExpiry, ...]
+    missing: tuple[DueVoicemailExpiry, ...]
+    limit: int = 100
+
+    def __post_init__(self) -> None:
+        """Keep outcome partitions complete, disjoint, and discovery ordered."""
+        if type(self.limit) is not int or not 1 <= self.limit <= 1000:
+            raise ValueError("limit must be an integer from 1 through 1000")
+
+        partitions = (
+            ("discovered", self.discovered),
+            ("purged", self.purged),
+            ("conflicted", self.conflicted),
+            ("missing", self.missing),
+        )
+        for name, candidates in partitions:
+            if type(candidates) is not tuple:
+                raise ValueError(f"{name} candidates must be an exact tuple")
+            if any(type(candidate) is not DueVoicemailExpiry
+                   for candidate in candidates):
+                raise ValueError(
+                    f"{name} candidates must be exact DueVoicemailExpiry values"
+                )
+        if len(self.discovered) > self.limit:
+            raise ValueError("discovered candidates must not exceed the batch limit")
+
+        positions = {candidate: index for index, candidate in enumerate(
+            self.discovered
+        )}
+        if len(positions) != len(self.discovered):
+            raise ValueError("discovered candidates must be unique")
+        outcomes = self.purged + self.conflicted + self.missing
+        if len(set(outcomes)) != len(outcomes):
+            raise ValueError("outcome partitions must be disjoint")
+        if set(outcomes) != set(self.discovered):
+            raise ValueError(
+                "outcome partitions must classify every discovered candidate"
+            )
+        for name, candidates in partitions[1:]:
+            indices = tuple(positions[candidate] for candidate in candidates)
+            if indices != tuple(sorted(indices)):
+                raise ValueError(f"{name} candidates must preserve discovery order")
+
+    @property
+    def no_receipt(self) -> tuple[DueVoicemailExpiry, ...]:
+        """Return candidates whose purge produced no atomic receipt.
+
+        This is an alias for the legacy ``missing`` partition. The batch does
+        not re-read storage, so consumers must not infer current absence from
+        membership in this partition.
+        """
+        return self.missing
+
+    @property
+    def unconfirmed(self) -> tuple[DueVoicemailExpiry, ...]:
+        """Return unconfirmed candidates in their original discovery order."""
+        unconfirmed = set(self.conflicted) | set(self.no_receipt)
+        return tuple(
+            candidate for candidate in self.discovered
+            if candidate in unconfirmed
+        )
+
+    @property
+    def counts(self) -> VoicemailExpiryPurgeBatchCounts:
+        """Return immutable metrics without exposing mutable worker state."""
+        return VoicemailExpiryPurgeBatchCounts(
+            discovered=len(self.discovered),
+            purged=len(self.purged),
+            conflicted=len(self.conflicted),
+            missing=len(self.missing),
+            discovery_limit_reached=len(self.discovered) == self.limit,
+        )
+
+    @property
+    def follow_up_recommended(self) -> bool:
+        """Return the scheduling hint derived from this batch's outcomes."""
+        return self.counts.follow_up_recommended
+
+    @property
+    def follow_up_action(self) -> VoicemailExpiryPurgeFollowUpAction:
+        """Return the scheduling class derived from this batch's outcomes."""
+        return self.counts.follow_up_action
+
+    @property
+    def follow_up_reasons(self) -> tuple[str, ...]:
+        """Return stable reason codes derived from this batch's outcomes."""
+        return self.counts.follow_up_reasons
+
+    def as_telemetry(
+        self,
+    ) -> dict[str, VoicemailExpiryPurgeTelemetryValue]:
+        """Return canonical JSON-compatible fields for worker telemetry."""
+        return self.counts.as_telemetry()
+
+    def to_telemetry_json(self) -> str:
+        """Return deterministic compact JSON for worker output."""
+        return self.counts.to_telemetry_json()
+
+    def to_telemetry_json_bytes(self) -> bytes:
+        """Return deterministic UTF-8 JSON bytes for worker output."""
+        return self.counts.to_telemetry_json_bytes()
+
+
+def purge_due_voicemail_recording_status_expiry_batch_report(
+    workspace_id: str, *, now_ms: int, limit: int = 100,
+    store: VoicemailStatusDueExpiryPurgeStore,
+) -> VoicemailExpiryPurgeBatchReport:
+    """Purge one bounded due batch and classify every discovered candidate.
+
+    Candidates without atomic purge receipts and expected conflicts are
+    reported separately so a retention worker can publish useful metrics
+    without re-reading mutable state. The legacy ``missing`` partition means
+    only "no receipt"; it is not proof of current storage state. Unexpected
+    adapter and validation errors still propagate; this helper is deliberately
+    not a transaction across the batch.
+    """
+    purge_expired_if_due = getattr(store, "purge_expired_if_due", None)
+    if not callable(purge_expired_if_due):
+        raise ValueError(
+            "store must provide a trusted callable purge_expired_if_due method"
+        )
+    candidates = list_due_voicemail_recording_status_expiries(
+        workspace_id, now_ms=now_ms, limit=limit, store=store,
+    )
+    purged: list[DueVoicemailExpiry] = []
+    conflicted: list[DueVoicemailExpiry] = []
+    no_receipt: list[DueVoicemailExpiry] = []
+    for candidate in candidates:
+        try:
+            receipt = purge_due_voicemail_recording_status_expiry(
+                workspace_id,
+                candidate.call_sid,
+                candidate.recording_sid,
+                expected_snapshot=candidate.snapshot,
+                now_ms=now_ms,
+                store=store,
+            )
+        except VoicemailStatusConflictError:
+            conflicted.append(candidate)
+            continue
+        if receipt is None:
+            no_receipt.append(candidate)
+        else:
+            purged.append(candidate)
+    return VoicemailExpiryPurgeBatchReport(
+        discovered=candidates,
+        purged=tuple(purged),
+        conflicted=tuple(conflicted),
+        missing=tuple(no_receipt),
+        limit=limit,
+    )
+
+
+def purge_due_voicemail_recording_status_expiry_batch(
+    workspace_id: str, *, now_ms: int, limit: int = 100,
+    store: VoicemailStatusDueExpiryPurgeStore,
+) -> tuple[DueVoicemailExpiry, ...]:
+    """Discover and conditionally purge one bounded batch of due tombstones.
+
+    Each discovered snapshot is passed unchanged to the atomic due-purge
+    boundary. A candidate without an atomic receipt or an expected conflict
+    from concurrent cleanup, extension, or retention-hold work is skipped so
+    one stale observation does not block the rest of the batch. Unexpected
+    adapter and validation errors propagate; this helper is deliberately not a
+    transaction across the batch.
+
+    The returned tuple contains only candidates with confirmed atomic purge
+    receipts, in discovery order. This helper reads no clock and performs no
+    authentication, authorization, media deletion, logging, network access, or
+    provider operation.
+    """
+    return purge_due_voicemail_recording_status_expiry_batch_report(
+        workspace_id, now_ms=now_ms, limit=limit, store=store,
+    ).purged

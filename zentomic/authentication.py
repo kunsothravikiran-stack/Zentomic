@@ -1,0 +1,156 @@
+"""Dependency-injected signature gate for future form webhook adapters."""
+
+import re
+from collections.abc import Callable, Mapping
+from itertools import islice
+from typing import Any
+from urllib.parse import urlsplit
+
+from zentomic.webhook_event import (
+    MAX_HEADER_FIELDS,
+    MAX_HEADER_NAME_CHARACTERS,
+    parse_form_event,
+)
+
+
+SignatureValidator = Callable[[str, dict[str, str], str], bool]
+MAX_CALL_IDENTIFIER_BYTES = 256
+MAX_PUBLIC_URL_BYTES = 4096
+MAX_SIGNATURE_CHARACTERS = 28
+_SIGNATURE = re.compile(r"[A-Za-z0-9+/]{27}=")
+_INVALID_URL_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+
+
+def _signature_header(event: Mapping[str, Any]) -> str:
+    values = []
+    for key in ("headers", "multiValueHeaders"):
+        headers = event.get(key)
+        if headers is None:
+            continue
+        if not isinstance(headers, Mapping):
+            raise ValueError("headers must be a mapping")
+        # Transport validation precedes this gate, but an arbitrary event
+        # mapping can return a different header collection on the next read.
+        # Reapply the same bounds before scanning for the signature.
+        entries = tuple(islice(headers.items(), MAX_HEADER_FIELDS + 1))
+        if len(entries) > MAX_HEADER_FIELDS:
+            raise ValueError("header collection exceeds size limit")
+        matches = []
+        for name, value in entries:
+            if not isinstance(name, str):
+                continue
+            if len(name) > MAX_HEADER_NAME_CHARACTERS:
+                raise ValueError("header name exceeds size limit")
+            if name.lower() == "x-twilio-signature":
+                matches.append(value)
+        if len(matches) > 1:
+            raise ValueError("webhook signature must be unambiguous")
+        if not matches:
+            continue
+        value = matches[0]
+        if key == "multiValueHeaders":
+            if event.get("version") == "2.0" or not isinstance(value, list) or len(value) != 1:
+                raise ValueError("webhook signature must have exactly one value")
+            value = value[0]
+        # A Twilio HMAC-SHA1 signature is exactly 28 base64 characters. Bound
+        # an untrusted header before regular-expression matching so callers of
+        # this helper cannot make validation scan an arbitrarily large value.
+        if (not isinstance(value, str)
+                or len(value) > MAX_SIGNATURE_CHARACTERS
+                or not _SIGNATURE.fullmatch(value)):
+            raise ValueError("invalid webhook signature header")
+        values.append(value)
+    if not values or any(value != values[0] for value in values):
+        raise ValueError("webhook signature is missing or conflicting")
+    return values[0]
+
+
+def validate_form_event(
+    event: Mapping[str, Any], *, public_url: str, validator: SignatureValidator,
+) -> dict[str, str]:
+    """Return decoded fields only after a trusted validator explicitly succeeds.
+
+    Inject a bound Twilio SDK RequestValidator.validate method configured with
+    the expected account's auth token, never a callback supplied by the caller.
+    public_url must be the exact externally configured HTTPS callback URL,
+    including its original query string, not a URL built from request headers.
+    Reject malformed percent escapes; never decode or repair the signed URL.
+    No cryptography, SDK setup, token lookup, or routing is implemented here.
+    This gate does not prevent replay or authorize workspace/session access.
+    """
+    if (not isinstance(public_url, str)
+            or len(public_url) > MAX_PUBLIC_URL_BYTES):
+        raise ValueError("public_url must be a configured HTTPS callback URL")
+    try:
+        # urlsplit accepts lone surrogates, but SDK signature encoding cannot.
+        # Validate without normalizing or repairing the signed URL.
+        encoded_url = public_url.encode("utf-8")
+        if len(encoded_url) > MAX_PUBLIC_URL_BYTES:
+            raise ValueError("public URL exceeds size limit")
+        if (any(char.isspace() for char in public_url)
+                or _INVALID_URL_ESCAPE.search(public_url)):
+            raise ValueError("invalid public URL characters")
+        url = urlsplit(public_url)
+        valid_url = (url.scheme == "https" and bool(url.hostname)
+                     and url.username is None and url.password is None
+                     and not url.fragment and "#" not in public_url)
+        url.port  # Reject malformed/out-of-range ports without rewriting the URL.
+    except ValueError:
+        valid_url = False
+    if not valid_url or any(ord(char) < 32 or ord(char) == 127 for char in public_url):
+        raise ValueError("public_url must be a configured HTTPS callback URL")
+    if not callable(validator):
+        raise ValueError("validator must be a trusted callable")
+
+    fields = parse_form_event(event)
+    signature = _signature_header(event)
+    try:
+        # A defensive copy prevents the injected dependency from changing the
+        # fields subsequently consumed by routing or workspace authorization.
+        valid = validator(public_url, dict(fields), signature)
+    except Exception:
+        raise ValueError("webhook signature validation failed") from None
+    if valid is not True:
+        raise ValueError("webhook signature validation failed")
+    return fields
+
+
+def validate_call_event(
+    event: Mapping[str, Any], *, public_url: str, validator: SignatureValidator,
+    expected_account_sid: str, expected_call_sid: str,
+) -> dict[str, str]:
+    """Bind authenticated form fields to a previously selected call session.
+
+    Expected identifiers must come from trusted, workspace-scoped session
+    state, never from this callback's fields or query parameters. Identifiers
+    are opaque, nonblank UTF-8 encodable strings matched exactly, without
+    normalization. Reject invalid trusted identifiers before authentication;
+    a lone surrogate cannot match a successfully decoded UTF-8 form field.
+    This does not load/authorize sessions or prevent callback replay.
+    """
+    for expected in (expected_account_sid, expected_call_sid):
+        # UTF-8 uses at least one byte per character. Reject clearly oversized
+        # trusted state before scanning or encoding it.
+        if (not isinstance(expected, str)
+                or len(expected) > MAX_CALL_IDENTIFIER_BYTES):
+            raise ValueError(
+                "expected call identifiers must be nonblank UTF-8 strings "
+                "of at most 256 bytes"
+            )
+        if not expected.strip():
+            raise ValueError("expected call identifiers must be nonblank strings")
+        try:
+            encoded = expected.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError("expected call identifiers must be UTF-8 encodable strings") from None
+        if len(encoded) > MAX_CALL_IDENTIFIER_BYTES:
+            raise ValueError(
+                "expected call identifiers must be nonblank UTF-8 strings "
+                "of at most 256 bytes"
+            )
+
+    fields = validate_form_event(event, public_url=public_url, validator=validator)
+    if (fields.get("AccountSid") != expected_account_sid
+            or fields.get("CallSid") != expected_call_sid):
+        raise ValueError("webhook does not match the expected call session")
+    return fields

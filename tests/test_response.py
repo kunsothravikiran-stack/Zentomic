@@ -1,0 +1,117 @@
+"""Offline proxy response contracts for application-generated TwiML."""
+
+import json
+import unittest
+from unittest.mock import patch
+from xml.etree.ElementTree import fromstring
+
+from zentomic.response import MAX_TWIML_BYTES, twiml_response
+from zentomic.twiml import (
+    render_dial, render_dtmf_gather, render_hangup, render_speech_gather,
+)
+
+
+class TwimlResponseTests(unittest.TestCase):
+    def test_all_renderers_keep_xml_as_the_unencoded_body(self):
+        documents = (
+            render_dtmf_gather("Press 1.", action_path="/voice/menu"),
+            render_speech_gather("How can we help?", action_path="/voice/speech"),
+            render_dial(["+12025550100"], action_path="/voice/dial-result"),
+            render_hangup(),
+        )
+        for xml in documents:
+            with self.subTest(xml=xml):
+                result = twiml_response(xml)
+                self.assertEqual(result, {
+                    "statusCode": 200,
+                    "headers": {"Content-Type": "application/xml; charset=utf-8",
+                                "Content-Length": str(len(xml.encode("utf-8"))),
+                                "Cache-Control": "no-store",
+                                "X-Content-Type-Options": "nosniff"},
+                    "body": xml,
+                    "isBase64Encoded": False,
+                })
+                # Lambda serializes the envelope; the body must not be JSON-quoted.
+                delivered = json.loads(json.dumps(result))["body"]
+                self.assertEqual(delivered, xml)
+                self.assertEqual(fromstring(delivered).tag, "Response")
+
+    def test_unicode_and_xml_escaping_survive_proxy_serialization(self):
+        prompt = 'Café & తెలుగు <Support> "hello" 😀'
+        xml = render_hangup(prompt)
+        response = json.loads(json.dumps(twiml_response(xml), ensure_ascii=False))
+        self.assertEqual(fromstring(response["body"]).find("Say").text, prompt)
+        self.assertEqual(response["body"].encode("utf-8"), xml.encode("utf-8"))
+        self.assertEqual(response["headers"]["Content-Length"],
+                         str(len(xml.encode("utf-8"))))
+
+    def test_invalid_body_errors_are_generic(self):
+        for body in (None, b"<Response/>", {}, [], 1, True, "", " \t\n",
+                     "synthetic-private-\ud800", "\udfff"):
+            with self.subTest(body=repr(body)), self.assertRaises(ValueError) as caught:
+                twiml_response(body)
+            self.assertEqual(str(caught.exception),
+                             "xml must be a nonblank UTF-8 encodable string "
+                             "of at most 65536 bytes")
+
+    def test_body_size_limit_uses_utf8_bytes_and_is_inclusive(self):
+        bodies = (
+            "x" * MAX_TWIML_BYTES,
+            "\u00e9" * (MAX_TWIML_BYTES // 2),
+        )
+        for body in bodies:
+            with self.subTest(bytes=len(body.encode("utf-8"))):
+                response = twiml_response(body)
+                self.assertIs(response["body"], body)
+                self.assertEqual(response["headers"]["Content-Length"],
+                                 str(len(body.encode("utf-8"))))
+
+        for body in ("x" * (MAX_TWIML_BYTES + 1),
+                     "\u00e9" * (MAX_TWIML_BYTES // 2 + 1)):
+            with self.subTest(bytes=len(body.encode("utf-8"))), self.assertRaises(
+                ValueError,
+            ) as caught:
+                twiml_response(body)
+            self.assertEqual(str(caught.exception),
+                             "xml must be a nonblank UTF-8 encodable string "
+                             "of at most 65536 bytes")
+
+    def test_clearly_oversized_body_is_rejected_before_scanning_or_encoding(self):
+        class OversizedText(str):
+            def strip(self, *args, **kwargs):
+                raise AssertionError("oversized output must not be scanned")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("oversized output must not be encoded")
+
+        body = OversizedText("x" * (MAX_TWIML_BYTES + 1))
+        with self.assertRaises(ValueError) as caught:
+            twiml_response(body)
+        self.assertEqual(str(caught.exception),
+                         "xml must be a nonblank UTF-8 encodable string "
+                         "of at most 65536 bytes")
+
+    def test_response_and_headers_are_fresh_for_each_invocation(self):
+        first = twiml_response(render_hangup())
+        first["statusCode"] = 500
+        first["headers"]["Content-Type"] = "application/json"
+        first["headers"]["X-Private"] = "synthetic"
+        second = twiml_response(render_hangup())
+        self.assertEqual(second["statusCode"], 200)
+        self.assertEqual(second["headers"], {
+            "Content-Type": "application/xml; charset=utf-8",
+            "Content-Length": str(len(second["body"].encode("utf-8"))),
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        })
+
+    def test_builder_is_offline_and_does_not_log_body(self):
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "socket.socket", side_effect=AssertionError("Network forbidden"),
+        ), patch("builtins.print") as output:
+            self.assertEqual(twiml_response(render_hangup())["statusCode"], 200)
+            output.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
