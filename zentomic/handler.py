@@ -16,6 +16,9 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
             # The health payload is fixed public metadata, so simple browser
             # checks may read success and error responses across origins.
             "Access-Control-Allow-Origin": "*",
+            # If a JSON response is opened as a document, deny executable,
+            # embedded, and navigational capabilities in modern browsers.
+            "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
             "X-Content-Type-Options": "nosniff",
             **headers,
         },
