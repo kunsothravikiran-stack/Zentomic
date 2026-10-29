@@ -34,6 +34,9 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
             # Do not disclose the health endpoint's URL through a Referer
             # header if a browser follows or embeds content from this response.
             "Referrer-Policy": "no-referrer",
+            # Keep the operational endpoint out of search results and prevent
+            # crawlers from following any content they might infer from it.
+            "X-Robots-Tag": "noindex, nofollow",
             "X-Content-Type-Options": "nosniff",
             **headers,
         },

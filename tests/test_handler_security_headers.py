@@ -114,6 +114,23 @@ class HandlerSecurityHeaderTests(unittest.TestCase):
                 response = lambda_handler(event, None)
                 self.assertEqual(response["headers"]["Referrer-Policy"], "no-referrer")
 
+    def test_robots_are_excluded_from_every_response(self):
+        events = (
+            rest_event(),
+            http_event("HEAD"),
+            rest_event(path="/missing"),
+            rest_event("POST"),
+            {},
+            {**rest_event(), "version": "3.0"},
+        )
+        for event in events:
+            with self.subTest(event=event):
+                response = lambda_handler(event, None)
+                self.assertEqual(
+                    response["headers"]["X-Robots-Tag"],
+                    "noindex, nofollow",
+                )
+
     def test_security_headers_do_not_change_payload_or_head_semantics(self):
         get_response = lambda_handler(http_event(), None)
         head_response = lambda_handler(http_event("HEAD"), None)
