@@ -51,6 +51,23 @@ class HandlerSecurityHeaderTests(unittest.TestCase):
                     "same-origin",
                 )
 
+    def test_hsts_preserves_https_for_every_response(self):
+        events = (
+            rest_event(),
+            http_event("HEAD"),
+            rest_event(path="/missing"),
+            rest_event("POST"),
+            {},
+            {**rest_event(), "version": "3.0"},
+        )
+        for event in events:
+            with self.subTest(event=event):
+                response = lambda_handler(event, None)
+                self.assertEqual(
+                    response["headers"]["Strict-Transport-Security"],
+                    "max-age=31536000",
+                )
+
     def test_x_frame_options_denies_framing_for_every_response(self):
         events = (
             rest_event(),

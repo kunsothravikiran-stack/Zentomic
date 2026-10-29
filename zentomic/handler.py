@@ -21,6 +21,9 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
             "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
             # Isolate a top-level health response from a cross-origin opener.
             "Cross-Origin-Opener-Policy": "same-origin",
+            # API Gateway serves the endpoint over HTTPS. Remember that choice
+            # for a year without extending policy to unrelated subdomains.
+            "Strict-Transport-Security": "max-age=31536000",
             # Preserve frame denial for clients that do not enforce CSP.
             "X-Frame-Options": "DENY",
             # The endpoint never needs browser-controlled device capabilities.
