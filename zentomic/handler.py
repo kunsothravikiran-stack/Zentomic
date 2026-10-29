@@ -19,6 +19,8 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
             # If a JSON response is opened as a document, deny executable,
             # embedded, and navigational capabilities in modern browsers.
             "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+            # Isolate a top-level health response from a cross-origin opener.
+            "Cross-Origin-Opener-Policy": "same-origin",
             # Preserve frame denial for clients that do not enforce CSP.
             "X-Frame-Options": "DENY",
             # The endpoint never needs browser-controlled device capabilities.
