@@ -7,10 +7,12 @@ import hmac
 import unittest
 from unittest.mock import patch
 
+from zentomic import twilio_signature as twilio_signature_module
 from zentomic.authentication import MAX_PUBLIC_URL_BYTES, validate_form_event
 from zentomic.twilio_signature import (
     MAX_AUTH_TOKEN_BYTES,
     MAX_SIGNED_PAYLOAD_BYTES,
+    create_twilio_signature_validator,
     validate_twilio_signature,
 )
 from zentomic.webhook import MAX_FORM_FIELDS
@@ -86,11 +88,31 @@ class TwilioSignatureTests(unittest.TestCase):
             },
             "body": body,
         }
-        validator = functools.partial(validate_twilio_signature, auth_token=TOKEN)
-        self.assertEqual(
-            validate_form_event(event, public_url=URL, validator=validator),
-            FIELDS,
+        validators = (
+            functools.partial(validate_twilio_signature, auth_token=TOKEN),
+            create_twilio_signature_validator(TOKEN),
         )
+        for validator in validators:
+            with self.subTest(factory=validator.__class__.__name__):
+                self.assertEqual(
+                    validate_form_event(event, public_url=URL, validator=validator),
+                    FIELDS,
+                )
+
+    def test_factory_validates_configuration_once(self):
+        with patch(
+            "zentomic.twilio_signature._auth_token_bytes",
+            wraps=twilio_signature_module._auth_token_bytes,
+        ) as encode_token:
+            validator = create_twilio_signature_validator(TOKEN)
+            self.assertTrue(validator(URL, FIELDS, _signature(URL, FIELDS)))
+            self.assertTrue(validator(URL, FIELDS, _signature(URL, FIELDS)))
+        encode_token.assert_called_once_with(TOKEN)
+
+    def test_factory_rejects_invalid_configuration_before_requests(self):
+        for token in (None, "", "\ud800", "x" * (MAX_AUTH_TOKEN_BYTES + 1)):
+            with self.subTest(token=repr(token)[:20]), self.assertRaises(ValueError):
+                create_twilio_signature_validator(token)
 
     def test_invalid_request_shapes_return_false(self):
         cases = (

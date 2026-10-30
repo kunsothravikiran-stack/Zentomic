@@ -4,7 +4,7 @@ import base64
 import binascii
 import hashlib
 import hmac
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from itertools import islice
 
 from zentomic.authentication import MAX_PUBLIC_URL_BYTES, MAX_SIGNATURE_CHARACTERS
@@ -32,26 +32,14 @@ def _auth_token_bytes(auth_token: str) -> bytes:
     return encoded
 
 
-def validate_twilio_signature(
+def _validate_twilio_signature(
     public_url: str,
     fields: Mapping[str, str],
     signature: str,
     *,
-    auth_token: str,
+    token: bytes,
 ) -> bool:
-    """Validate one URL-encoded Twilio webhook with constant-time comparison.
-
-    ``public_url`` must be the exact externally configured URL, including its
-    original query string. ``fields`` must include every decoded POST field.
-    Pass the Auth Token from trusted secret configuration, never request data.
-
-    Invalid request material returns ``False``. Invalid trusted Auth Token
-    configuration raises ``ValueError``. This helper performs no I/O, secret
-    lookup, replay protection, workspace authorization, or callback routing.
-    It is compatible with ``authentication.validate_form_event`` through
-    ``functools.partial(validate_twilio_signature, auth_token=token)``.
-    """
-    token = _auth_token_bytes(auth_token)
+    """Validate request material with an already checked Auth Token."""
     if (not isinstance(public_url, str)
             or len(public_url) > MAX_PUBLIC_URL_BYTES
             or not isinstance(fields, Mapping)
@@ -99,3 +87,49 @@ def validate_twilio_signature(
             remaining -= len(encoded)
 
     return hmac.compare_digest(digest.digest(), supplied)
+
+
+def create_twilio_signature_validator(
+    auth_token: str,
+) -> Callable[[str, Mapping[str, str], str], bool]:
+    """Create a reusable validator from trusted Auth Token configuration.
+
+    Validate and encode the token once during adapter initialization so an
+    invalid secret fails as configuration, before any webhook is processed.
+    The returned callable has the signature expected by
+    ``authentication.validate_form_event`` and performs no I/O.
+    """
+    token = _auth_token_bytes(auth_token)
+
+    def validator(
+        public_url: str, fields: Mapping[str, str], signature: str,
+    ) -> bool:
+        return _validate_twilio_signature(
+            public_url, fields, signature, token=token,
+        )
+
+    return validator
+
+
+def validate_twilio_signature(
+    public_url: str,
+    fields: Mapping[str, str],
+    signature: str,
+    *,
+    auth_token: str,
+) -> bool:
+    """Validate one URL-encoded Twilio webhook with constant-time comparison.
+
+    ``public_url`` must be the exact externally configured URL, including its
+    original query string. ``fields`` must include every decoded POST field.
+    Pass the Auth Token from trusted secret configuration, never request data.
+
+    Invalid request material returns ``False``. Invalid trusted Auth Token
+    configuration raises ``ValueError``. This helper performs no I/O, secret
+    lookup, replay protection, workspace authorization, or callback routing.
+    For repeated validation, prefer ``create_twilio_signature_validator`` so
+    trusted configuration is checked and encoded once during initialization.
+    """
+    return _validate_twilio_signature(
+        public_url, fields, signature, token=_auth_token_bytes(auth_token),
+    )

@@ -2331,10 +2331,16 @@ before acting on its result. The existing health handler is unchanged.
 
 `zentomic.authentication.validate_form_event(event, public_url=..., validator=...)`
 wraps transport parsing with a required signature-validation dependency. Inject
-a bound `twilio.request_validator.RequestValidator(...).validate` method from
-trusted application setup, configured with the expected account's auth token.
-Twilio recommends its [SDK validator](https://www.twilio.com/docs/usage/security#validating-requests);
-this repository does not implement its own signature algorithm or install the SDK.
+a validator created once with
+`zentomic.twilio_signature.create_twilio_signature_validator(auth_token)` from
+trusted application setup. The factory validates and UTF-8 encodes the secret
+at initialization, then returns a dependency with the exact callable shape the
+gate expects. This keeps configuration failures separate from rejected request
+signatures and avoids re-encoding the secret for every callback. The standalone
+`validate_twilio_signature(..., auth_token=...)` form remains available for
+one-off checks. Both implementations are dependency-free and offline. An adapter
+may instead inject a bound `twilio.request_validator.RequestValidator(...).validate`
+method if it already uses Twilio's SDK.
 
 The gate passes the exact configured HTTPS public URL, every decoded form field,
 and the `X-Twilio-Signature` value to the validator. Preserve the public path and
@@ -2364,12 +2370,13 @@ Only a validator result of boolean `True` releases the fields. False, truthy
 non-booleans, and validator exceptions raise `ValueError` without exposing
 dependency error details. Invalid transport never reaches the validator.
 
-Tests inject synthetic validators, not real credentials. They exercise gate
-behavior only, not cryptographic correctness or live SDK compatibility. This
-does not expose an authenticated endpoint. Production integration still needs
-the SDK, trusted configuration, signature integration tests, workspace/session
-authorization, and atomic callback deduplication. A valid signature alone does
-not prevent replay. Do not route or consume attempts until all checks succeed.
+Tests cover Twilio's published form-signature vector, malformed and tampered
+signatures, reusable factory configuration, and integration with the injected
+gate, without real credentials or network access. This does not expose an
+authenticated endpoint or validate live SDK compatibility. Production
+integration still needs trusted secret loading, workspace/session authorization,
+and atomic callback deduplication. A valid signature alone does not prevent
+replay. Do not route or consume attempts until all checks succeed.
 
 `validate_call_event` adds exact account/call binding on top of that gate:
 
