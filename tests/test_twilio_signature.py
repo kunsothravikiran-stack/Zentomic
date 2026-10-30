@@ -1,12 +1,16 @@
 """Offline checks for the standard-library Twilio signature validator."""
 
+import base64
 import functools
+import hashlib
+import hmac
 import unittest
 from unittest.mock import patch
 
-from zentomic.authentication import validate_form_event
+from zentomic.authentication import MAX_PUBLIC_URL_BYTES, validate_form_event
 from zentomic.twilio_signature import (
     MAX_AUTH_TOKEN_BYTES,
+    MAX_SIGNED_PAYLOAD_BYTES,
     validate_twilio_signature,
 )
 from zentomic.webhook import MAX_FORM_FIELDS
@@ -22,6 +26,15 @@ FIELDS = {
     "To": "+18005551212",
 }
 SIGNATURE = "L/OH5YylLD5NRKLltdqwSvS0BnU="
+
+
+def _signature(url, fields):
+    signed = url + "".join(
+        name + value for name, value in sorted(fields.items())
+    )
+    return base64.b64encode(
+        hmac.new(TOKEN.encode(), signed.encode(), hashlib.sha1).digest()
+    ).decode()
 
 
 class TwilioSignatureTests(unittest.TestCase):
@@ -49,6 +62,18 @@ class TwilioSignatureTests(unittest.TestCase):
         for signature in ("é" * 28, "!" * 27 + "=", "A" * 28):
             with self.subTest(signature=ascii(signature)):
                 self.assertFalse(self.validate(signature=signature))
+
+    def test_rejects_payload_over_limit(self):
+        fields = {"Body": "x" * (MAX_SIGNED_PAYLOAD_BYTES + 1)}
+        self.assertFalse(self.validate(
+            fields=fields, signature=_signature(URL, fields),
+        ))
+
+    def test_rejects_public_url_over_utf8_byte_limit(self):
+        url = "https://example.com/" + "é" * (MAX_PUBLIC_URL_BYTES // 2)
+        self.assertLessEqual(len(url), MAX_PUBLIC_URL_BYTES)
+        self.assertGreater(len(url.encode()), MAX_PUBLIC_URL_BYTES)
+        self.assertFalse(self.validate(url=url, fields={}, signature=_signature(url, {})))
 
     def test_integrates_with_authenticated_form_event_gate(self):
         body = "&".join(f"{name}={value.replace('+', '%2B')}" for name, value in FIELDS.items())

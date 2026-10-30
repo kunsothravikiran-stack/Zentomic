@@ -73,16 +73,29 @@ def validate_twilio_signature(
         return False
 
     try:
-        signed = public_url + "".join(
-            name + value for name, value in sorted(entries, key=lambda item: item[0])
-        )
-        if len(signed) > MAX_SIGNED_PAYLOAD_BYTES:
-            return False
-        payload = signed.encode("utf-8")
-    except (UnicodeEncodeError, ValueError):
+        url_bytes = public_url.encode("utf-8")
+    except UnicodeEncodeError:
         return False
-    if len(payload) > MAX_SIGNED_PAYLOAD_BYTES:
+    if len(url_bytes) > MAX_PUBLIC_URL_BYTES:
         return False
 
-    expected = hmac.new(token, payload, hashlib.sha1).digest()
-    return hmac.compare_digest(expected, supplied)
+    digest = hmac.new(token, digestmod=hashlib.sha1)
+    digest.update(url_bytes)
+    remaining = MAX_SIGNED_PAYLOAD_BYTES - len(url_bytes)
+    for name, value in sorted(entries, key=lambda item: item[0]):
+        for part in (name, value):
+            # UTF-8 uses at least one byte per character. Check the character
+            # count first so an oversized untrusted field cannot make the
+            # validator allocate an equally oversized encoded copy.
+            if len(part) > remaining:
+                return False
+            try:
+                encoded = part.encode("utf-8")
+            except UnicodeEncodeError:
+                return False
+            if len(encoded) > remaining:
+                return False
+            digest.update(encoded)
+            remaining -= len(encoded)
+
+    return hmac.compare_digest(digest.digest(), supplied)
