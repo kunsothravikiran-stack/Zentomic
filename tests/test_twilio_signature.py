@@ -45,6 +45,11 @@ class TwilioSignatureTests(unittest.TestCase):
             with self.subTest(change=next(iter(change))):
                 self.assertFalse(self.validate(**change))
 
+    def test_malformed_base64_signatures_return_false(self):
+        for signature in ("é" * 28, "!" * 27 + "=", "A" * 28):
+            with self.subTest(signature=ascii(signature)):
+                self.assertFalse(self.validate(signature=signature))
+
     def test_integrates_with_authenticated_form_event_gate(self):
         body = "&".join(f"{name}={value.replace('+', '%2B')}" for name, value in FIELDS.items())
         event = {

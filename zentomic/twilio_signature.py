@@ -1,6 +1,7 @@
 """Offline validation of Twilio form-webhook signatures."""
 
 import base64
+import binascii
 import hashlib
 import hmac
 from collections.abc import Mapping
@@ -58,6 +59,13 @@ def validate_twilio_signature(
             or len(signature) != MAX_SIGNATURE_CHARACTERS):
         return False
 
+    try:
+        supplied = base64.b64decode(signature, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    if len(supplied) != hashlib.sha1().digest_size:
+        return False
+
     entries = tuple(islice(fields.items(), MAX_FORM_FIELDS + 1))
     if len(entries) > MAX_FORM_FIELDS:
         return False
@@ -76,7 +84,5 @@ def validate_twilio_signature(
     if len(payload) > MAX_SIGNED_PAYLOAD_BYTES:
         return False
 
-    expected = base64.b64encode(
-        hmac.new(token, payload, hashlib.sha1).digest()
-    ).decode("ascii")
-    return hmac.compare_digest(expected, signature)
+    expected = hmac.new(token, payload, hashlib.sha1).digest()
+    return hmac.compare_digest(expected, supplied)
