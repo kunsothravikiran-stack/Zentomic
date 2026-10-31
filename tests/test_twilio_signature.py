@@ -140,18 +140,44 @@ class TwilioSignatureTests(unittest.TestCase):
         self.assertEqual(validate.call_count, MAX_AUTH_TOKENS)
 
     def test_factory_rejects_invalid_rotation_configuration(self):
+        class UnderreportedTokens(list):
+            def __len__(self):
+                return 0
+
         cases = (
             None,
             TOKEN,
             ("",),
             ("previous", None),
             tuple(f"token-{index}" for index in range(MAX_AUTH_TOKENS)),
+            UnderreportedTokens(
+                f"underreported-{index}" for index in range(MAX_AUTH_TOKENS)
+            ),
         )
         for previous in cases:
             with self.subTest(previous=previous), self.assertRaises(ValueError):
                 create_twilio_signature_validator(
                     TOKEN, previous_auth_tokens=previous,
                 )
+
+    def test_factory_bounds_rotation_collection_before_encoding_secrets(self):
+        class UnderreportedTokens(list):
+            def __len__(self):
+                return 0
+
+        previous = UnderreportedTokens(
+            f"underreported-{index}" for index in range(MAX_AUTH_TOKENS + 10)
+        )
+        with patch(
+            "zentomic.twilio_signature._auth_token_bytes",
+            side_effect=AssertionError("oversized configuration must not be encoded"),
+        ) as encode_token, self.assertRaisesRegex(
+            ValueError, "^previous_auth_tokens must contain at most 2 tokens$",
+        ):
+            create_twilio_signature_validator(
+                TOKEN, previous_auth_tokens=previous,
+            )
+        encode_token.assert_not_called()
 
     def test_factory_rejects_duplicate_rotation_tokens_privately(self):
         cases = (
