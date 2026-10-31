@@ -100,8 +100,9 @@ def create_twilio_signature_validator(
     Validate and encode the token once during adapter initialization so an
     invalid secret fails as configuration, before any webhook is processed.
     During credential rotation, ``previous_auth_tokens`` may contain up to two
-    retiring secrets. Every configured token is checked for every request so
-    timing does not reveal which secret matched.
+    unique retiring secrets distinct from the current token. Every configured
+    token is checked for every request so timing does not reveal which secret
+    matched.
     The returned callable has the signature expected by
     ``authentication.validate_form_event`` and performs no I/O.
     """
@@ -113,6 +114,8 @@ def create_twilio_signature_validator(
         _auth_token_bytes(auth_token),
         *(_auth_token_bytes(value) for value in previous_auth_tokens),
     )
+    if len(set(tokens)) != len(tokens):
+        raise ValueError("auth_token and previous_auth_tokens must be unique")
 
     def validator(
         public_url: str, fields: Mapping[str, str], signature: str,

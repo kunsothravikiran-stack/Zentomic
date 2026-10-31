@@ -153,6 +153,25 @@ class TwilioSignatureTests(unittest.TestCase):
                     TOKEN, previous_auth_tokens=previous,
                 )
 
+    def test_factory_rejects_duplicate_rotation_tokens_privately(self):
+        cases = (
+            (TOKEN,),
+            ("retiring-secret", "retiring-secret"),
+        )
+        for previous in cases:
+            with self.subTest(previous_count=len(previous)), self.assertRaises(
+                ValueError,
+            ) as caught:
+                create_twilio_signature_validator(
+                    TOKEN, previous_auth_tokens=previous,
+                )
+            self.assertEqual(
+                str(caught.exception),
+                "auth_token and previous_auth_tokens must be unique",
+            )
+            for token in (TOKEN, *previous):
+                self.assertNotIn(token, str(caught.exception))
+
     def test_factory_rejects_invalid_configuration_before_requests(self):
         for token in (None, "", "\ud800", "x" * (MAX_AUTH_TOKEN_BYTES + 1)):
             with self.subTest(token=repr(token)[:20]), self.assertRaises(ValueError):
