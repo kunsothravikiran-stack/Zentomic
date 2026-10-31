@@ -215,6 +215,13 @@ class TwilioSignatureTests(unittest.TestCase):
             with self.subTest(change=repr(change)[:80]):
                 self.assertFalse(self.validate(**change))
 
+    def test_failing_mapping_returns_false(self):
+        class FailingItems(dict):
+            def items(self):
+                raise RuntimeError("synthetic-private-marker")
+
+        self.assertFalse(self.validate(fields=FailingItems(FIELDS)))
+
     def test_invalid_trusted_token_configuration_raises_privately(self):
         for token in (None, "", "\ud800", "x" * (MAX_AUTH_TOKEN_BYTES + 1),
                       "é" * (MAX_AUTH_TOKEN_BYTES // 2 + 1)):

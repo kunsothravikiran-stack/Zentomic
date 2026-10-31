@@ -55,7 +55,13 @@ def _validate_twilio_signature(
     if len(supplied) != hashlib.sha1().digest_size:
         return False
 
-    entries = tuple(islice(fields.items(), MAX_FORM_FIELDS + 1))
+    try:
+        entries = tuple(islice(fields.items(), MAX_FORM_FIELDS + 1))
+    except Exception:
+        # A custom Mapping may fail while producing its view or iterating it.
+        # Treat that as malformed request material, matching this helper's
+        # false-on-invalid-input contract without exposing adapter internals.
+        return False
     if len(entries) > MAX_FORM_FIELDS:
         return False
     if any(type(name) is not str or type(value) is not str for name, value in entries):
