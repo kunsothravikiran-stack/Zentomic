@@ -11,6 +11,7 @@ from zentomic import twilio_signature as twilio_signature_module
 from zentomic.authentication import MAX_PUBLIC_URL_BYTES, validate_form_event
 from zentomic.twilio_signature import (
     MAX_AUTH_TOKEN_BYTES,
+    MAX_AUTH_TOKENS,
     MAX_SIGNED_PAYLOAD_BYTES,
     create_twilio_signature_validator,
     validate_twilio_signature,
@@ -108,6 +109,49 @@ class TwilioSignatureTests(unittest.TestCase):
             self.assertTrue(validator(URL, FIELDS, _signature(URL, FIELDS)))
             self.assertTrue(validator(URL, FIELDS, _signature(URL, FIELDS)))
         encode_token.assert_called_once_with(TOKEN)
+
+    def test_factory_supports_bounded_token_rotation(self):
+        previous = "previous-token"
+        current_signature = _signature(URL, FIELDS)
+        previous_signature = base64.b64encode(
+            hmac.new(
+                previous.encode(),
+                (URL + "".join(name + value for name, value in sorted(FIELDS.items()))).encode(),
+                hashlib.sha1,
+            ).digest()
+        ).decode()
+        validator = create_twilio_signature_validator(
+            TOKEN, previous_auth_tokens=(previous,),
+        )
+
+        self.assertTrue(validator(URL, FIELDS, current_signature))
+        self.assertTrue(validator(URL, FIELDS, previous_signature))
+        self.assertFalse(validator(URL, FIELDS, "A" * 27 + "="))
+
+    def test_factory_checks_every_rotation_token(self):
+        validator = create_twilio_signature_validator(
+            TOKEN, previous_auth_tokens=("previous-one", "previous-two"),
+        )
+        with patch(
+            "zentomic.twilio_signature._validate_twilio_signature",
+            return_value=True,
+        ) as validate:
+            self.assertTrue(validator(URL, FIELDS, SIGNATURE))
+        self.assertEqual(validate.call_count, MAX_AUTH_TOKENS)
+
+    def test_factory_rejects_invalid_rotation_configuration(self):
+        cases = (
+            None,
+            TOKEN,
+            ("",),
+            ("previous", None),
+            tuple(f"token-{index}" for index in range(MAX_AUTH_TOKENS)),
+        )
+        for previous in cases:
+            with self.subTest(previous=previous), self.assertRaises(ValueError):
+                create_twilio_signature_validator(
+                    TOKEN, previous_auth_tokens=previous,
+                )
 
     def test_factory_rejects_invalid_configuration_before_requests(self):
         for token in (None, "", "\ud800", "x" * (MAX_AUTH_TOKEN_BYTES + 1)):

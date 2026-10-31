@@ -4,7 +4,7 @@ import base64
 import binascii
 import hashlib
 import hmac
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from itertools import islice
 
 from zentomic.authentication import MAX_PUBLIC_URL_BYTES, MAX_SIGNATURE_CHARACTERS
@@ -12,6 +12,7 @@ from zentomic.webhook import MAX_BODY_BYTES, MAX_FORM_FIELDS
 
 
 MAX_AUTH_TOKEN_BYTES = 256
+MAX_AUTH_TOKENS = 3
 MAX_SIGNED_PAYLOAD_BYTES = MAX_PUBLIC_URL_BYTES + MAX_BODY_BYTES
 
 
@@ -91,22 +92,39 @@ def _validate_twilio_signature(
 
 def create_twilio_signature_validator(
     auth_token: str,
+    *,
+    previous_auth_tokens: Sequence[str] = (),
 ) -> Callable[[str, Mapping[str, str], str], bool]:
     """Create a reusable validator from trusted Auth Token configuration.
 
     Validate and encode the token once during adapter initialization so an
     invalid secret fails as configuration, before any webhook is processed.
+    During credential rotation, ``previous_auth_tokens`` may contain up to two
+    retiring secrets. Every configured token is checked for every request so
+    timing does not reveal which secret matched.
     The returned callable has the signature expected by
     ``authentication.validate_form_event`` and performs no I/O.
     """
-    token = _auth_token_bytes(auth_token)
+    if (not isinstance(previous_auth_tokens, Sequence)
+            or isinstance(previous_auth_tokens, (str, bytes))
+            or len(previous_auth_tokens) >= MAX_AUTH_TOKENS):
+        raise ValueError("previous_auth_tokens must contain at most 2 tokens")
+    tokens = (
+        _auth_token_bytes(auth_token),
+        *(_auth_token_bytes(value) for value in previous_auth_tokens),
+    )
 
     def validator(
         public_url: str, fields: Mapping[str, str], signature: str,
     ) -> bool:
-        return _validate_twilio_signature(
-            public_url, fields, signature, token=token,
-        )
+        valid = False
+        # Always check every configured token so request timing does not reveal
+        # whether a callback used the current or a previous rotation secret.
+        for token in tokens:
+            valid |= _validate_twilio_signature(
+                public_url, fields, signature, token=token,
+            )
+        return valid
 
     return validator
 
