@@ -126,7 +126,17 @@ def create_twilio_signature_validator(
     if (not isinstance(previous_auth_tokens, Sequence)
             or isinstance(previous_auth_tokens, (str, bytes))):
         raise ValueError("previous_auth_tokens must contain at most 2 tokens")
-    previous_auth_tokens = tuple(islice(previous_auth_tokens, MAX_AUTH_TOKENS))
+    try:
+        previous_auth_tokens = tuple(
+            islice(previous_auth_tokens, MAX_AUTH_TOKENS)
+        )
+    except Exception:
+        # A custom Sequence may fail while producing or iterating its values.
+        # Normalize that adapter behavior into the factory's private,
+        # ValueError-only configuration contract.
+        raise ValueError(
+            "previous_auth_tokens must contain at most 2 tokens"
+        ) from None
     if len(previous_auth_tokens) >= MAX_AUTH_TOKENS:
         raise ValueError("previous_auth_tokens must contain at most 2 tokens")
     tokens = (

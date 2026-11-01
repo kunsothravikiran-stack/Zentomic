@@ -160,6 +160,19 @@ class TwilioSignatureTests(unittest.TestCase):
                     TOKEN, previous_auth_tokens=previous,
                 )
 
+    def test_factory_normalizes_failing_rotation_sequence(self):
+        class FailingTokens(list):
+            def __iter__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+        with self.assertRaisesRegex(
+            ValueError, "^previous_auth_tokens must contain at most 2 tokens$",
+        ) as caught:
+            create_twilio_signature_validator(
+                TOKEN, previous_auth_tokens=FailingTokens(("previous",)),
+            )
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_factory_bounds_rotation_collection_before_encoding_secrets(self):
         class UnderreportedTokens(list):
             def __len__(self):
