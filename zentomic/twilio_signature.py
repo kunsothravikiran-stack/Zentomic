@@ -64,7 +64,16 @@ def _validate_twilio_signature(
         return False
     if len(entries) > MAX_FORM_FIELDS:
         return False
-    if any(type(name) is not str or type(value) is not str for name, value in entries):
+    try:
+        invalid_entry = any(
+            type(name) is not str or type(value) is not str
+            for name, value in entries
+        )
+    except Exception:
+        # Mapping.items() is expected to yield name/value pairs, but a custom
+        # implementation may return malformed or failing entry objects.
+        return False
+    if invalid_entry:
         return False
 
     try:

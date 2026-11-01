@@ -222,6 +222,13 @@ class TwilioSignatureTests(unittest.TestCase):
 
         self.assertFalse(self.validate(fields=FailingItems(FIELDS)))
 
+    def test_malformed_mapping_entries_return_false(self):
+        class MalformedItems(dict):
+            def items(self):
+                return (("valid", "pair"), ("missing-value",))
+
+        self.assertFalse(self.validate(fields=MalformedItems(FIELDS)))
+
     def test_invalid_trusted_token_configuration_raises_privately(self):
         for token in (None, "", "\ud800", "x" * (MAX_AUTH_TOKEN_BYTES + 1),
                       "é" * (MAX_AUTH_TOKEN_BYTES // 2 + 1)):
