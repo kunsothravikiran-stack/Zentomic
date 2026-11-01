@@ -54,6 +54,12 @@ def _validate_twilio_signature(
         return False
     if len(supplied) != hashlib.sha1().digest_size:
         return False
+    # ``b64decode`` accepts nonzero padding bits, so multiple text signatures
+    # can decode to the same digest. Require Twilio's canonical Base64 form to
+    # keep signature values unambiguous for logging and replay controls.
+    canonical_signature = base64.b64encode(supplied).decode("ascii")
+    if not hmac.compare_digest(signature, canonical_signature):
+        return False
 
     try:
         entries = tuple(islice(fields.items(), MAX_FORM_FIELDS + 1))

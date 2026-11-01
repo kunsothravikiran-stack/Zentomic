@@ -66,6 +66,16 @@ class TwilioSignatureTests(unittest.TestCase):
             with self.subTest(signature=ascii(signature)):
                 self.assertFalse(self.validate(signature=signature))
 
+    def test_rejects_noncanonical_base64_padding_bits(self):
+        decoded = base64.b64decode(SIGNATURE, validate=True)
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        final_index = alphabet.index(SIGNATURE[-2])
+        noncanonical = SIGNATURE[:-2] + alphabet[final_index | 1] + "="
+
+        self.assertNotEqual(noncanonical, SIGNATURE)
+        self.assertEqual(base64.b64decode(noncanonical, validate=True), decoded)
+        self.assertFalse(self.validate(signature=noncanonical))
+
     def test_rejects_payload_over_limit(self):
         fields = {"Body": "x" * (MAX_SIGNED_PAYLOAD_BYTES + 1)}
         self.assertFalse(self.validate(
