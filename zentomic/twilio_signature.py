@@ -18,7 +18,7 @@ MAX_SIGNED_PAYLOAD_BYTES = MAX_PUBLIC_URL_BYTES + MAX_BODY_BYTES
 
 def _auth_token_bytes(auth_token: str) -> bytes:
     """Validate trusted secret configuration without disclosing its value."""
-    if (not isinstance(auth_token, str)
+    if (type(auth_token) is not str
             or not auth_token
             or len(auth_token) > MAX_AUTH_TOKEN_BYTES):
         raise ValueError("auth_token must be a nonempty UTF-8 string of at most 256 bytes")
@@ -41,10 +41,10 @@ def _validate_twilio_signature(
     token: bytes,
 ) -> bool:
     """Validate request material with an already checked Auth Token."""
-    if (not isinstance(public_url, str)
+    if (type(public_url) is not str
             or len(public_url) > MAX_PUBLIC_URL_BYTES
             or not isinstance(fields, Mapping)
-            or not isinstance(signature, str)
+            or type(signature) is not str
             or len(signature) != MAX_SIGNATURE_CHARACTERS):
         return False
 

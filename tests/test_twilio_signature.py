@@ -238,6 +238,17 @@ class TwilioSignatureTests(unittest.TestCase):
             with self.subTest(change=repr(change)[:80]):
                 self.assertFalse(self.validate(**change))
 
+    def test_hostile_string_subclasses_return_false(self):
+        class HostileString(str):
+            def __len__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+            def encode(self, *args, **kwargs):
+                raise RuntimeError("synthetic-private-marker")
+
+        self.assertFalse(self.validate(url=HostileString(URL)))
+        self.assertFalse(self.validate(signature=HostileString(SIGNATURE)))
+
     def test_failing_mapping_returns_false(self):
         class FailingItems(dict):
             def items(self):
@@ -258,6 +269,21 @@ class TwilioSignatureTests(unittest.TestCase):
             with self.subTest(token=repr(token)[:20]), self.assertRaises(ValueError) as caught:
                 self.validate(token=token)
             self.assertNotIn(repr(token), str(caught.exception))
+
+    def test_hostile_token_subclass_raises_private_configuration_error(self):
+        class HostileToken(str):
+            def __len__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+            def encode(self, *args, **kwargs):
+                raise RuntimeError("synthetic-private-marker")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^auth_token must be a nonempty UTF-8 string of at most 256 bytes$",
+        ) as caught:
+            self.validate(token=HostileToken(TOKEN))
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
 
     def test_validation_is_offline(self):
         with patch.dict("os.environ", {}, clear=True), patch(
