@@ -131,10 +131,46 @@ class FormEventTests(unittest.TestCase):
         candidate = event()
         candidate["headers"][name] = "synthetic-private-marker"
         with patch("zentomic.webhook_event.parse_form_body") as decoder:
-            with self.assertRaisesRegex(ValueError, "^header name exceeds size limit$") as caught:
+            with self.assertRaisesRegex(ValueError, "^header name must be a plain string$") as caught:
                 parse_form_event(candidate)
         decoder.assert_not_called()
         self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
+    def test_active_header_primitives_are_rejected_without_running_overrides(self):
+        class ActiveName(str):
+            def __len__(self):
+                raise AssertionError("active header name length must not run")
+
+            def lower(self):
+                raise AssertionError("active header name case folding must not run")
+
+        class ActiveValue(str):
+            def __len__(self):
+                raise AssertionError("active header value length must not run")
+
+            def strip(self, *args, **kwargs):
+                raise AssertionError("active header value trimming must not run")
+
+        class ActiveValues(list):
+            def __len__(self):
+                raise AssertionError("active header list length must not run")
+
+            def __getitem__(self, index):
+                raise AssertionError("active header list indexing must not run")
+
+        cases = (
+            ({"headers": {ActiveName("Content-Type"): FORM}},
+             "^header name must be a plain string$"),
+            ({"headers": {"Content-Type": ActiveValue(FORM)}},
+             "^content type must be a UTF-8 URL-encoded form$"),
+            ({"headers": None,
+              "multiValueHeaders": {"Content-Type": ActiveValues([FORM])}},
+             "^content type must have exactly one value$"),
+        )
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(ValueError, message):
+                    parse_form_event({**event(), **overrides})
 
     def test_missing_malformed_and_ambiguous_headers(self):
         cases = [

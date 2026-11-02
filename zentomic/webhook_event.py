@@ -32,6 +32,11 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
     for name, value in entries:
         if not isinstance(name, str):
             continue
+        # Only inert built-in primitives may cross this unauthenticated
+        # boundary. Subclasses can override length, case folding, trimming,
+        # indexing, or other operations performed below.
+        if type(name) is not str:
+            raise ValueError("header name must be a plain string")
         if len(name) > MAX_HEADER_NAME_CHARACTERS:
             raise ValueError("header name exceeds size limit")
         if name.lower() == "content-type":
@@ -42,12 +47,12 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
         raise ValueError("content type must be unambiguous")
     value = values[0]
     if multiple:
-        if not isinstance(value, list) or len(value) != 1:
+        if type(value) is not list or len(value) != 1:
             raise ValueError("content type must have exactly one value")
         value = value[0]
     # Bound work before trimming or matching an untrusted header value. Every
     # accepted media type is ASCII, so a character limit also bounds its bytes.
-    if (not isinstance(value, str) or len(value) > MAX_CONTENT_TYPE_CHARACTERS
+    if (type(value) is not str or len(value) > MAX_CONTENT_TYPE_CHARACTERS
             or not _FORM_CONTENT_TYPE.fullmatch(value.strip(" \t"))):
         raise ValueError("content type must be a UTF-8 URL-encoded form")
     return value
