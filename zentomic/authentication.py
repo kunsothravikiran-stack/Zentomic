@@ -78,7 +78,7 @@ def validate_form_event(
     No cryptography, SDK setup, token lookup, or routing is implemented here.
     This gate does not prevent replay or authorize workspace/session access.
     """
-    if (not isinstance(public_url, str)
+    if (type(public_url) is not str
             or len(public_url) > MAX_PUBLIC_URL_BYTES):
         raise ValueError("public_url must be a configured HTTPS callback URL")
     try:
@@ -131,7 +131,7 @@ def validate_call_event(
     for expected in (expected_account_sid, expected_call_sid):
         # UTF-8 uses at least one byte per character. Reject clearly oversized
         # trusted state before scanning or encoding it.
-        if (not isinstance(expected, str)
+        if (type(expected) is not str
                 or len(expected) > MAX_CALL_IDENTIFIER_BYTES):
             raise ValueError(
                 "expected call identifiers must be nonblank UTF-8 strings "

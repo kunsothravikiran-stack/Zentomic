@@ -167,6 +167,31 @@ class CallAuthenticationTests(unittest.TestCase):
         gate.assert_not_called()
         validator.assert_not_called()
 
+    def test_identifier_subclass_is_rejected_without_running_overrides(self):
+        class HostileIdentifier(str):
+            def __len__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+            def strip(self, *args, **kwargs):
+                raise RuntimeError("synthetic-private-marker")
+
+            def encode(self, *args, **kwargs):
+                raise RuntimeError("synthetic-private-marker")
+
+        for key in ("expected_account_sid", "expected_call_sid"):
+            validator = Mock(return_value=True)
+            with self.subTest(key=key), \
+                    patch("zentomic.authentication.validate_form_event") as gate, \
+                    self.assertRaisesRegex(
+                        ValueError, "at most 256 bytes",
+                    ) as caught:
+                validate(
+                    event(), validator, **{key: HostileIdentifier(ACCOUNT)},
+                )
+            gate.assert_not_called()
+            validator.assert_not_called()
+            self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_canonically_equivalent_identifiers_do_not_match(self):
         fields = {"AccountSid": "caf\u00e9", "CallSid": CALL}
         validator = Mock(return_value=True)

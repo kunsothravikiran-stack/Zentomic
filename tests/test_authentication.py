@@ -245,6 +245,27 @@ class AuthenticationTests(unittest.TestCase):
             self.assert_rejected_before_validator(event(), public_url=url)
         parse.assert_not_called()
 
+    def test_callback_url_subclass_is_rejected_without_running_overrides(self):
+        class HostileUrl(str):
+            def __len__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+            def encode(self, *args, **kwargs):
+                raise RuntimeError("synthetic-private-marker")
+
+        validator = Mock(return_value=True)
+        with patch("zentomic.authentication.parse_form_event") as parse, \
+                self.assertRaisesRegex(
+                    ValueError,
+                    "^public_url must be a configured HTTPS callback URL$",
+                ) as caught:
+            validate_form_event(
+                event(), public_url=HostileUrl(URL), validator=validator,
+            )
+        parse.assert_not_called()
+        validator.assert_not_called()
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_malformed_callback_url_escapes_fail_before_transport_or_validator(self):
         for escape in ("%", "%2", "%GG", "%2G", "%G2", "%２Ｆ"):
             for url in (f"https://example.invalid/voice/{escape}",
