@@ -65,18 +65,27 @@ def parse_form_event(event: Mapping[str, Any]) -> dict[str, str]:
     Retain the unchanged original event for subsequent signature validation.
     Invalid transport raises ValueError without reflecting request contents.
     """
-    if not isinstance(event, Mapping):
-        raise ValueError("event must be a mapping")
+    # JSON decoding produces plain dictionaries and strings. Requiring those
+    # inert primitives keeps unauthenticated request objects from executing
+    # overridden ``get`` or comparison methods inside this trust boundary.
+    if type(event) is not dict:
+        raise ValueError("event must be a plain dictionary")
     version = event.get("version", "1.0")
+    if type(version) is not str:
+        raise ValueError("unsupported proxy event version")
     if version == "1.0":
         method = event.get("httpMethod")
     elif version == "2.0":
         context = event.get("requestContext")
-        http = context.get("http") if isinstance(context, Mapping) else None
-        method = http.get("method") if isinstance(http, Mapping) else None
+        if type(context) is not dict:
+            raise ValueError("v2 request context must be a plain dictionary")
+        http = context.get("http")
+        if type(http) is not dict:
+            raise ValueError("v2 HTTP context must be a plain dictionary")
+        method = http.get("method")
     else:
         raise ValueError("unsupported proxy event version")
-    if method != "POST":
+    if type(method) is not str or method != "POST":
         raise ValueError("form webhook requires POST")
 
     single = _content_type(event.get("headers"))
