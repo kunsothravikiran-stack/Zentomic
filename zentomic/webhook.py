@@ -24,7 +24,10 @@ def parse_form_body(body: str, *, is_base64_encoded: bool = False) -> dict[str, 
     The adapter must enforce method/content type, verify the provider signature,
     authorize workspace state, and deduplicate callbacks before acting on input.
     """
-    if not isinstance(body, str) or type(is_base64_encoded) is not bool:
+    # Request material must be inert built-in values. A ``str`` subclass can
+    # override ``__len__`` or ``encode`` and execute adapter code before this
+    # boundary has authenticated the webhook.
+    if type(body) is not str or type(is_base64_encoded) is not bool:
         raise ValueError("body must be a string and encoding flag must be a boolean")
 
     limit = _MAX_BASE64_CHARS if is_base64_encoded else MAX_BODY_BYTES

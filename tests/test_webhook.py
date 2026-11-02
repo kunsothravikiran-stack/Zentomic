@@ -67,6 +67,21 @@ class FormBodyTests(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.assert_invalid("Digits=1", is_base64_encoded=flag)
 
+    def test_hostile_body_subclass_is_rejected_without_running_overrides(self):
+        class HostileBody(str):
+            def __len__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+            def encode(self, *args, **kwargs):
+                raise RuntimeError("synthetic-private-marker")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^body must be a string and encoding flag must be a boolean$",
+        ) as caught:
+            parse_form_body(HostileBody("Digits=1"))
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_byte_limit_applies_to_plain_and_decoded_bodies(self):
         boundary = "A=" + "x" * (MAX_BODY_BYTES - 2)
         for body in (boundary, boundary + "x", "A=" + "é" * (MAX_BODY_BYTES // 2)):
