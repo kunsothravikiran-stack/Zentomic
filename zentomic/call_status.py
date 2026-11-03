@@ -21,9 +21,10 @@ def is_terminal_call_status(status: str) -> bool:
     terminal state against delayed active events and keep parent/child legs
     separate. Unknown input is neither assumed active nor assumed terminal.
     """
-    # Reject oversized input before hashing it for set membership. Provider
-    # callback bodies are bounded elsewhere, but this helper is also public.
-    if (not isinstance(status, str) or len(status) > _MAX_STATUS_CHARACTERS
+    # Provider JSON yields an exact built-in string. Reject subclasses and
+    # oversized input before length or set operations whose overrides or cost
+    # should not cross this boundary. This helper is also public.
+    if (type(status) is not str or len(status) > _MAX_STATUS_CHARACTERS
             or status not in _KNOWN_STATUSES):
         raise ValueError("unsupported call status")
     return status in _TERMINAL_STATUSES

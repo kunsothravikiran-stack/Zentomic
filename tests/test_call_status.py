@@ -43,6 +43,17 @@ class CallStatusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "^unsupported call status$"):
             is_terminal_call_status(status)
 
+    def test_active_status_subclass_is_rejected_without_running_overrides(self):
+        class ActiveStatus(str):
+            def __len__(self):
+                raise AssertionError("active status length must not run")
+
+            def __hash__(self):
+                raise AssertionError("active status hash must not run")
+
+        with self.assertRaisesRegex(ValueError, "^unsupported call status$"):
+            is_terminal_call_status(ActiveStatus("completed"))
+
     def test_authenticated_composition_uses_call_status_not_dial_status(self):
         fields = {"AccountSid": "synthetic-account", "CallSid": "synthetic-call",
                   "CallStatus": "in-progress", "DialCallStatus": "completed"}
