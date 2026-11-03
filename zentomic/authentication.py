@@ -32,13 +32,24 @@ def _signature_header(event: Mapping[str, Any]) -> str:
         # Transport validation precedes this gate, but an arbitrary event
         # mapping can return a different header collection on the next read.
         # Reapply the same bounds before scanning for the signature.
-        entries = tuple(islice(headers.items(), MAX_HEADER_FIELDS + 1))
+        try:
+            entries = tuple(islice(headers.items(), MAX_HEADER_FIELDS + 1))
+        except Exception:
+            raise ValueError("signature header collection could not be read") from None
         if len(entries) > MAX_HEADER_FIELDS:
             raise ValueError("header collection exceeds size limit")
         matches = []
-        for name, value in entries:
+        for entry in entries:
+            try:
+                name, value = entry
+            except Exception:
+                raise ValueError(
+                    "signature header collection contains an invalid entry"
+                ) from None
             if not isinstance(name, str):
                 continue
+            if type(name) is not str:
+                raise ValueError("signature header name must be a plain string")
             if len(name) > MAX_HEADER_NAME_CHARACTERS:
                 raise ValueError("header name exceeds size limit")
             if name.lower() == "x-twilio-signature":
@@ -49,13 +60,14 @@ def _signature_header(event: Mapping[str, Any]) -> str:
             continue
         value = matches[0]
         if key == "multiValueHeaders":
-            if event.get("version") == "2.0" or not isinstance(value, list) or len(value) != 1:
+            if (event.get("version") == "2.0" or type(value) is not list
+                    or len(value) != 1):
                 raise ValueError("webhook signature must have exactly one value")
             value = value[0]
         # A Twilio HMAC-SHA1 signature is exactly 28 base64 characters. Bound
         # an untrusted header before regular-expression matching so callers of
         # this helper cannot make validation scan an arbitrarily large value.
-        if (not isinstance(value, str)
+        if (type(value) is not str
                 or len(value) > MAX_SIGNATURE_CHARACTERS
                 or not _SIGNATURE.fullmatch(value)):
             raise ValueError("invalid webhook signature header")

@@ -102,6 +102,53 @@ class AuthenticationTests(unittest.TestCase):
         validator.assert_not_called()
         self.assertEqual(candidate.header_reads, 0)
 
+    def test_signature_header_second_read_failures_are_private(self):
+        class FailingSecondItems(dict):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.reads = 0
+
+            def items(self):
+                self.reads += 1
+                if self.reads == 2:
+                    raise RuntimeError("synthetic-private-marker")
+                return super().items()
+
+        candidate = event()
+        headers = FailingSecondItems(candidate["headers"])
+        candidate["headers"] = headers
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(
+            ValueError, "^signature header collection could not be read$",
+        ) as caught:
+            validate_form_event(candidate, public_url=URL, validator=validator)
+        validator.assert_not_called()
+        self.assertEqual(headers.reads, 2)
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
+    def test_active_signature_primitives_are_rejected_without_overrides(self):
+        class ActiveSignature(str):
+            def __len__(self):
+                raise AssertionError("active signature length must not run")
+
+        class ActiveValues(list):
+            def __len__(self):
+                raise AssertionError("active signature list length must not run")
+
+            def __getitem__(self, index):
+                raise AssertionError("active signature list indexing must not run")
+
+        candidate = event()
+        candidate["headers"]["X-Twilio-Signature"] = ActiveSignature(SIGNATURE)
+        self.assert_rejected_before_validator(candidate)
+
+        candidate = event()
+        del candidate["headers"]["X-Twilio-Signature"]
+        candidate["multiValueHeaders"] = {
+            "X-Twilio-Signature": ActiveValues([SIGNATURE]),
+        }
+        self.assert_rejected_before_validator(candidate)
+
     def test_duplicate_conflicting_and_v2_multivalue_signatures_fail(self):
         candidate = event()
         candidate["headers"]["x-twilio-signature"] = SIGNATURE
