@@ -25,11 +25,18 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
     # API Gateway bounds the wire request, but callers can invoke this offline
     # helper with arbitrary mappings. Bound both collection size and each name
     # before scanning or allocating a lowercase copy.
-    entries = tuple(islice(headers.items(), MAX_HEADER_FIELDS + 1))
+    try:
+        entries = tuple(islice(headers.items(), MAX_HEADER_FIELDS + 1))
+    except Exception:
+        raise ValueError("header collection could not be read") from None
     if len(entries) > MAX_HEADER_FIELDS:
         raise ValueError("header collection exceeds size limit")
     values = []
-    for name, value in entries:
+    for entry in entries:
+        try:
+            name, value = entry
+        except Exception:
+            raise ValueError("header collection contains an invalid entry") from None
         if not isinstance(name, str):
             continue
         # Only inert built-in primitives may cross this unauthenticated

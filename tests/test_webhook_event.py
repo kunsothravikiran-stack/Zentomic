@@ -122,6 +122,29 @@ class FormEventTests(unittest.TestCase):
                 parse_form_event(candidate)
         decoder.assert_not_called()
 
+    def test_broken_header_mappings_fail_with_private_value_errors(self):
+        class FailingItems(dict):
+            def items(self):
+                raise RuntimeError("synthetic-private-marker")
+
+        class MalformedItems(dict):
+            def items(self):
+                return iter([("Content-Type",)])
+
+        cases = (
+            (FailingItems({"Content-Type": FORM}),
+             "^header collection could not be read$"),
+            (MalformedItems({"Content-Type": FORM}),
+             "^header collection contains an invalid entry$"),
+        )
+        for headers, message in cases:
+            with self.subTest(headers=type(headers).__name__), \
+                    patch("zentomic.webhook_event.parse_form_body") as decoder:
+                with self.assertRaisesRegex(ValueError, message) as caught:
+                    parse_form_event({**event(), "headers": headers})
+                decoder.assert_not_called()
+                self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_oversized_header_name_fails_before_case_folding(self):
         class OversizedHeaderName(str):
             def lower(self):
