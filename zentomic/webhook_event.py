@@ -58,6 +58,12 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
     return value
 
 
+def _require_plain_string_keys(candidate: dict[Any, Any], label: str) -> None:
+    """Reject programmatic dictionaries that JSON decoding cannot produce."""
+    if any(type(key) is not str for key in candidate):
+        raise ValueError(f"{label} keys must be plain strings")
+
+
 def parse_form_event(event: Mapping[str, Any]) -> dict[str, str]:
     """Validate POST/form transport and decode a v1 or v2 proxy body.
 
@@ -70,6 +76,7 @@ def parse_form_event(event: Mapping[str, Any]) -> dict[str, str]:
     # overridden ``get`` or comparison methods inside this trust boundary.
     if type(event) is not dict:
         raise ValueError("event must be a plain dictionary")
+    _require_plain_string_keys(event, "event")
     version = event.get("version", "1.0")
     if type(version) is not str:
         raise ValueError("unsupported proxy event version")
@@ -79,9 +86,11 @@ def parse_form_event(event: Mapping[str, Any]) -> dict[str, str]:
         context = event.get("requestContext")
         if type(context) is not dict:
             raise ValueError("v2 request context must be a plain dictionary")
+        _require_plain_string_keys(context, "v2 request context")
         http = context.get("http")
         if type(http) is not dict:
             raise ValueError("v2 HTTP context must be a plain dictionary")
+        _require_plain_string_keys(http, "v2 HTTP context")
         method = http.get("method")
     else:
         raise ValueError("unsupported proxy event version")
