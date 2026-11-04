@@ -43,6 +43,19 @@ class DialResultTests(unittest.TestCase):
             with self.subTest(status=status), self.assertRaises(ValueError):
                 self.resolve(status)
 
+    def test_active_status_subclass_is_rejected_without_running_overrides(self):
+        class ActiveStatus(str):
+            def __hash__(self):
+                raise AssertionError("active dial status hash must not run")
+
+            def __eq__(self, other):
+                raise AssertionError("active dial status comparison must not run")
+
+        with self.assertRaisesRegex(
+            ValueError, "^unsupported Number dial result status$",
+        ):
+            self.resolve(ActiveStatus("busy"))
+
     def test_configuration_is_validated_even_for_terminal_results(self):
         for target in (None, "", " \t", True, 1, [], {}):
             for status in ("completed", "busy"):
