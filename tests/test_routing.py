@@ -61,6 +61,19 @@ class RoutingTests(unittest.TestCase):
             with self.subTest(digits=digits):
                 self.assertEqual(self.resolve(digits), "reception")
 
+    def test_active_digit_subclass_falls_back_without_running_overrides(self):
+        class ActiveDigits(str):
+            def __len__(self):
+                raise AssertionError("active digits length must not run")
+
+            def __hash__(self):
+                raise AssertionError("active digits hash must not run")
+
+            def __eq__(self, other):
+                raise AssertionError("active digits comparison must not run")
+
+        self.assertEqual(self.resolve(ActiveDigits("1")), "reception")
+
     def test_nonmapping_configuration_is_rejected(self):
         for routes in (None, [], "invalid", 1):
             with self.subTest(routes=routes), self.assertRaises(ValueError):
@@ -70,6 +83,14 @@ class RoutingTests(unittest.TestCase):
         for digit in (None, 1, True, "", "12", " 1", "x", "１", "١"):
             with self.subTest(digit=digit), self.assertRaises(ValueError):
                 self.resolve(None, {digit: "sales"})
+
+    def test_active_route_key_subclass_is_rejected_without_running_length(self):
+        class ActiveKey(str):
+            def __len__(self):
+                raise AssertionError("active route-key length must not run")
+
+        with self.assertRaisesRegex(ValueError, "^route keys must be single DTMF symbols$"):
+            self.resolve(None, {ActiveKey("1"): "sales"})
 
     def test_invalid_targets_are_rejected_even_on_unused_routes(self):
         for target in (None, "", " \t\n", 1, [], {}):

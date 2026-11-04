@@ -57,11 +57,11 @@ def resolve_dtmf(
     # Snapshot the caller's menu and validate every entry before routing.
     menu = _snapshot_dtmf_routes(routes)
     for digit, target in menu.items():
-        if not isinstance(digit, str) or len(digit) != 1 or digit not in DTMF_SYMBOLS:
+        if type(digit) is not str or len(digit) != 1 or digit not in DTMF_SYMBOLS:
             raise ValueError("route keys must be single DTMF symbols")
         if not _valid_target(target):
             raise ValueError("route targets must be nonblank UTF-8 strings of at most 256 bytes")
 
-    if not isinstance(digits, str) or len(digits) != 1 or digits not in DTMF_SYMBOLS:
+    if type(digits) is not str or len(digits) != 1 or digits not in DTMF_SYMBOLS:
         return fallback_target
     return menu.get(digits, fallback_target)
