@@ -60,6 +60,22 @@ class GatherTests(unittest.TestCase):
         self.assertEqual(self.decide(attempts=3, max_attempts=5), GatherDecision("retry", None, 4))
         self.assertEqual(self.decide(attempts=4, max_attempts=5), GatherDecision("fallback", "reception", 5))
 
+    def test_active_digit_subclass_retries_without_running_overrides(self):
+        class ActiveDigits(str):
+            def __len__(self):
+                raise AssertionError("active gather digits length must not run")
+
+            def __hash__(self):
+                raise AssertionError("active gather digits hash must not run")
+
+            def __eq__(self, other):
+                raise AssertionError("active gather digits comparison must not run")
+
+        self.assertEqual(
+            self.decide(ActiveDigits("1")),
+            GatherDecision("retry", None, 1),
+        )
+
     def test_invalid_counts_are_rejected_without_coercion(self):
         for field in ("attempts", "max_attempts"):
             for value in (-1, True, False, 1.5, "3", None, [], {}):
@@ -145,6 +161,22 @@ class GatherTests(unittest.TestCase):
             for attempts in (0, 3):
                 with self.subTest(value=value, attempts=attempts), self.assertRaises(ValueError):
                     self.decide("9", hangup_digit=value, attempts=attempts)
+
+    def test_active_hangup_digit_is_rejected_without_running_overrides(self):
+        class ActiveHangupDigit(str):
+            def __len__(self):
+                raise AssertionError("active hangup digit length must not run")
+
+            def __hash__(self):
+                raise AssertionError("active hangup digit hash must not run")
+
+            def __eq__(self, other):
+                raise AssertionError("active hangup digit comparison must not run")
+
+        with self.assertRaisesRegex(
+            ValueError, "^hangup_digit must be a single DTMF symbol or None$",
+        ):
+            self.decide("9", hangup_digit=ActiveHangupDigit("9"))
 
     def test_hangup_does_not_bypass_invalid_menu_or_fallback(self):
         for config in ({"routes": {"2": " "}}, {"fallback_target": ""}):

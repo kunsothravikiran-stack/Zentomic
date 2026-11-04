@@ -30,7 +30,7 @@ def _validate_gather_configuration(
     # without selecting a destination or consuming an attempt.
     resolve_dtmf(None, menu, fallback_target=fallback_target)
     if hangup_digit is not None:
-        if (not isinstance(hangup_digit, str) or len(hangup_digit) != 1
+        if (type(hangup_digit) is not str or len(hangup_digit) != 1
                 or hangup_digit not in DTMF_SYMBOLS):
             raise ValueError("hangup_digit must be a single DTMF symbol or None")
         if hangup_digit in menu:
@@ -43,8 +43,11 @@ def _resolve_validated_gather(
     attempts: int, max_attempts: int, hangup_digit: str | None,
 ) -> GatherDecision:
     """Resolve input after the caller validated and privately copied policy."""
+    # Form decoding yields an exact built-in string. Reject subclasses before
+    # length, membership, mapping, or equality operations so callback objects
+    # cannot execute overridden behavior inside the collection policy.
     valid_symbol = (
-        isinstance(digits, str) and len(digits) == 1
+        type(digits) is str and len(digits) == 1
         and digits in DTMF_SYMBOLS
     )
     target = menu.get(digits, fallback_target) if valid_symbol else fallback_target
