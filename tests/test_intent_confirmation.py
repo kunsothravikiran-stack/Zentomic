@@ -92,6 +92,22 @@ class IntentConfirmationTests(unittest.TestCase):
                 with self.subTest(base=base, digit=digit), self.assertRaises(ValueError):
                     self.resolve("9", hangup_digit=digit, **base)
 
+    def test_active_exit_digit_is_rejected_without_running_overrides(self):
+        class ActiveExitDigit(str):
+            def __len__(self):
+                raise AssertionError("active exit-digit length must not run")
+
+            def __hash__(self):
+                raise AssertionError("active exit-digit hash must not run")
+
+            def __eq__(self, other):
+                raise AssertionError("active exit-digit comparison must not run")
+
+        with self.assertRaisesRegex(
+            ValueError, "^hangup_digit must be a single DTMF symbol or None$",
+        ):
+            self.resolve("9", hangup_digit=ActiveExitDigit("9"))
+
     def test_retry_then_exit_composes_with_terminal_renderer_offline(self):
         with patch.dict("os.environ", {}, clear=True), \
                 patch("socket.socket", side_effect=AssertionError("Network forbidden")):

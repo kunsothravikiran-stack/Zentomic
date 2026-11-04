@@ -78,7 +78,10 @@ def _validate_intent_confirmation_configuration(
         raise ValueError("max_attempts must be a positive integer")
     menu = _validate_intent_routes(routes, fallback_target=fallback_target)
     if hangup_digit is not None:
-        if (not isinstance(hangup_digit, str) or len(hangup_digit) != 1
+        # Configuration decoding yields an exact built-in string. Reject
+        # subclasses before length, membership, or equality operations so
+        # active objects cannot execute overrides inside confirmation policy.
+        if (type(hangup_digit) is not str or len(hangup_digit) != 1
                 or hangup_digit not in DTMF_SYMBOLS):
             raise ValueError("hangup_digit must be a single DTMF symbol or None")
         if hangup_digit in ("1", "2"):
