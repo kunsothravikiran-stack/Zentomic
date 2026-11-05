@@ -56,6 +56,16 @@ class ClassifierResponseTests(unittest.TestCase):
                          '{"intent":"sales","in\\u0074ent":"support"}'):
             self.assertIsNone(self.parse(response))
 
+    def test_active_response_string_is_rejected_without_running_overrides(self):
+        class ActiveResponse(str):
+            def __len__(self):
+                raise AssertionError("active response length must not run")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("active response encoding must not run")
+
+        self.assertIsNone(self.parse(ActiveResponse('{"intent":"sales"}')))
+
     def test_rejects_non_json_wrappers_and_wrong_shapes(self):
         for response in (None, b'{}', {}, [], 1, True, "", " ", "null", "true", "NaN",
                          '"sales"', '[]', '{}', '[["intent","sales"]]',
