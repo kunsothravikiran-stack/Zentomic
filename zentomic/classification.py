@@ -47,7 +47,10 @@ def parse_intent_response(
             "allowed_intents must contain only nonblank UTF-8 strings "
             "of at most 256 bytes"
         )
-    if not isinstance(response, str) or len(response) > MAX_RESPONSE_BYTES:
+    # Model output crosses an untrusted boundary. Require an inert built-in
+    # string before length or encoding operations so subclasses cannot execute
+    # overridden behavior inside admission.
+    if type(response) is not str or len(response) > MAX_RESPONSE_BYTES:
         return None
     try:
         if len(response.encode("utf-8")) > MAX_RESPONSE_BYTES:
