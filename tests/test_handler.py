@@ -126,6 +126,39 @@ class HandlerTests(unittest.TestCase):
                 result = lambda_handler({**rest_event(), "version": version}, None)
                 self.assertEqual(result["statusCode"], 400)
 
+    def test_active_route_strings_are_rejected_without_invoking_overrides(self):
+        class ActiveString(str):
+            touched = False
+
+            def _activate(self, *args, **kwargs):
+                self.touched = True
+                raise AssertionError("active string override executed")
+
+            __bool__ = _activate
+            __eq__ = _activate
+            __hash__ = _activate
+            __len__ = _activate
+            __ne__ = _activate
+
+        cases = (
+            ({**rest_event(), "version": ActiveString("1.0")}, "version"),
+            (rest_event(method=ActiveString("GET")), "httpMethod"),
+            (rest_event(path=ActiveString("/health")), "path"),
+            (http_event(method=ActiveString("GET")), "method"),
+            (http_event(path=ActiveString("/health")), "rawPath"),
+        )
+        for event, field in cases:
+            with self.subTest(field=field):
+                result = lambda_handler(event, None)
+                self.assertEqual(result["statusCode"], 400)
+                self.assertEqual(json.loads(result["body"]), {"error": "invalid_request"})
+                value = (
+                    event["requestContext"]["http"][field]
+                    if field == "method"
+                    else event[field]
+                )
+                self.assertFalse(value.touched)
+
     def test_v2_uses_raw_path_and_http_method(self):
         event = {**http_event(), "path": "/missing", "httpMethod": "POST"}
         self.assertEqual(lambda_handler(event, None)["statusCode"], 200)

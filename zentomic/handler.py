@@ -51,6 +51,11 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
         return _response(400, {"error": "invalid_request"})
 
     version = event.get("version", "1.0")
+    # API Gateway JSON decoding produces exact built-in strings. Reject active
+    # subclasses before equality, truthiness, or length operations so a
+    # programmatic adapter cannot execute overrides inside route admission.
+    if type(version) is not str:
+        return _response(400, {"error": "invalid_request"})
     if version == "2.0":
         request_context = event.get("requestContext")
         http = request_context.get("http") if isinstance(request_context, Mapping) else None
@@ -62,8 +67,10 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
     else:
         return _response(400, {"error": "invalid_request"})
 
+    if type(method) is not str or not method:
+        return _response(400, {"error": "invalid_request"})
     head = method == "HEAD"
-    if not isinstance(method, str) or not method or not isinstance(path, str) or not path:
+    if type(path) is not str or not path:
         return _response(400, {"error": "invalid_request"}, head=head)
     if path != "/health":
         return _response(404, {"error": "not_found"}, head=head)
