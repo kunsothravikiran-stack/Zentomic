@@ -91,6 +91,23 @@ class TwimlResponseTests(unittest.TestCase):
                          "xml must be a nonblank UTF-8 encodable string "
                          "of at most 65536 bytes")
 
+    def test_active_string_subclass_is_rejected_without_running_overrides(self):
+        class ActiveText(str):
+            def __len__(self):
+                raise AssertionError("active body length must not run")
+
+            def strip(self, *args, **kwargs):
+                raise AssertionError("active body strip must not run")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("active body encoding must not run")
+
+        with self.assertRaises(ValueError) as caught:
+            twiml_response(ActiveText("<Response/>"))
+        self.assertEqual(str(caught.exception),
+                         "xml must be a nonblank UTF-8 encodable string "
+                         "of at most 65536 bytes")
+
     def test_response_and_headers_are_fresh_for_each_invocation(self):
         first = twiml_response(render_hangup())
         first["statusCode"] = 500

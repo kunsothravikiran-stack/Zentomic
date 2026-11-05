@@ -22,7 +22,9 @@ def twiml_response(xml: str) -> dict[str, Any]:
     )
     # UTF-8 uses at least one byte per character. Reject clearly oversized
     # output before scanning or encoding it, then enforce the encoded boundary.
-    if (not isinstance(xml, str) or len(xml) > MAX_TWIML_BYTES
+    # Renderers return exact built-in strings. Reject subclasses before any
+    # length, whitespace, or encoding operation can invoke overridden code.
+    if (type(xml) is not str or len(xml) > MAX_TWIML_BYTES
             or not xml.strip()):
         raise ValueError(error)
     try:
