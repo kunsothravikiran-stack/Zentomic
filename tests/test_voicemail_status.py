@@ -65,6 +65,33 @@ class VoicemailRecordingStatusPolicyTests(unittest.TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 self.resolve(**overrides)
 
+    def test_active_callback_strings_are_rejected_without_invoking_overrides(self):
+        class ActiveString(str):
+            touched = False
+
+            def _activate(self, *args, **kwargs):
+                self.touched = True
+                raise AssertionError("active string override executed")
+
+            __eq__ = _activate
+            __hash__ = _activate
+            __int__ = _activate
+            __len__ = _activate
+            __ne__ = _activate
+
+        cases = {
+            "recording_sid": RECORDING_SID,
+            "recording_status": "completed",
+            "recording_duration": "12",
+            "recording_channels": "1",
+            "recording_source": "RecordVerb",
+        }
+        for field, text in cases.items():
+            value = ActiveString(text)
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.resolve(**{field: value})
+            self.assertFalse(value.touched)
+
 
 class VoicemailRecordingStatusEventTests(unittest.TestCase):
     def event(self, version="2.0", encoded=False, **overrides):

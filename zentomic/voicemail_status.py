@@ -22,7 +22,7 @@ class VoicemailRecordingStatus:
 
 def _validate_recording_sid(recording_sid: str | None) -> str:
     """Return one canonical provider recording identifier or fail closed."""
-    if (not isinstance(recording_sid, str)
+    if (type(recording_sid) is not str
             or len(recording_sid) > 34
             or not _RECORDING_SID.fullmatch(recording_sid)):
         raise ValueError("recording SID must use Twilio RE identifier syntax")
@@ -36,13 +36,17 @@ def _resolve_validated_voicemail_recording_status(
 ) -> VoicemailRecordingStatus:
     """Admit documented Record status fields after trusted policy validation."""
     recording_sid = _validate_recording_sid(recording_sid)
-    if recording_status not in ("completed", "failed"):
+    # Form decoding yields exact built-in strings. Reject subclasses before
+    # length, comparison, regular-expression, or integer operations so active
+    # callback objects cannot execute overrides inside recording policy.
+    if (type(recording_status) is not str
+            or recording_status not in ("completed", "failed")):
         raise ValueError("unsupported recording status")
-    if recording_channels != "1":
+    if type(recording_channels) is not str or recording_channels != "1":
         raise ValueError("Record callbacks must report exactly one channel")
-    if recording_source != "RecordVerb":
+    if type(recording_source) is not str or recording_source != "RecordVerb":
         raise ValueError("recording source must be RecordVerb")
-    if (not isinstance(recording_duration, str)
+    if (type(recording_duration) is not str
             or len(recording_duration) > 3
             or not _DURATION.fullmatch(recording_duration)):
         raise ValueError("recording duration must be a canonical nonnegative integer")
