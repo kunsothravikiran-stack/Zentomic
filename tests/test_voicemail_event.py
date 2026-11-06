@@ -51,6 +51,33 @@ class VoicemailPolicyTests(unittest.TestCase):
             with self.subTest(digits=repr(digits)[:30]), self.assertRaises(ValueError):
                 resolve_voicemail_result("10", digits)
 
+    def test_active_callback_strings_are_rejected_without_invoking_overrides(self):
+        class ActiveString(str):
+            touched = False
+
+            def _activate(self, *args, **kwargs):
+                self.touched = True
+                raise AssertionError("active callback string override executed")
+
+            __eq__ = _activate
+            __hash__ = _activate
+            __int__ = _activate
+            __len__ = _activate
+
+        duration = ActiveString("12")
+        with self.assertRaisesRegex(
+            ValueError, "^recording duration must be a canonical nonnegative integer$",
+        ):
+            resolve_voicemail_result(duration, None)
+        self.assertFalse(duration.touched)
+
+        digits = ActiveString("#")
+        with self.assertRaisesRegex(
+            ValueError, "^unsupported voicemail completion input$",
+        ):
+            resolve_voicemail_result("12", digits)
+        self.assertFalse(digits.touched)
+
     def test_trusted_policy_is_strictly_bounded(self):
         for max_length in (1, 601, True, 120.0, "120", None):
             with self.subTest(max_length=max_length), self.assertRaises(ValueError):

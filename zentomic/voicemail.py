@@ -39,7 +39,10 @@ def _resolve_validated_voicemail_result(
     max_length: int, finish_on_key: str,
 ) -> VoicemailDecision:
     """Admit callback fields after trusted policy validation."""
-    if (not isinstance(recording_duration, str)
+    # Form decoding produces exact built-in strings. Reject subclasses before
+    # length, regular-expression, integer, or equality operations so a
+    # programmatic callback adapter cannot execute overridden behavior.
+    if (type(recording_duration) is not str
             or len(recording_duration) > 3
             or not _DURATION.fullmatch(recording_duration)):
         raise ValueError("recording duration must be a canonical nonnegative integer")
@@ -47,6 +50,8 @@ def _resolve_validated_voicemail_result(
     if duration_seconds > max_length:
         raise ValueError("recording duration exceeds the configured maximum")
 
+    if digits is not None and type(digits) is not str:
+        raise ValueError("unsupported voicemail completion input")
     if digits is None or digits == "":
         return VoicemailDecision("continue", duration_seconds, "silence-or-limit")
     if digits == finish_on_key:
