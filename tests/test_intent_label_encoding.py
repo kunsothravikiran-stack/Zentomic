@@ -67,6 +67,41 @@ class IntentLabelEncodingTests(unittest.TestCase):
                 fallback_target="reception", confirmed=False,
             )
 
+    def test_active_label_subclasses_are_rejected_without_running_overrides(self):
+        class ActiveLabel(str):
+            def __len__(self):
+                raise AssertionError("active label length must not run")
+
+            def strip(self, *args, **kwargs):
+                raise AssertionError("active label whitespace scan must not run")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("active label encoding must not run")
+
+        label = ActiveLabel("sales")
+        with self.assertRaisesRegex(ValueError, "at most 256 bytes"):
+            parse_intent_response(None, allowed_intents=[label])
+        with self.assertRaisesRegex(ValueError, "at most 256 bytes"):
+            resolve_intent(
+                None, {label: "team/support"},
+                fallback_target="reception", confirmed=False,
+            )
+
+        class ActiveIncomingLabel(str):
+            def __len__(self):
+                raise AssertionError("active incoming label length must not run")
+
+            def __hash__(self):
+                raise AssertionError("active incoming label hashing must not run")
+
+        self.assertEqual(
+            resolve_intent(
+                ActiveIncomingLabel("sales"), {"sales": "team/support"},
+                fallback_target="reception", confirmed=True,
+            ),
+            "reception",
+        )
+
     def test_oversized_incoming_label_falls_back_before_hashing(self):
         class OversizedLabel(str):
             def __hash__(self):
