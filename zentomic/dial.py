@@ -51,12 +51,16 @@ def _resolve_validated_dial_result(
     status: str, *, fallback_target: str, fallback_used: bool,
 ) -> DialDecision:
     """Resolve one callback status after trusted configuration was validated."""
+    _validate_dial_result_status(status)
+    if status in _FAILED_STATUSES and not fallback_used:
+        return DialDecision("fallback", fallback_target)
+    return DialDecision("hangup", None)
+
+
+def _validate_dial_result_status(status: str) -> None:
+    """Admit one inert, supported Number dial-result status."""
     # Provider form decoding yields an exact built-in string. Reject subclasses
     # before hashing or comparing them so untrusted callback objects cannot run
     # overridden methods inside the outcome policy.
     if type(status) is not str or status not in _FAILED_STATUSES | _TERMINAL_STATUSES:
         raise ValueError("unsupported Number dial result status")
-
-    if status in _FAILED_STATUSES and not fallback_used:
-        return DialDecision("fallback", fallback_target)
-    return DialDecision("hangup", None)

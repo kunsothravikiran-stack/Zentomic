@@ -13,6 +13,7 @@ from zentomic.dial import (
     DialDecision,
     _resolve_validated_dial_result,
     _validate_dial_result_configuration,
+    _validate_dial_result_status,
     resolve_dial_result,
 )
 from zentomic.routing import _valid_target
@@ -93,8 +94,13 @@ def resolve_claimed_dial_result_event(
     )
     if fields.get("DialCallSid") != expected_dial_call_sid:
         raise ValueError("webhook does not match the expected dial step")
+    status = fields.get("DialCallStatus")
+    # Admit the authenticated outcome before consuming the one-shot claim. A
+    # malformed provider callback must not prevent a later valid callback from
+    # resolving the current step.
+    _validate_dial_result_status(status)
     _commit_callback_claim(prepared)
     return _resolve_validated_dial_result(
-        fields.get("DialCallStatus"), fallback_target=fallback_target,
+        status, fallback_target=fallback_target,
         fallback_used=fallback_used,
     )

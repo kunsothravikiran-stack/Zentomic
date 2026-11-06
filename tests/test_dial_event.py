@@ -195,6 +195,20 @@ class ClaimedDialEventTests(unittest.TestCase):
                 "synthetic-workspace", "synthetic-parent", "dial-attempt-1",
             ))
 
+    def test_invalid_authenticated_outcome_does_not_consume_the_step(self):
+        for status in (None, "", "answered", "in-progress", "BUSY"):
+            store = InMemoryCallbackClaimStore()
+            with self.subTest(status=status), self.assertRaisesRegex(
+                ValueError, "^unsupported Number dial result status$",
+            ):
+                self.resolve_claimed(
+                    self.event(DialCallStatus=status), store,
+                )
+            self.assertEqual(
+                self.resolve_claimed(self.event(DialCallStatus="busy"), store),
+                DialDecision("fallback", "demo-reception"),
+            )
+
     def test_invalid_trusted_state_does_not_authenticate_or_claim(self):
         for overrides in (
             {"expected_dial_call_sid": ""},
