@@ -32,7 +32,10 @@ def resolve_business_hours_target_at(
     validated even when inactive. No holiday calendar is inferred or fetched.
     Clock freshness, call authorization and budgets remain external.
     """
-    if not isinstance(instant, datetime):
+    # A clock sample crosses a trusted policy boundary before authentication.
+    # Require an inert built-in datetime so a programmatic adapter cannot run
+    # overridden timezone access or conversion methods during policy selection.
+    if type(instant) is not datetime:
         raise ValueError("instant must be a timezone-aware datetime")
     if not _valid_target(timezone_name):
         raise ValueError("timezone_name must identify an available IANA timezone")

@@ -72,6 +72,24 @@ class BusinessHoursTimeTests(unittest.TestCase):
             with self.subTest(instant=repr(instant)), self.assertRaises(ValueError):
                 self.resolve(instant)
 
+    def test_active_datetime_is_rejected_without_running_overrides(self):
+        class ActiveDatetime(datetime):
+            @property
+            def tzinfo(self):
+                raise AssertionError("active timezone access must not run")
+
+            def utcoffset(self):
+                raise AssertionError("active offset lookup must not run")
+
+            def astimezone(self, zone=None):
+                raise AssertionError("active timezone conversion must not run")
+
+        instant = ActiveDatetime(2026, 1, 5, 14, tzinfo=timezone.utc)
+        with self.assertRaisesRegex(
+            ValueError, "^instant must be a timezone-aware datetime$",
+        ):
+            self.resolve(instant)
+
     def test_invalid_and_missing_zones_fail_without_echo_or_utc_fallback(self):
         instant = datetime(2026, 1, 5, 14, tzinfo=timezone.utc)
         for zone in (None, True, [], "", " ", "x" * 257, "\ud800",
