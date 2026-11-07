@@ -159,6 +159,50 @@ class HandlerTests(unittest.TestCase):
                 )
                 self.assertFalse(value.touched)
 
+    def test_active_event_mappings_are_rejected_before_lookup(self):
+        class ActiveMapping(dict):
+            touched = False
+
+            def get(self, *args, **kwargs):
+                self.touched = True
+                raise AssertionError("active mapping lookup executed")
+
+        candidates = (
+            ActiveMapping(rest_event()),
+            {**http_event(), "requestContext": ActiveMapping({"http": {"method": "GET"}})},
+            {**http_event(), "requestContext": {"http": ActiveMapping({"method": "GET"})}},
+        )
+        for candidate in candidates:
+            with self.subTest(candidate=candidate):
+                result = lambda_handler(candidate, None)
+                self.assertEqual(result["statusCode"], 400)
+                self.assertEqual(json.loads(result["body"]), {"error": "invalid_request"})
+
+        self.assertFalse(candidates[0].touched)
+        self.assertFalse(candidates[1]["requestContext"].touched)
+        self.assertFalse(candidates[2]["requestContext"]["http"].touched)
+
+    def test_active_event_keys_are_rejected_before_comparison(self):
+        class ActiveKey(str):
+            touched = False
+
+            __hash__ = str.__hash__
+
+            def __eq__(self, other):
+                self.touched = True
+                raise AssertionError("active key comparison executed")
+
+        cases = (
+            ({ActiveKey("version"): "1.0", **rest_event()}, "event"),
+            ({**http_event(), "requestContext": {ActiveKey("http"): {"method": "GET"}}}, "context"),
+            ({**http_event(), "requestContext": {"http": {ActiveKey("method"): "GET"}}}, "http"),
+        )
+        for candidate, location in cases:
+            with self.subTest(location=location):
+                result = lambda_handler(candidate, None)
+                self.assertEqual(result["statusCode"], 400)
+                self.assertEqual(json.loads(result["body"]), {"error": "invalid_request"})
+
     def test_v2_uses_raw_path_and_http_method(self):
         event = {**http_event(), "path": "/missing", "httpMethod": "POST"}
         self.assertEqual(lambda_handler(event, None)["statusCode"], 200)

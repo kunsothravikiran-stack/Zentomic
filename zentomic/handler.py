@@ -47,7 +47,10 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
 
 def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
     """Handle REST v1 or HTTP v2 events without contacting external services."""
-    if not isinstance(event, Mapping):
+    # API Gateway JSON decoding produces plain dictionaries with plain string
+    # keys. Reject programmatic Mapping implementations and active key
+    # subclasses before invoking ``get`` or dictionary key comparisons.
+    if type(event) is not dict or any(type(key) is not str for key in event):
         return _response(400, {"error": "invalid_request"})
 
     version = event.get("version", "1.0")
@@ -58,8 +61,13 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
         return _response(400, {"error": "invalid_request"})
     if version == "2.0":
         request_context = event.get("requestContext")
-        http = request_context.get("http") if isinstance(request_context, Mapping) else None
-        method = http.get("method") if isinstance(http, Mapping) else None
+        if (type(request_context) is not dict
+                or any(type(key) is not str for key in request_context)):
+            return _response(400, {"error": "invalid_request"})
+        http = request_context.get("http")
+        if type(http) is not dict or any(type(key) is not str for key in http):
+            return _response(400, {"error": "invalid_request"})
+        method = http.get("method")
         path = event.get("rawPath")
     elif version == "1.0":
         method = event.get("httpMethod")
