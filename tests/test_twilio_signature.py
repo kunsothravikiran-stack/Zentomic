@@ -263,6 +263,17 @@ class TwilioSignatureTests(unittest.TestCase):
 
         self.assertFalse(self.validate(fields=MalformedItems(FIELDS)))
 
+    def test_active_mapping_entries_return_false_without_iteration(self):
+        class ActiveEntry:
+            def __iter__(self):
+                raise AssertionError("active field entry iteration must not run")
+
+        class ActiveItems(dict):
+            def items(self):
+                return (ActiveEntry(),)
+
+        self.assertFalse(self.validate(fields=ActiveItems(FIELDS)))
+
     def test_invalid_trusted_token_configuration_raises_privately(self):
         for token in (None, "", "\ud800", "x" * (MAX_AUTH_TOKEN_BYTES + 1),
                       "é" * (MAX_AUTH_TOKEN_BYTES // 2 + 1)):

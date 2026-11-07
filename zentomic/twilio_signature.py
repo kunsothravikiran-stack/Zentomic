@@ -70,17 +70,15 @@ def _validate_twilio_signature(
         return False
     if len(entries) > MAX_FORM_FIELDS:
         return False
-    try:
-        invalid_entry = any(
-            type(name) is not str or type(value) is not str
-            for name, value in entries
-        )
-    except Exception:
-        # Mapping.items() is expected to yield name/value pairs, but a custom
-        # implementation may return malformed or failing entry objects.
-        return False
-    if invalid_entry:
-        return False
+    for entry in entries:
+        # ``Mapping.items()`` is an extension point for programmatic adapters.
+        # Require the inert pair shape produced by a plain dictionary before
+        # unpacking so a hostile iterable cannot execute during validation.
+        if type(entry) is not tuple or len(entry) != 2:
+            return False
+        name, value = entry
+        if type(name) is not str or type(value) is not str:
+            return False
 
     try:
         url_bytes = public_url.encode("utf-8")
