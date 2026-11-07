@@ -182,6 +182,8 @@ class FormEventTests(unittest.TestCase):
                 raise AssertionError("active header list indexing must not run")
 
         cases = (
+            ({"headers": {1: "synthetic-private-marker", "Content-Type": FORM}},
+             "^header name must be a plain string$"),
             ({"headers": {ActiveName("Content-Type"): FORM}},
              "^header name must be a plain string$"),
             ({"headers": {"Content-Type": ActiveValue(FORM)}},

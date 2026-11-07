@@ -46,8 +46,6 @@ def _signature_header(event: Mapping[str, Any]) -> str:
                 raise ValueError(
                     "signature header collection contains an invalid entry"
                 ) from None
-            if not isinstance(name, str):
-                continue
             if type(name) is not str:
                 raise ValueError("signature header name must be a plain string")
             if len(name) > MAX_HEADER_NAME_CHARACTERS:

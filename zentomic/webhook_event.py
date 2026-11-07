@@ -37,8 +37,6 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
             name, value = entry
         except Exception:
             raise ValueError("header collection contains an invalid entry") from None
-        if not isinstance(name, str):
-            continue
         # Only inert built-in primitives may cross this unauthenticated
         # boundary. Subclasses can override length, case folding, trimming,
         # indexing, or other operations performed below.
