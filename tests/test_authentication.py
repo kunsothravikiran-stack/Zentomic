@@ -151,6 +151,34 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(headers.reads, 2)
         self.assertNotIn("synthetic-private-marker", str(caught.exception))
 
+    def test_signature_rescan_rejects_active_header_entries_without_iteration(self):
+        class ActiveEntry:
+            def __iter__(self):
+                raise AssertionError("active signature entry iteration must not run")
+
+        class ChangingSecondItems(dict):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.reads = 0
+
+            def items(self):
+                self.reads += 1
+                if self.reads == 2:
+                    return iter([ActiveEntry()])
+                return super().items()
+
+        candidate = event()
+        headers = ChangingSecondItems(candidate["headers"])
+        candidate["headers"] = headers
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(
+            ValueError,
+            "^signature header collection contains an invalid entry$",
+        ):
+            validate_form_event(candidate, public_url=URL, validator=validator)
+        validator.assert_not_called()
+        self.assertEqual(headers.reads, 2)
+
     def test_active_signature_primitives_are_rejected_without_overrides(self):
         class ActiveSignature(str):
             def __len__(self):

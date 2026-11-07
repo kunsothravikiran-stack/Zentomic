@@ -33,10 +33,12 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
         raise ValueError("header collection exceeds size limit")
     values = []
     for entry in entries:
-        try:
-            name, value = entry
-        except Exception:
-            raise ValueError("header collection contains an invalid entry") from None
+        # ``Mapping.items()`` is an extension point for programmatic adapters.
+        # Require the inert pair shape produced by a decoded JSON dictionary
+        # before unpacking so a hostile iterable cannot execute here.
+        if type(entry) is not tuple or len(entry) != 2:
+            raise ValueError("header collection contains an invalid entry")
+        name, value = entry
         # Only inert built-in primitives may cross this unauthenticated
         # boundary. Subclasses can override length, case folding, trimming,
         # indexing, or other operations performed below.

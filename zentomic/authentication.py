@@ -40,12 +40,13 @@ def _signature_header(event: Mapping[str, Any]) -> str:
             raise ValueError("header collection exceeds size limit")
         matches = []
         for entry in entries:
-            try:
-                name, value = entry
-            except Exception:
+            # Requiring a built-in tuple avoids invoking arbitrary iteration
+            # while rescanning a caller-controlled Mapping implementation.
+            if type(entry) is not tuple or len(entry) != 2:
                 raise ValueError(
                     "signature header collection contains an invalid entry"
-                ) from None
+                )
+            name, value = entry
             if type(name) is not str:
                 raise ValueError("signature header name must be a plain string")
             if len(name) > MAX_HEADER_NAME_CHARACTERS:

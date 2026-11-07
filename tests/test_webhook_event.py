@@ -131,10 +131,20 @@ class FormEventTests(unittest.TestCase):
             def items(self):
                 return iter([("Content-Type",)])
 
+        class ActiveEntry:
+            def __iter__(self):
+                raise AssertionError("active header entry iteration must not run")
+
+        class ActiveItems(dict):
+            def items(self):
+                return iter([ActiveEntry()])
+
         cases = (
             (FailingItems({"Content-Type": FORM}),
              "^header collection could not be read$"),
             (MalformedItems({"Content-Type": FORM}),
+             "^header collection contains an invalid entry$"),
+            (ActiveItems({"Content-Type": FORM}),
              "^header collection contains an invalid entry$"),
         )
         for headers, message in cases:
