@@ -92,6 +92,7 @@ def _validate_twilio_signature(
     # byte budget below had a chance to reject it.
     remaining = MAX_SIGNED_PAYLOAD_BYTES - len(url_bytes)
     encoded_entries = []
+    field_names = set()
     for name, value in entries:
         encoded_parts = []
         for part in (name, value):
@@ -108,6 +109,13 @@ def _validate_twilio_signature(
                 return False
             remaining -= len(encoded)
             encoded_parts.append(encoded)
+        # A Mapping cannot normally contain duplicate keys, but a custom
+        # adapter can return repeated names from ``items()``. Reject that
+        # ambiguous shape after bounding each name so duplicate detection
+        # cannot hash attacker-controlled text outside the payload budget.
+        if name in field_names:
+            return False
+        field_names.add(name)
         encoded_entries.append((name, encoded_parts))
 
     digest = hmac.new(token, digestmod=hashlib.sha1)

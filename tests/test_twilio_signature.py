@@ -85,6 +85,19 @@ class TwilioSignatureTests(unittest.TestCase):
         ):
             self.assertFalse(self.validate(fields=fields, signature=signature))
 
+    def test_rejects_duplicate_mapping_entries_before_sorting(self):
+        class DuplicateItems(dict):
+            def items(self):
+                return iter((("Digits", "1"), ("Digits", "2")))
+
+        fields = DuplicateItems(Digits="1")
+        signature = _signature(URL, fields)
+        with patch(
+            "builtins.sorted",
+            side_effect=AssertionError("duplicate fields must not be sorted"),
+        ):
+            self.assertFalse(self.validate(fields=fields, signature=signature))
+
     def test_rejects_public_url_over_utf8_byte_limit(self):
         url = "https://example.com/" + "é" * (MAX_PUBLIC_URL_BYTES // 2)
         self.assertLessEqual(len(url), MAX_PUBLIC_URL_BYTES)
