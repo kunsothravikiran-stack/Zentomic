@@ -23,7 +23,9 @@ def _validate_voicemail_result_configuration(
 ) -> None:
     """Validate the trusted policy that produced the corresponding Record."""
     _validate_voicemail_max_length(max_length)
-    if (not isinstance(finish_on_key, str) or len(finish_on_key) != 1
+    # Configuration decoding yields an exact built-in string. Reject subclasses
+    # before length or membership operations can execute overridden behavior.
+    if (type(finish_on_key) is not str or len(finish_on_key) != 1
             or finish_on_key not in "0123456789*#"):
         raise ValueError("finish_on_key must be one DTMF character")
 

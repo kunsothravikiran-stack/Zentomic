@@ -78,6 +78,24 @@ class VoicemailPolicyTests(unittest.TestCase):
             resolve_voicemail_result("12", digits)
         self.assertFalse(digits.touched)
 
+    def test_active_finish_key_is_rejected_without_running_overrides(self):
+        class ActiveFinishKey(str):
+            touched = False
+
+            def _activate(self, *args, **kwargs):
+                self.touched = True
+                raise AssertionError("active finish key override executed")
+
+            __len__ = _activate
+            __contains__ = _activate
+
+        finish_key = ActiveFinishKey("#")
+        with self.assertRaisesRegex(
+            ValueError, "^finish_on_key must be one DTMF character$",
+        ):
+            resolve_voicemail_result("12", "#", finish_on_key=finish_key)
+        self.assertFalse(finish_key.touched)
+
     def test_trusted_policy_is_strictly_bounded(self):
         for max_length in (1, 601, True, 120.0, "120", None):
             with self.subTest(max_length=max_length), self.assertRaises(ValueError):
