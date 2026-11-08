@@ -100,6 +100,29 @@ class TargetEncodingTests(unittest.TestCase):
                         self.assertRaises(ValueError):
                     resolve()
 
+    def test_active_target_subclasses_fail_without_running_overrides(self):
+        class ActiveTarget(str):
+            def __len__(self):
+                raise AssertionError("active target length must not run")
+
+            def strip(self, *args, **kwargs):
+                raise AssertionError("active target stripping must not run")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("active target encoding must not run")
+
+        target = ActiveTarget("private-target")
+        cases = (
+            lambda: resolve_dtmf(None, {}, fallback_target=target),
+            lambda: resolve_dtmf(
+                None, {"1": target}, fallback_target="reception",
+            ),
+        )
+        for index, resolve in enumerate(cases):
+            with self.subTest(case=index), self.assertRaises(ValueError) as caught:
+                resolve()
+            self.assertNotIn("private-target", str(caught.exception))
+
     def test_oversized_target_is_rejected_before_content_scanning(self):
         class OversizedTarget(str):
             def strip(self, *args, **kwargs):

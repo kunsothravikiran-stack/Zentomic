@@ -11,9 +11,12 @@ MAX_TARGET_IDENTIFIER_BYTES = 256
 
 def _valid_target(value: object) -> bool:
     """Reject oversized or unusable identifiers at the persistence boundary."""
+    # Target identifiers originate in trusted configuration, but requiring an
+    # exact built-in string keeps a programmatic adapter from executing
+    # overridden length, whitespace, or encoding behavior during validation.
     # UTF-8 uses at least one byte per character. Bound work before stripping
     # or encoding so an accidentally huge trusted value is rejected cheaply.
-    if (not isinstance(value, str) or len(value) > MAX_TARGET_IDENTIFIER_BYTES
+    if (type(value) is not str or len(value) > MAX_TARGET_IDENTIFIER_BYTES
             or not value.strip()):
         return False
     try:
