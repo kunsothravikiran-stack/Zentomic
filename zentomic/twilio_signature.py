@@ -87,10 +87,13 @@ def _validate_twilio_signature(
     if len(url_bytes) > MAX_PUBLIC_URL_BYTES:
         return False
 
-    digest = hmac.new(token, digestmod=hashlib.sha1)
-    digest.update(url_bytes)
+    # Encode and bound every field before sorting. Otherwise sorting attacker-
+    # controlled strings could scan an arbitrarily large payload before the
+    # byte budget below had a chance to reject it.
     remaining = MAX_SIGNED_PAYLOAD_BYTES - len(url_bytes)
-    for name, value in sorted(entries, key=lambda item: item[0]):
+    encoded_entries = []
+    for name, value in entries:
+        encoded_parts = []
         for part in (name, value):
             # UTF-8 uses at least one byte per character. Check the character
             # count first so an oversized untrusted field cannot make the
@@ -103,8 +106,15 @@ def _validate_twilio_signature(
                 return False
             if len(encoded) > remaining:
                 return False
-            digest.update(encoded)
             remaining -= len(encoded)
+            encoded_parts.append(encoded)
+        encoded_entries.append((name, encoded_parts))
+
+    digest = hmac.new(token, digestmod=hashlib.sha1)
+    digest.update(url_bytes)
+    for _, encoded_parts in sorted(encoded_entries, key=lambda item: item[0]):
+        for encoded in encoded_parts:
+            digest.update(encoded)
 
     return hmac.compare_digest(digest.digest(), supplied)
 

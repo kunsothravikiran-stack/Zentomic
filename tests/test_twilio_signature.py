@@ -78,9 +78,12 @@ class TwilioSignatureTests(unittest.TestCase):
 
     def test_rejects_payload_over_limit(self):
         fields = {"Body": "x" * (MAX_SIGNED_PAYLOAD_BYTES + 1)}
-        self.assertFalse(self.validate(
-            fields=fields, signature=_signature(URL, fields),
-        ))
+        signature = _signature(URL, fields)
+        with patch(
+            "builtins.sorted",
+            side_effect=AssertionError("oversized payload must not be sorted"),
+        ):
+            self.assertFalse(self.validate(fields=fields, signature=signature))
 
     def test_rejects_public_url_over_utf8_byte_limit(self):
         url = "https://example.com/" + "é" * (MAX_PUBLIC_URL_BYTES // 2)
