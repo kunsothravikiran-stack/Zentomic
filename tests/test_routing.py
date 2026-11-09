@@ -92,6 +92,52 @@ class RoutingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "^route keys must be single DTMF symbols$"):
             self.resolve(None, {ActiveKey("1"): "sales"})
 
+    def test_active_route_key_is_rejected_before_value_lookup(self):
+        class ActiveKey(str):
+            touched = False
+
+            def _activate(self, *args, **kwargs):
+                self.touched = True
+                raise AssertionError("active route-key override executed")
+
+            __hash__ = _activate
+            __eq__ = _activate
+            __len__ = _activate
+
+        key = ActiveKey("1")
+
+        class ActiveKeyMapping(Mapping):
+            def __iter__(self):
+                yield key
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, item):
+                raise AssertionError("invalid route key must not read a value")
+
+        with self.assertRaisesRegex(
+            ValueError, "^route keys must be single DTMF symbols$",
+        ):
+            self.resolve(None, ActiveKeyMapping())
+        self.assertFalse(key.touched)
+
+    def test_duplicate_route_keys_are_rejected_before_value_lookup(self):
+        class DuplicateKeyMapping(Mapping):
+            def __iter__(self):
+                yield from ("1", "1")
+
+            def __len__(self):
+                return 2
+
+            def __getitem__(self, key):
+                raise AssertionError("ambiguous routes must not read values")
+
+        with self.assertRaisesRegex(
+            ValueError, "^route keys must be unique DTMF symbols$",
+        ):
+            self.resolve(None, DuplicateKeyMapping())
+
     def test_invalid_targets_are_rejected_even_on_unused_routes(self):
         for target in (None, "", " \t\n", 1, [], {}):
             with self.subTest(target=target), self.assertRaises(ValueError):

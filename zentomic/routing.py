@@ -36,6 +36,14 @@ def _snapshot_dtmf_routes(routes: Mapping[str, str]) -> dict[str, str]:
     keys = tuple(islice(routes, MAX_DTMF_ROUTES + 1))
     if len(keys) > MAX_DTMF_ROUTES:
         raise ValueError("routes must contain at most 12 entries")
+    # Validate keys before looking up values. Custom Mapping adapters can emit
+    # active string subclasses whose hashing or comparison executes code; JSON
+    # configuration decoding can only produce inert built-in strings.
+    if any(type(key) is not str or len(key) != 1 or key not in DTMF_SYMBOLS
+           for key in keys):
+        raise ValueError("route keys must be single DTMF symbols")
+    if len(set(keys)) != len(keys):
+        raise ValueError("route keys must be unique DTMF symbols")
     return {key: routes[key] for key in keys}
 
 
