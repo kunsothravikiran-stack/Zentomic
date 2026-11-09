@@ -73,6 +73,9 @@ def resolve_business_hours_target_at(
         # Reject datetime (a date subclass) and ambiguous string/annual keys.
         if type(day) is not date:
             raise ValueError("date_overrides keys must be exact date objects")
+    if len(set(dates)) != len(dates):
+        raise ValueError("date_overrides must not contain duplicate dates")
+    for day in dates:
         override_target = resolve_business_hours_target(
             {weekday: date_overrides[day]}, weekday=weekday, minute_of_day=minute,
             open_target=open_target, closed_target=closed_target,
@@ -117,10 +120,13 @@ def resolve_business_hours_target(
     days = tuple(islice(hours, 8))
     if len(days) > 7:
         raise ValueError("hours must contain at most 7 days")
-    active = False
     for day in days:
         if type(day) is not int or not 0 <= day <= 6:
             raise ValueError("hours keys must be integers from 0 to 6")
+    if len(set(days)) != len(days):
+        raise ValueError("hours must not contain duplicate days")
+    active = False
+    for day in days:
         windows = hours[day]
         if not isinstance(windows, (list, tuple)):
             raise ValueError("daily hours must be a list or tuple of at most 24 windows")

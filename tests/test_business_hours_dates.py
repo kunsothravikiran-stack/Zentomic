@@ -112,6 +112,29 @@ class BusinessHoursDateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.resolve(EndlessDates())
 
+    def test_override_keys_are_validated_before_values_are_read(self):
+        first = date(2026, 1, 5)
+
+        class InvalidDates(Mapping):
+            def __len__(self):
+                return 2
+
+            def __iter__(self):
+                yield first
+                yield "private-date"
+
+            def __getitem__(self, key):
+                raise AssertionError("invalid keys must fail before value access")
+
+        class DuplicateDates(InvalidDates):
+            def __iter__(self):
+                yield first
+                yield first
+
+        for overrides in (InvalidDates(), DuplicateDates()):
+            with self.subTest(overrides=type(overrides).__name__), self.assertRaises(ValueError):
+                self.resolve(overrides)
+
     def test_snapshots_preserve_configuration_and_exact_targets_without_output(self):
         overrides = {date(2026, 1, 5): [[540, 720], [600, 780]]}
         before = copy.deepcopy(overrides)

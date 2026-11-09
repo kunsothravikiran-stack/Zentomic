@@ -117,6 +117,27 @@ class BusinessHoursTests(unittest.TestCase):
         self.assertEqual(windows.consumed, 25)
         self.assertEqual(endpoints.consumed, 3)
 
+    def test_mapping_keys_are_validated_before_values_are_read(self):
+        class InvalidDays(Mapping):
+            def __len__(self):
+                return 2
+
+            def __iter__(self):
+                yield 0
+                yield "private-day"
+
+            def __getitem__(self, key):
+                raise AssertionError("invalid keys must fail before value access")
+
+        class DuplicateDays(InvalidDays):
+            def __iter__(self):
+                yield 0
+                yield 0
+
+        for hours in (InvalidDays(), DuplicateDays()):
+            with self.subTest(hours=type(hours).__name__), self.assertRaises(ValueError):
+                self.resolve(hours)
+
     def test_errors_and_success_are_silent_and_do_not_echo_configuration(self):
         with patch("builtins.print") as output:
             self.assertEqual(self.resolve({0: [(0, 1440)]}), "team")
