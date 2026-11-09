@@ -19,6 +19,15 @@ def _snapshot_intent_routes(routes: Mapping[str, str]) -> dict[str, str]:
     keys = tuple(islice(routes, MAX_INTENT_ROUTES + 1))
     if len(keys) > MAX_INTENT_ROUTES:
         raise ValueError("routes must contain at most 128 entries")
+    # Validate keys before looking up values. Custom Mapping adapters can emit
+    # active string subclasses whose hashing or comparison executes code; JSON
+    # configuration decoding can only produce inert built-in strings.
+    if any(not _valid_intent_label(key) for key in keys):
+        raise ValueError(
+            "intent labels must be nonblank UTF-8 strings of at most 256 bytes"
+        )
+    if len(set(keys)) != len(keys):
+        raise ValueError("intent labels must be unique")
     return {key: routes[key] for key in keys}
 
 

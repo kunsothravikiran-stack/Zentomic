@@ -25,6 +25,20 @@ class OversizedIntentRoutes(Mapping):
         raise AssertionError("oversized intent route values must not be read")
 
 
+class DuplicateIntentRoutes(Mapping):
+    """Expose duplicate labels whose values must never be copied."""
+
+    def __iter__(self):
+        yield "sales"
+        yield "sales"
+
+    def __len__(self):
+        return 2
+
+    def __getitem__(self, key):
+        raise AssertionError("duplicate intent route values must not be read")
+
+
 class IntentRoutingTests(unittest.TestCase):
     def setUp(self):
         self.routes = {"sales": "team/Sales", "technical_support": "team/Support"}
@@ -80,6 +94,39 @@ class IntentRoutingTests(unittest.TestCase):
             ValueError, "^routes must contain at most 128 entries$",
         ):
             self.resolve("intent-0", routes=OversizedIntentRoutes())
+
+    def test_rejects_duplicate_labels_before_copying_values(self):
+        with self.assertRaisesRegex(
+            ValueError, "^intent labels must be unique$",
+        ):
+            self.resolve("sales", routes=DuplicateIntentRoutes())
+
+    def test_rejects_active_labels_before_hashing_or_value_lookup(self):
+        class ActiveLabel(str):
+            def __len__(self):
+                raise AssertionError("active label length must not run")
+
+            def __hash__(self):
+                raise AssertionError("active label hash must not run")
+
+            def __eq__(self, other):
+                raise AssertionError("active label comparison must not run")
+
+        class ActiveLabelRoutes(Mapping):
+            def __iter__(self):
+                yield ActiveLabel("sales")
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, key):
+                raise AssertionError("active-label values must not be read")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^intent labels must be nonblank UTF-8 strings of at most 256 bytes$",
+        ):
+            self.resolve("sales", routes=ActiveLabelRoutes())
 
     def test_invalid_mappings_are_rejected(self):
         for routes in (None, [], "sales", 1):
