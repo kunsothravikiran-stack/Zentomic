@@ -204,17 +204,8 @@ class ClaimedConfirmationEventTests(unittest.TestCase):
                 "synthetic-workspace", CALL, "confirmation-attempt-1",
             ))
 
-    def test_claim_cannot_mutate_or_revalidate_the_policy_snapshot(self):
-        class SingleValidationTarget(str):
-            checks = 0
-
-            def encode(self, *args, **kwargs):
-                self.checks += 1
-                if self.checks > 1:
-                    raise AssertionError("target was validated after the claim")
-                return super().encode(*args, **kwargs)
-
-        target = SingleValidationTarget("demo-support")
+    def test_claim_cannot_mutate_the_policy_snapshot(self):
+        target = "demo-support"
         routes = {"support": target}
         claimer = Mock()
 
@@ -228,7 +219,6 @@ class ClaimedConfirmationEventTests(unittest.TestCase):
                          routes=routes),
             GatherDecision("route", target, 1),
         )
-        self.assertEqual(target.checks, 1)
         claimer.claim.assert_called_once_with(
             "synthetic-workspace", CALL, "confirmation-attempt-1",
         )

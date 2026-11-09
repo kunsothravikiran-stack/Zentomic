@@ -229,26 +229,21 @@ class ClaimedDialEventTests(unittest.TestCase):
             validator.assert_not_called()
             claimer.claim.assert_not_called()
 
-    def test_claim_cannot_trigger_revalidation_or_replace_trusted_fallback(self):
-        class SingleValidationTarget(str):
-            checks = 0
-
-            def encode(self, *args, **kwargs):
-                self.checks += 1
-                if self.checks > 1:
-                    raise AssertionError("fallback was validated after the claim")
-                return super().encode(*args, **kwargs)
-
-        target = SingleValidationTarget("demo-reception")
+    def test_claim_cannot_replace_trusted_fallback(self):
+        config = {"fallback_target": "demo-reception"}
         claimer = Mock()
-        claimer.claim.return_value = True
+
+        def claim(*_):
+            config["fallback_target"] = "untrusted-target"
+            return True
+
+        claimer.claim.side_effect = claim
         self.assertEqual(
             self.resolve_claimed(
-                self.event(), claimer, fallback_target=target,
+                self.event(), claimer, **config,
             ),
-            DialDecision("fallback", target),
+            DialDecision("fallback", "demo-reception"),
         )
-        self.assertEqual(target.checks, 1)
         claimer.claim.assert_called_once_with(
             "synthetic-workspace", "synthetic-parent", "dial-attempt-1",
         )

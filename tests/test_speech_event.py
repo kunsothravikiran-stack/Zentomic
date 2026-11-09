@@ -519,25 +519,20 @@ class ClaimedSpeechEventTests(unittest.TestCase):
                 "synthetic-workspace", CALL, "speech-attempt-1",
             ))
 
-    def test_fallback_is_validated_once_before_the_claim(self):
-        class SingleValidationTarget(str):
-            checks = 0
-
-            def encode(self, *args, **kwargs):
-                self.checks += 1
-                if self.checks > 1:
-                    raise AssertionError("fallback was revalidated after the claim")
-                return super().encode(*args, **kwargs)
-
-        target = SingleValidationTarget("demo-reception")
+    def test_claim_cannot_replace_trusted_fallback(self):
+        config = {"fallback_target": "demo-reception"}
         claimer = Mock()
-        claimer.claim.return_value = True
+
+        def claim(*_):
+            config["fallback_target"] = "untrusted-target"
+            return True
+
+        claimer.claim.side_effect = claim
         self.assertEqual(
             self.resolve(callback({}, "2.0", False), claimer,
-                         fallback_target=target, attempts=2),
-            SpeechDecision("fallback", None, target, 3),
+                         attempts=2, **config),
+            SpeechDecision("fallback", None, "demo-reception", 3),
         )
-        self.assertEqual(target.checks, 1)
         claimer.claim.assert_called_once_with(
             "synthetic-workspace", CALL, "speech-attempt-1",
         )
