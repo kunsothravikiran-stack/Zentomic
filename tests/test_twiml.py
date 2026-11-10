@@ -42,6 +42,19 @@ class ActionPathLimitTests(unittest.TestCase):
                 render_redirect(action_path="/" + "a" * 2048)
             match.assert_not_called()
 
+    def test_active_path_subclass_is_rejected_before_overrides_run(self):
+        class ActivePath(str):
+            def __len__(self):
+                raise AssertionError("active path length must not run")
+
+        with patch("zentomic.twiml.re.fullmatch") as match:
+            with self.assertRaisesRegex(
+                ValueError,
+                "^action_path must be a root-relative path of named segments$",
+            ):
+                render_redirect(action_path=ActivePath("/voice/next"))
+            match.assert_not_called()
+
 
 class TwimlTests(unittest.TestCase):
     def render(self, prompt="Press 1 for sales.", **kwargs):
@@ -83,6 +96,25 @@ class TwimlTests(unittest.TestCase):
             with self.subTest(prompt=repr(prompt)[:40]), self.assertRaises(ValueError):
                 self.render(prompt)
         self.assertEqual(len(fromstring(self.render("x" * 1000)).find("Gather/Say").text), 1000)
+
+    def test_active_prompt_subclass_is_rejected_before_overrides_run(self):
+        class ActivePrompt(str):
+            def __len__(self):
+                raise AssertionError("active prompt length must not run")
+
+            def strip(self, *args, **kwargs):
+                raise AssertionError("active prompt stripping must not run")
+
+            def __iter__(self):
+                raise AssertionError("active prompt iteration must not run")
+
+        with patch("zentomic.twiml._serialize") as serialize:
+            with self.assertRaisesRegex(
+                ValueError,
+                "^prompt must be a nonblank string of at most 1000 characters$",
+            ):
+                self.render(ActivePrompt("Press 1 for sales."))
+            serialize.assert_not_called()
 
     def test_timeout_bounds(self):
         for timeout in (1, 10, 60):

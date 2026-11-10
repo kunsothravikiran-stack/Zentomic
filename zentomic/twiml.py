@@ -33,7 +33,10 @@ def _validate_prompt(prompt: str) -> None:
     """Apply shared text limits before serializing a Say element."""
     # Bound work before stripping: oversized padded text could otherwise
     # require a full scan and an unnecessary copy before being rejected.
-    if not isinstance(prompt, str) or len(prompt) > 1000 or not prompt.strip():
+    # Renderers receive trusted application text, which should be an inert
+    # decoded/configured string. Reject subclasses before their length,
+    # whitespace, iteration, or character conversion hooks can run.
+    if type(prompt) is not str or len(prompt) > 1000 or not prompt.strip():
         raise ValueError("prompt must be a nonblank string of at most 1000 characters")
     # ElementTree escapes markup, but does not reject XML 1.0-invalid characters.
     if any(
@@ -47,9 +50,13 @@ def _validate_prompt(prompt: str) -> None:
 def _validate_action_path(action_path: str) -> None:
     # Bound regex work and serialized callback size before inspecting segments.
     # Accepted paths are ASCII, so the character limit also bounds UTF-8 bytes.
-    if isinstance(action_path, str) and len(action_path) > MAX_ACTION_PATH_CHARACTERS:
+    # Exact strings also keep programmatic configuration adapters from running
+    # overridden length or regex behavior before the path is admitted.
+    if type(action_path) is not str:
+        raise ValueError("action_path must be a root-relative path of named segments")
+    if len(action_path) > MAX_ACTION_PATH_CHARACTERS:
         raise ValueError("action_path exceeds 2048 characters")
-    if not isinstance(action_path, str) or not re.fullmatch(
+    if not re.fullmatch(
         r"/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*/?", action_path
     ):
         raise ValueError("action_path must be a root-relative path of named segments")
