@@ -22,6 +22,22 @@ URL = "https://example.invalid/voice/menu"
 SIGNATURE = "A" * 27 + "="
 
 
+class ActiveIdentifier(str):
+    """A string subclass that must not execute during trusted-key admission."""
+
+    def __len__(self):
+        raise AssertionError("active identifier length executed")
+
+    def strip(self, *args, **kwargs):
+        raise AssertionError("active identifier strip executed")
+
+    def encode(self, *args, **kwargs):
+        raise AssertionError("active identifier encoding executed")
+
+    def __hash__(self):
+        raise AssertionError("active identifier hashing executed")
+
+
 def callback(fields=None, *, version="2.0", encoded=False):
     body = urlencode({"AccountSid": ACCOUNT, "CallSid": CALL, **(fields or {})})
     event = {
@@ -85,6 +101,17 @@ class CallbackClaimStoreTests(unittest.TestCase):
             ):
                 store.claim("workspace", "call", value)
         self.assertTrue(store.claim("workspace", "call", "valid-step"))
+
+    def test_active_identifier_subclasses_are_rejected_before_execution(self):
+        for position, key in enumerate((
+            (ActiveIdentifier("workspace"), "call", "step"),
+            ("workspace", ActiveIdentifier("call"), "step"),
+            ("workspace", "call", ActiveIdentifier("step")),
+        )):
+            with self.subTest(position=position), self.assertRaisesRegex(
+                ValueError, "^claim identifiers must be nonblank UTF-8 strings",
+            ):
+                InMemoryCallbackClaimStore().claim(*key)
 
     def test_capacity_rejects_new_keys_but_preserves_replay_detection(self):
         store = InMemoryCallbackClaimStore(max_entries=1)
