@@ -106,6 +106,12 @@ class ClassifierResponseTests(unittest.TestCase):
             self.parse(json.dumps({"intent": labels[-1]}), labels), labels[-1],
         )
 
+    def test_duplicate_allowlist_labels_are_rejected_before_parsing(self):
+        with self.assertRaisesRegex(
+            ValueError, "^allowed_intents must contain unique labels$",
+        ):
+            self.parse(UnreadableResponse("{}"), ["sales", "sales"])
+
     def test_non_utf8_allowlist_labels_are_rejected_before_parsing(self):
         for label in ("synthetic-private-\ud800", "\udfff", "\ud83d\ude00"):
             for response in (None, "not json", json.dumps({"intent": label})):

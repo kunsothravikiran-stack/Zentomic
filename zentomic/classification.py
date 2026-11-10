@@ -47,6 +47,8 @@ def parse_intent_response(
             "allowed_intents must contain only nonblank UTF-8 strings "
             "of at most 256 bytes"
         )
+    if len(set(labels)) != len(labels):
+        raise ValueError("allowed_intents must contain unique labels")
     # Model output crosses an untrusted boundary. Require an inert built-in
     # string before length or encoding operations so subclasses cannot execute
     # overridden behavior inside admission.
