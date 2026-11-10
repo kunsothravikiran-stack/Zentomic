@@ -100,7 +100,7 @@ def _speech_hints(hints: list[str] | tuple[str, ...] | None) -> str | None:
         raise ValueError("hints must contain at most 500 phrases")
     for phrase in phrases:
         # XML permits Unicode line boundaries, but hints must remain single-line.
-        if (not isinstance(phrase, str) or len(phrase) > MAX_SPEECH_HINT_CHARACTERS
+        if (type(phrase) is not str or len(phrase) > MAX_SPEECH_HINT_CHARACTERS
                 or "," in phrase
                 or any(ord(char) < 32 or ord(char) == 127
                        or char in "\u0085\u2028\u2029" for char in phrase)):
@@ -147,13 +147,13 @@ def render_speech_gather(
         raise ValueError("speech_timeout must be 'auto' or an integer from 1 to 60 seconds")
     # Check the bounded tag before consuming optional vocabulary. Reject rather
     # than trim, case-fold, infer, or silently fall back to another locale.
-    if (not isinstance(language, str) or len(language) != 5
+    if (type(language) is not str or len(language) != 5
             or language not in SPEECH_RECOGNITION_LANGUAGES):
         raise ValueError("language must be a supported project recognition locale")
     if profanity_filter is not None and type(profanity_filter) is not bool:
         raise ValueError("profanity_filter must be a boolean or None")
     if (speech_model is not None
-            and (not isinstance(speech_model, str)
+            and (type(speech_model) is not str
                  or speech_model not in SPEECH_RECOGNITION_MODELS)):
         raise ValueError("speech_model must be a supported project recognition model or None")
     vocabulary = _speech_hints(hints)

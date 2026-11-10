@@ -122,6 +122,17 @@ class SpeechGatherTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.render(language="auto", hints=UnreadHints(["sales"]))
 
+    def test_active_locale_is_rejected_before_overrides_run(self):
+        class ActiveLocale(str):
+            def __len__(self):
+                raise AssertionError("active locale length must not run")
+
+            def __hash__(self):
+                raise AssertionError("active locale hashing must not run")
+
+        with self.assertRaisesRegex(ValueError, "language"):
+            self.render(language=ActiveLocale("en-US"))
+
     def test_profanity_filter_is_explicit_and_isolated(self):
         expected = fromstring(self.render(hints=["sales & support"]))
         self.assertIsNone(expected[0].get("profanityFilter"))
@@ -174,6 +185,14 @@ class SpeechGatherTests(unittest.TestCase):
                 self.assertIn("speech_model", str(error.exception))
                 self.assertNotIn("private-model", str(error.exception))
 
+    def test_active_speech_model_is_rejected_before_overrides_run(self):
+        class ActiveModel(str):
+            def __hash__(self):
+                raise AssertionError("active model hashing must not run")
+
+        with self.assertRaisesRegex(ValueError, "speech_model"):
+            self.render(speech_model=ActiveModel("default"))
+
     def test_explicit_locale_is_offline_and_does_not_echo_configuration(self):
         with patch.dict("os.environ", {}, clear=True), patch(
             "socket.socket", side_effect=AssertionError("Network forbidden"),
@@ -219,6 +238,20 @@ class SpeechGatherTests(unittest.TestCase):
                 self.render(hints=["sales", phrase])
             self.assertIn("hints", str(error.exception))
             self.assertNotIn("private", str(error.exception))
+
+    def test_active_hint_phrase_is_rejected_before_overrides_run(self):
+        class ActivePhrase(str):
+            def __len__(self):
+                raise AssertionError("active phrase length must not run")
+
+            def __contains__(self, item):
+                raise AssertionError("active phrase membership must not run")
+
+            def __iter__(self):
+                raise AssertionError("active phrase iteration must not run")
+
+        with self.assertRaisesRegex(ValueError, "hints"):
+            self.render(hints=[ActivePhrase("sales")])
 
     def test_hints_require_a_bounded_concrete_collection(self):
         for hints in ("sales,support", b"sales", {"sales"}, {"sales": "support"},
