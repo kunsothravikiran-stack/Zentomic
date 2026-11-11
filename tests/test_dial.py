@@ -78,6 +78,24 @@ class DialTests(unittest.TestCase):
             with self.subTest(number=number), self.assertRaises(ValueError):
                 self.render(["+12025550100", number])
 
+    def test_active_destination_is_rejected_without_running_overrides(self):
+        class ActiveDestination(str):
+            def __hash__(self):
+                raise AssertionError("active destination hashing must not run")
+
+            def __str__(self):
+                raise AssertionError("active destination serialization must not run")
+
+        with patch("zentomic.twiml.re.fullmatch") as match, \
+                patch("zentomic.twiml._serialize") as serialize:
+            with self.assertRaisesRegex(
+                ValueError,
+                "^destinations must use E.164-style phone number syntax$",
+            ):
+                self.render([ActiveDestination("+12025550100")])
+        match.assert_not_called()
+        serialize.assert_not_called()
+
     def test_timeout_bounds_and_types(self):
         for timeout in (5, 20, 60):
             self.assertEqual(fromstring(self.render(timeout=timeout))[0].get("timeout"), str(timeout))

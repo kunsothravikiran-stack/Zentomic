@@ -310,6 +310,21 @@ class RejectTests(unittest.TestCase):
                     render_reject(reason=reason)
                 serialize.assert_not_called()
 
+    def test_active_reason_is_rejected_without_running_overrides(self):
+        class ActiveReason(str):
+            def __eq__(self, other):
+                raise AssertionError("active rejection comparison must not run")
+
+            def __hash__(self):
+                raise AssertionError("active rejection hashing must not run")
+
+        with patch("zentomic.twiml._serialize") as serialize:
+            with self.assertRaisesRegex(
+                ValueError, "^reason must be 'rejected' or 'busy'$",
+            ):
+                render_reject(reason=ActiveReason("busy"))
+        serialize.assert_not_called()
+
     def test_rendering_is_deterministic_and_offline(self):
         with patch.dict("os.environ", {}, clear=True), patch(
             "socket.socket", side_effect=AssertionError("Network forbidden")

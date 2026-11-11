@@ -195,7 +195,12 @@ def render_dial(
     if not 1 <= len(destinations) <= MAX_DIAL_DESTINATIONS:
         raise ValueError("numbers must be a list or tuple of 1 to 10 destinations")
     for number in destinations:
-        if not isinstance(number, str) or not re.fullmatch(r"\+[1-9][0-9]{1,14}", number):
+        # Destinations come from trusted workspace configuration, but callers
+        # can invoke this renderer directly with programmatic adapters. Require
+        # inert built-in strings before regex matching, hashing, or XML
+        # serialization can execute subclass overrides.
+        if (type(number) is not str
+                or not re.fullmatch(r"\+[1-9][0-9]{1,14}", number)):
             raise ValueError("destinations must use E.164-style phone number syntax")
     if len(set(destinations)) != len(destinations):
         raise ValueError("destinations must be unique")
@@ -294,7 +299,9 @@ def render_reject(*, reason: Literal["rejected", "busy"] = "rejected") -> str:
     attribute; ``busy`` requests a busy signal. This does not authenticate the
     request, classify spam, authorize a block, or contact a voice provider.
     """
-    if not isinstance(reason, str) or reason not in ("rejected", "busy"):
+    # Keep trusted rejection policy inert before membership comparison or XML
+    # serialization can invoke behavior supplied by a string subclass.
+    if type(reason) is not str or reason not in ("rejected", "busy"):
         raise ValueError("reason must be 'rejected' or 'busy'")
     response = Element("Response")
     attributes = {} if reason == "rejected" else {"reason": reason}
