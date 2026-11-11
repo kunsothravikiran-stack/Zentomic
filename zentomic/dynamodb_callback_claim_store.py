@@ -32,7 +32,9 @@ class DynamoDBCallbackClaimStore:
         self, *, client: DynamoDBClaimClient, table_name: str,
         before_request: Callable[[], None] | None = None,
     ) -> None:
-        if (not isinstance(table_name, str) or not 3 <= len(table_name) <= 255
+        # Configuration must be inert before length or regex operations can
+        # execute behavior supplied by a string subclass.
+        if (type(table_name) is not str or not 3 <= len(table_name) <= 255
                 or not re.fullmatch(r"[A-Za-z0-9_.-]+", table_name)):
             raise ValueError("table_name must be a DynamoDB table name, not an ARN")
         if not callable(getattr(client, "put_item", None)):

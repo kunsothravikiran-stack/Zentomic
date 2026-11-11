@@ -92,6 +92,25 @@ class DynamoDBCallbackClaimTests(unittest.TestCase):
         admission.assert_not_called()
         client.put_item.assert_not_called()
 
+    def test_active_table_name_is_rejected_without_running_overrides(self):
+        class ActiveTableName(str):
+            def __len__(self):
+                raise AssertionError("active table-name length must not run")
+
+            def __str__(self):
+                raise AssertionError("active table-name serialization must not run")
+
+        client, admission = Mock(), Mock()
+        with self.assertRaisesRegex(
+            ValueError, "^table_name must be a DynamoDB table name, not an ARN$",
+        ):
+            DynamoDBCallbackClaimStore(
+                client=client, table_name=ActiveTableName("demo-claims"),
+                before_request=admission,
+            )
+        admission.assert_not_called()
+        client.put_item.assert_not_called()
+
     def test_admission_is_fresh_and_outside_conditional_failure_translation(self):
         client = ClaimClient()
         denied = ClientError("ConditionalCheckFailedException")
