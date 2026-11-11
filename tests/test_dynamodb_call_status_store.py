@@ -90,6 +90,26 @@ class DynamoDBCallStatusStoreTests(unittest.TestCase):
             DynamoDBCallStatusStore(client=self.client, table_name=name)
         self.client.get_item.assert_not_called()
 
+    def test_active_table_name_is_rejected_without_running_overrides(self):
+        class ActiveTableName(str):
+            def __len__(self):
+                raise AssertionError("active table-name length must not run")
+
+            def __str__(self):
+                raise AssertionError("active table-name serialization must not run")
+
+        client, admission = Mock(), Mock()
+        with self.assertRaisesRegex(
+            ValueError, "^table_name must be a DynamoDB table name, not an ARN$",
+        ):
+            DynamoDBCallStatusStore(
+                client=client, table_name=ActiveTableName("demo-status"),
+                before_request=admission,
+            )
+        admission.assert_not_called()
+        client.get_item.assert_not_called()
+        client.update_item.assert_not_called()
+
     def test_load_requests_a_consistent_projected_read_and_preserves_opaque_keys(self):
         self.client.get_item.return_value = {"Item": item(workspace=" a/b ", call="c/😀")}
         self.assertEqual(self.store.load(" a/b ", "c/😀"), CallStatusSnapshot("ringing", 1))
