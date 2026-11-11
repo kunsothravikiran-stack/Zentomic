@@ -10,6 +10,22 @@ from zentomic.call_status_store import (
 )
 
 
+class ActiveIdentifier(str):
+    """A string subclass that must not execute during trusted-key admission."""
+
+    def __len__(self):
+        raise AssertionError("active identifier length executed")
+
+    def strip(self, *args, **kwargs):
+        raise AssertionError("active identifier strip executed")
+
+    def encode(self, *args, **kwargs):
+        raise AssertionError("active identifier encoding executed")
+
+    def __hash__(self):
+        raise AssertionError("active identifier hashing executed")
+
+
 class CallStatusStoreTests(unittest.TestCase):
     def setUp(self):
         self.store = InMemoryCallStatusStore()
@@ -134,6 +150,17 @@ class CallStatusStoreTests(unittest.TestCase):
         saved = store.observe("workspace", "call", "completed", expected_revision=0)
         self.assertEqual((saved.status, saved.revision), ("completed", 1))
         self.assertEqual(store.load("workspace", "call"), saved)
+
+    def test_active_identifier_subclasses_are_rejected_before_execution(self):
+        for position, key in enumerate((
+            (ActiveIdentifier("workspace"), "call"),
+            ("workspace", ActiveIdentifier("call")),
+        )):
+            with self.subTest(position=position), self.assertRaisesRegex(
+                ValueError,
+                "^status identifiers must be nonblank UTF-8 strings of at most 256 bytes$",
+            ):
+                self.store.load(*key)
 
     def test_two_new_keys_cannot_exceed_capacity(self):
         store = InMemoryCallStatusStore(max_entries=1)

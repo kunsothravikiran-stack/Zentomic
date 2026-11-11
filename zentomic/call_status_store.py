@@ -46,7 +46,7 @@ def _key(workspace_id: str, call_sid: str) -> tuple[str, str]:
     for value in (workspace_id, call_sid):
         # UTF-8 needs at least one byte per character. Reject long inputs before
         # stripping or encoding to avoid an allocation proportional to input size.
-        if (not isinstance(value, str) or len(value) > MAX_STATUS_IDENTIFIER_BYTES
+        if (type(value) is not str or len(value) > MAX_STATUS_IDENTIFIER_BYTES
                 or not value.strip()):
             raise ValueError(_IDENTIFIER_ERROR)
         try:
