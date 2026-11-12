@@ -176,6 +176,44 @@ class DynamoDBCallStatusStoreTests(unittest.TestCase):
             self.load()
         self.client.update_item.assert_not_called()
 
+    def test_active_success_response_mappings_are_rejected_without_running_overrides(self):
+        class ActiveDictionary(dict):
+            def get(self, *args, **kwargs):
+                raise AssertionError("active response lookup must not run")
+
+            def __contains__(self, key):
+                raise AssertionError("active response membership must not run")
+
+            def __iter__(self):
+                raise AssertionError("active response iteration must not run")
+
+        responses = (
+            ActiveDictionary({"Item": item()}),
+            {"Item": ActiveDictionary(item())},
+            {"Item": {**item(), "call_status": ActiveDictionary({"S": "ringing"})}},
+            {"Item": {**item(), "status_revision": ActiveDictionary({"N": "1"})}},
+        )
+        for response in responses:
+            with self.subTest(response=response), self.assertRaisesRegex(
+                ValueError, "^DynamoDB returned an invalid call status snapshot$",
+            ):
+                self.client.get_item.return_value = response
+                self.load()
+
+        self.client.get_item.return_value = {}
+        for response in (
+            ActiveDictionary({"Attributes": item()}),
+            {"Attributes": ActiveDictionary(item())},
+            {"Attributes": {
+                **item(), "call_status": ActiveDictionary({"S": "ringing"}),
+            }},
+        ):
+            with self.subTest(response=response), self.assertRaisesRegex(
+                ValueError, "^DynamoDB returned an invalid call status snapshot$",
+            ):
+                self.client.update_item.return_value = response
+                self.observe()
+
     def test_creation_requires_a_wholly_absent_row(self):
         self.client.get_item.return_value = {}
         self.client.update_item.return_value = {"Attributes": {

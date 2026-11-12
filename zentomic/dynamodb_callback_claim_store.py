@@ -1,7 +1,7 @@
 """Injectable conditional callback claims; importing creates no AWS client."""
 
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from zentomic.callback_claim_store import _key
@@ -83,6 +83,8 @@ class DynamoDBCallbackClaimStore:
             if type(code) is str and code == "ConditionalCheckFailedException":
                 return False
             raise
-        if not isinstance(result, Mapping):
+        # Botocore returns a plain dictionary. Do not accept an active mapping
+        # subclass from an injected client as a successful claim response.
+        if type(result) is not dict:
             raise ValueError("DynamoDB returned an invalid callback claim response")
         return True

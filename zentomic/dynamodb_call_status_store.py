@@ -1,7 +1,7 @@
 """Injectable DynamoDB lifecycle storage; importing it creates no AWS client."""
 
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 
@@ -24,12 +24,15 @@ class DynamoDBStatusClient(Protocol):
 
 
 def _snapshot(item: Any) -> CallStatusSnapshot:
-    if not isinstance(item, Mapping):
+    # Low-level botocore responses are plain dictionaries. Reject mapping
+    # subclasses before membership, iteration, lookup, or equality can invoke
+    # behavior supplied by an injected client.
+    if type(item) is not dict:
         raise ValueError(_INVALID_SNAPSHOT)
     status = item.get("call_status")
     revision = item.get("status_revision")
-    if (not isinstance(status, Mapping) or set(status) != {"S"}
-            or not isinstance(revision, Mapping) or set(revision) != {"N"}):
+    if (type(status) is not dict or set(status) != {"S"}
+            or type(revision) is not dict or set(revision) != {"N"}):
         raise ValueError(_INVALID_SNAPSHOT)
     try:
         is_terminal_call_status(status["S"])
@@ -99,12 +102,12 @@ class DynamoDBCallStatusStore:
                 "#status": "call_status", "#revision": "status_revision",
             },
         )
-        if not isinstance(result, Mapping):
+        if type(result) is not dict:
             raise ValueError(_INVALID_SNAPSHOT)
         if "Item" not in result:
             return CallStatusSnapshot()
         item = result["Item"]
-        if (not isinstance(item, Mapping)
+        if (type(item) is not dict
                 or any(item.get(name) != value for name, value in key.items())):
             raise ValueError(_INVALID_SNAPSHOT)
         return _snapshot(item)
@@ -166,7 +169,7 @@ class DynamoDBCallStatusStore:
             if type(code) is str and code == "ConditionalCheckFailedException":
                 raise StatusConflictError("call status revision conflict") from None
             raise
-        if (not isinstance(result, Mapping)
+        if (type(result) is not dict
                 or _snapshot(result.get("Attributes")) != proposed):
             raise ValueError(_INVALID_SNAPSHOT)
         return proposed

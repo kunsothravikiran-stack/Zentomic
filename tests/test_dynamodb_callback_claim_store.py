@@ -170,7 +170,11 @@ class DynamoDBCallbackClaimTests(unittest.TestCase):
         self.assertFalse(store.claim("workspace", "call", "step"))
 
     def test_malformed_results_never_grant_admission(self):
-        for result in (None, [], True, "synthetic-private-marker"):
+        class ActiveDictionary(dict):
+            def __iter__(self):
+                raise AssertionError("active claim response must not run")
+
+        for result in (None, [], True, "synthetic-private-marker", ActiveDictionary()):
             client = Mock()
             client.put_item.return_value = result
             with self.subTest(result=result), self.assertRaises(ValueError) as caught:
