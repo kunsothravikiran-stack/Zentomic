@@ -34,7 +34,7 @@ def _snapshot(item: Any) -> CallStatusSnapshot:
     try:
         is_terminal_call_status(status["S"])
         number = revision["N"]
-        if (not isinstance(number, str) or not 1 <= len(number) <= 128
+        if (type(number) is not str or not 1 <= len(number) <= 128
                 or not re.fullmatch(
                     r"\+?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?",
                     number,

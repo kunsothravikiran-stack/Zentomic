@@ -159,6 +159,23 @@ class DynamoDBCallStatusStoreTests(unittest.TestCase):
                 self.client.get_item.return_value = {"Item": item(revision=number)}
                 self.assertEqual(self.load(), CallStatusSnapshot("ringing", expected))
 
+    def test_active_revision_number_is_rejected_without_running_overrides(self):
+        class ActiveNumber(str):
+            def __len__(self):
+                raise AssertionError("active revision-number length must not run")
+
+            def __str__(self):
+                raise AssertionError("active revision-number serialization must not run")
+
+        self.client.get_item.return_value = {
+            "Item": item(revision=ActiveNumber("1")),
+        }
+        with self.assertRaisesRegex(
+            ValueError, "^DynamoDB returned an invalid call status snapshot$",
+        ):
+            self.load()
+        self.client.update_item.assert_not_called()
+
     def test_creation_requires_a_wholly_absent_row(self):
         self.client.get_item.return_value = {}
         self.client.update_item.return_value = {"Attributes": {
