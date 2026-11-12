@@ -133,6 +133,36 @@ class DynamoDBCallbackClaimTests(unittest.TestCase):
             self.assertIs(caught.exception, error)
             client.put_item.assert_called_once()
 
+    def test_active_conditional_error_metadata_cannot_hide_failures(self):
+        class ActiveDictionary(dict):
+            def get(self, *args, **kwargs):
+                raise AssertionError("active error dictionary must not run")
+
+        class ActiveCode(str):
+            def __eq__(self, other):
+                raise AssertionError("active error code comparison must not run")
+
+        responses = (
+            ActiveDictionary({
+                "Error": {"Code": "ConditionalCheckFailedException"},
+            }),
+            {"Error": ActiveDictionary({
+                "Code": "ConditionalCheckFailedException",
+            })},
+            {"Error": {"Code": ActiveCode("ConditionalCheckFailedException")}},
+        )
+        for response in responses:
+            error = RuntimeError("synthetic storage failure")
+            error.response = response
+            client = Mock()
+            client.put_item.side_effect = error
+            with self.subTest(response=type(response)), self.assertRaises(
+                RuntimeError,
+            ) as caught:
+                self.store(client).claim("workspace", "call", "step")
+            self.assertIs(caught.exception, error)
+            client.put_item.assert_called_once()
+
     def test_admission_return_value_cannot_override_the_conditional_result(self):
         client = ClaimClient()
         store = self.store(client, before_request=Mock(return_value=False))
