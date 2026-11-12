@@ -233,6 +233,36 @@ class DynamoDBCallStatusStoreTests(unittest.TestCase):
                     self.observe()
                 self.assertIs(raised.exception, failure)
 
+    def test_active_conditional_error_metadata_cannot_hide_failures(self):
+        self.client.get_item.return_value = {}
+
+        class ActiveDictionary(dict):
+            def get(self, *args, **kwargs):
+                raise AssertionError("active error dictionary must not run")
+
+        class ActiveCode(str):
+            def __eq__(self, other):
+                raise AssertionError("active error code comparison must not run")
+
+        responses = (
+            ActiveDictionary({
+                "Error": {"Code": "ConditionalCheckFailedException"},
+            }),
+            {"Error": ActiveDictionary({
+                "Code": "ConditionalCheckFailedException",
+            })},
+            {"Error": {"Code": ActiveCode("ConditionalCheckFailedException")}},
+        )
+        for response in responses:
+            error = RuntimeError("synthetic storage failure")
+            error.response = response
+            self.client.update_item.side_effect = error
+            with self.subTest(response=type(response)), self.assertRaises(
+                RuntimeError,
+            ) as caught:
+                self.observe()
+            self.assertIs(caught.exception, error)
+
     def test_read_failures_are_not_reclassified_or_followed_by_writes(self):
         failure = ConditionalFailure("read failure, not a write conflict")
         self.client.get_item.side_effect = failure

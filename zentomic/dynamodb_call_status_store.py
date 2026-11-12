@@ -158,9 +158,12 @@ class DynamoDBCallStatusStore:
             )
         except Exception as error:
             response = getattr(error, "response", None)
-            details = response.get("Error") if isinstance(response, Mapping) else None
-            if (isinstance(details, Mapping)
-                    and details.get("Code") == "ConditionalCheckFailedException"):
+            # Botocore supplies plain dictionaries here. Reject programmatic
+            # mapping and string subclasses before invoking ``get`` or equality
+            # hooks that could disguise a storage failure as a write conflict.
+            details = response.get("Error") if type(response) is dict else None
+            code = details.get("Code") if type(details) is dict else None
+            if type(code) is str and code == "ConditionalCheckFailedException":
                 raise StatusConflictError("call status revision conflict") from None
             raise
         if (not isinstance(result, Mapping)
