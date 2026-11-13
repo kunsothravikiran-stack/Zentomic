@@ -13,7 +13,9 @@ def _response(
     return {
         "statusCode": status,
         "headers": {
-            "Content-Type": "application/json; charset=utf-8",
+            **({} if empty else {
+                "Content-Type": "application/json; charset=utf-8",
+            }),
             "Content-Length": str(len(body.encode("utf-8"))),
             "Cache-Control": "no-store",
             # The health payload is fixed public metadata, so simple browser

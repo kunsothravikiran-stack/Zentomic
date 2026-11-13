@@ -25,6 +25,7 @@ class HandlerCorsTests(unittest.TestCase):
                 self.assertEqual(result["statusCode"], 204)
                 self.assertEqual(result["body"], "")
                 self.assertEqual(result["headers"]["Content-Length"], "0")
+                self.assertNotIn("Content-Type", result["headers"])
                 self.assertEqual(result["headers"]["Allow"], "GET, HEAD, OPTIONS")
                 self.assertEqual(
                     result["headers"]["Access-Control-Allow-Methods"],
