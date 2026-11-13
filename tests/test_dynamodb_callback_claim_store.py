@@ -142,6 +142,12 @@ class DynamoDBCallbackClaimTests(unittest.TestCase):
             def __eq__(self, other):
                 raise AssertionError("active error code comparison must not run")
 
+        class ActiveKey(str):
+            __hash__ = str.__hash__
+
+            def __eq__(self, other):
+                raise AssertionError("active error key comparison must not run")
+
         responses = (
             ActiveDictionary({
                 "Error": {"Code": "ConditionalCheckFailedException"},
@@ -150,6 +156,8 @@ class DynamoDBCallbackClaimTests(unittest.TestCase):
                 "Code": "ConditionalCheckFailedException",
             })},
             {"Error": {"Code": ActiveCode("ConditionalCheckFailedException")}},
+            {ActiveKey("Error"): {"Code": "ConditionalCheckFailedException"}},
+            {"Error": {ActiveKey("Code"): "ConditionalCheckFailedException"}},
         )
         for response in responses:
             error = RuntimeError("synthetic storage failure")
@@ -174,7 +182,16 @@ class DynamoDBCallbackClaimTests(unittest.TestCase):
             def __iter__(self):
                 raise AssertionError("active claim response must not run")
 
-        for result in (None, [], True, "synthetic-private-marker", ActiveDictionary()):
+        class ActiveKey(str):
+            __hash__ = str.__hash__
+
+            def __eq__(self, other):
+                raise AssertionError("active claim-response key comparison must not run")
+
+        for result in (
+            None, [], True, "synthetic-private-marker", ActiveDictionary(),
+            {ActiveKey("ResponseMetadata"): {}},
+        ):
             client = Mock()
             client.put_item.return_value = result
             with self.subTest(result=result), self.assertRaises(ValueError) as caught:

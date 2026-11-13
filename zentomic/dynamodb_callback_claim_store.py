@@ -14,6 +14,11 @@ class DynamoDBClaimClient(Protocol):
         """Conditionally create an item using AttributeValue dictionaries."""
 
 
+def _plain_dictionary(value: Any) -> bool:
+    """Return whether a low-level SDK mapping is inert before key lookup."""
+    return type(value) is dict and all(type(key) is str for key in value)
+
+
 class DynamoDBCallbackClaimStore:
     """Implement CallbackClaimer with one conditional put per trusted key.
 
@@ -76,15 +81,15 @@ class DynamoDBCallbackClaimStore:
         except Exception as error:
             response = getattr(error, "response", None)
             # Botocore supplies plain dictionaries here. Reject programmatic
-            # mapping and string subclasses before invoking ``get`` or equality
-            # hooks that could disguise a storage failure as a harmless replay.
-            details = response.get("Error") if type(response) is dict else None
-            code = details.get("Code") if type(details) is dict else None
+            # mapping, key, and string subclasses before invoking ``get`` or
+            # equality hooks that could disguise a failure as a harmless replay.
+            details = response.get("Error") if _plain_dictionary(response) else None
+            code = details.get("Code") if _plain_dictionary(details) else None
             if type(code) is str and code == "ConditionalCheckFailedException":
                 return False
             raise
         # Botocore returns a plain dictionary. Do not accept an active mapping
-        # subclass from an injected client as a successful claim response.
-        if type(result) is not dict:
+        # subclass or non-plain key from an injected client as success.
+        if not _plain_dictionary(result):
             raise ValueError("DynamoDB returned an invalid callback claim response")
         return True

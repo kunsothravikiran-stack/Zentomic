@@ -214,6 +214,44 @@ class DynamoDBCallStatusStoreTests(unittest.TestCase):
                 self.client.update_item.return_value = response
                 self.observe()
 
+    def test_active_success_response_keys_are_rejected_without_running_overrides(self):
+        class ActiveKey(str):
+            touched = False
+            __hash__ = str.__hash__
+
+            def __eq__(self, other):
+                self.touched = True
+                raise AssertionError("active response key comparison must not run")
+
+        active_keys = []
+
+        def key(value):
+            active = ActiveKey(value)
+            active_keys.append(active)
+            return active
+
+        responses = (
+            {key("Item"): item()},
+            {"Item": {**item(), key("private"): {"S": "value"}}},
+            {"Item": {**item(), "call_status": {key("S"): "ringing"}}},
+            {"Item": {**item(), "status_revision": {key("N"): "1"}}},
+        )
+        for response in responses:
+            with self.subTest(response=response), self.assertRaisesRegex(
+                ValueError, "^DynamoDB returned an invalid call status snapshot$",
+            ):
+                self.client.get_item.return_value = response
+                self.load()
+
+        self.client.get_item.return_value = {}
+        response = {key("Attributes"): item()}
+        with self.assertRaisesRegex(
+            ValueError, "^DynamoDB returned an invalid call status snapshot$",
+        ):
+            self.client.update_item.return_value = response
+            self.observe()
+        self.assertTrue(all(not active.touched for active in active_keys))
+
     def test_creation_requires_a_wholly_absent_row(self):
         self.client.get_item.return_value = {}
         self.client.update_item.return_value = {"Attributes": {
@@ -282,6 +320,12 @@ class DynamoDBCallStatusStoreTests(unittest.TestCase):
             def __eq__(self, other):
                 raise AssertionError("active error code comparison must not run")
 
+        class ActiveKey(str):
+            __hash__ = str.__hash__
+
+            def __eq__(self, other):
+                raise AssertionError("active error key comparison must not run")
+
         responses = (
             ActiveDictionary({
                 "Error": {"Code": "ConditionalCheckFailedException"},
@@ -290,6 +334,8 @@ class DynamoDBCallStatusStoreTests(unittest.TestCase):
                 "Code": "ConditionalCheckFailedException",
             })},
             {"Error": {"Code": ActiveCode("ConditionalCheckFailedException")}},
+            {ActiveKey("Error"): {"Code": "ConditionalCheckFailedException"}},
+            {"Error": {ActiveKey("Code"): "ConditionalCheckFailedException"}},
         )
         for response in responses:
             error = RuntimeError("synthetic storage failure")

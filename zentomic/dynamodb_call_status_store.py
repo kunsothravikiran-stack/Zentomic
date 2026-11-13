@@ -23,16 +23,21 @@ class DynamoDBStatusClient(Protocol):
         """Atomically check and update one item."""
 
 
+def _plain_dictionary(value: Any) -> bool:
+    """Return whether a low-level SDK mapping is inert before key lookup."""
+    return type(value) is dict and all(type(key) is str for key in value)
+
+
 def _snapshot(item: Any) -> CallStatusSnapshot:
     # Low-level botocore responses are plain dictionaries. Reject mapping
-    # subclasses before membership, iteration, lookup, or equality can invoke
-    # behavior supplied by an injected client.
-    if type(item) is not dict:
+    # subclasses and non-plain keys before membership, iteration, lookup, or
+    # equality can invoke behavior supplied by an injected client.
+    if not _plain_dictionary(item):
         raise ValueError(_INVALID_SNAPSHOT)
     status = item.get("call_status")
     revision = item.get("status_revision")
-    if (type(status) is not dict or set(status) != {"S"}
-            or type(revision) is not dict or set(revision) != {"N"}):
+    if (not _plain_dictionary(status) or set(status) != {"S"}
+            or not _plain_dictionary(revision) or set(revision) != {"N"}):
         raise ValueError(_INVALID_SNAPSHOT)
     try:
         is_terminal_call_status(status["S"])
@@ -102,12 +107,12 @@ class DynamoDBCallStatusStore:
                 "#status": "call_status", "#revision": "status_revision",
             },
         )
-        if type(result) is not dict:
+        if not _plain_dictionary(result):
             raise ValueError(_INVALID_SNAPSHOT)
         if "Item" not in result:
             return CallStatusSnapshot()
         item = result["Item"]
-        if (type(item) is not dict
+        if (not _plain_dictionary(item)
                 or any(item.get(name) != value for name, value in key.items())):
             raise ValueError(_INVALID_SNAPSHOT)
         return _snapshot(item)
@@ -162,14 +167,14 @@ class DynamoDBCallStatusStore:
         except Exception as error:
             response = getattr(error, "response", None)
             # Botocore supplies plain dictionaries here. Reject programmatic
-            # mapping and string subclasses before invoking ``get`` or equality
-            # hooks that could disguise a storage failure as a write conflict.
-            details = response.get("Error") if type(response) is dict else None
-            code = details.get("Code") if type(details) is dict else None
+            # mapping, key, and string subclasses before invoking ``get`` or
+            # equality hooks that could disguise a failure as a write conflict.
+            details = response.get("Error") if _plain_dictionary(response) else None
+            code = details.get("Code") if _plain_dictionary(details) else None
             if type(code) is str and code == "ConditionalCheckFailedException":
                 raise StatusConflictError("call status revision conflict") from None
             raise
-        if (type(result) is not dict
+        if (not _plain_dictionary(result)
                 or _snapshot(result.get("Attributes")) != proposed):
             raise ValueError(_INVALID_SNAPSHOT)
         return proposed
