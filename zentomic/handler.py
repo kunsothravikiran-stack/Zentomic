@@ -5,7 +5,10 @@ from collections.abc import Mapping
 from typing import Any
 
 
-def _response(status: int, payload: dict, *, head: bool = False, **headers: str) -> dict:
+def _response(
+    status: int, payload: dict, *, head: bool = False, empty: bool = False,
+    **headers: str,
+) -> dict:
     body = json.dumps(payload, separators=(",", ":"))
     return {
         "statusCode": status,
@@ -16,6 +19,7 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
             # The health payload is fixed public metadata, so simple browser
             # checks may read success and error responses across origins.
             "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
             # If a JSON response is opened as a document, deny executable,
             # embedded, and navigational capabilities in modern browsers.
             "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
@@ -40,7 +44,7 @@ def _response(status: int, payload: dict, *, head: bool = False, **headers: str)
             "X-Content-Type-Options": "nosniff",
             **headers,
         },
-        "body": "" if head else body,
+        "body": "" if head or empty else body,
         "isBase64Encoded": False,
     }
 
@@ -82,6 +86,17 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
         return _response(400, {"error": "invalid_request"}, head=head)
     if path != "/health":
         return _response(404, {"error": "not_found"}, head=head)
+    if method == "OPTIONS":
+        return _response(
+            204, {}, empty=True, Allow="GET, HEAD, OPTIONS",
+            **{
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Max-Age": "600",
+                "Content-Length": "0",
+            },
+        )
     if method not in ("GET", "HEAD"):
-        return _response(405, {"error": "method_not_allowed"}, Allow="GET, HEAD")
+        return _response(
+            405, {"error": "method_not_allowed"}, Allow="GET, HEAD, OPTIONS",
+        )
     return _response(200, {"status": "ok", "service": "zentomic"}, head=head)

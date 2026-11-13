@@ -58,11 +58,13 @@ class HandlerTests(unittest.TestCase):
 
     def test_health_rejects_other_methods(self):
         for factory in (rest_event, http_event):
-            for method in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS", "head", "get"):
+            for method in ("POST", "PUT", "DELETE", "PATCH", "head", "get"):
                 with self.subTest(format=factory.__name__, method=method):
                     result = lambda_handler(factory(method=method), None)
                     self.assertEqual(result["statusCode"], 405)
-                    self.assertEqual(result["headers"]["Allow"], "GET, HEAD")
+                    self.assertEqual(
+                        result["headers"]["Allow"], "GET, HEAD, OPTIONS",
+                    )
 
     def test_head_matches_get_without_content_for_both_proxy_formats(self):
         for factory in (rest_event, http_event):
