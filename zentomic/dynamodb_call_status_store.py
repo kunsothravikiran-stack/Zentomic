@@ -28,6 +28,16 @@ def _plain_dictionary(value: Any) -> bool:
     return type(value) is dict and all(type(key) is str for key in value)
 
 
+def _matches_string_attribute(value: Any, expected: str) -> bool:
+    """Compare one projected key without invoking injected mapping hooks."""
+    return (
+        _plain_dictionary(value)
+        and set(value) == {"S"}
+        and type(value["S"]) is str
+        and value["S"] == expected
+    )
+
+
 def _snapshot(item: Any) -> CallStatusSnapshot:
     # Low-level botocore responses are plain dictionaries. Reject mapping
     # subclasses and non-plain keys before membership, iteration, lookup, or
@@ -113,7 +123,10 @@ class DynamoDBCallStatusStore:
             return CallStatusSnapshot()
         item = result["Item"]
         if (not _plain_dictionary(item)
-                or any(item.get(name) != value for name, value in key.items())):
+                or any(
+                    not _matches_string_attribute(item.get(name), value["S"])
+                    for name, value in key.items()
+                )):
             raise ValueError(_INVALID_SNAPSHOT)
         return _snapshot(item)
 

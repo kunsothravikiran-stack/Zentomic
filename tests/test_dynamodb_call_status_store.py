@@ -214,6 +214,34 @@ class DynamoDBCallStatusStoreTests(unittest.TestCase):
                 self.client.update_item.return_value = response
                 self.observe()
 
+    def test_active_projected_key_attributes_are_rejected_without_running_overrides(self):
+        class ActiveDictionary(dict):
+            def get(self, *args, **kwargs):
+                raise AssertionError("active key attribute lookup must not run")
+
+            def __iter__(self):
+                raise AssertionError("active key attribute iteration must not run")
+
+        class ActiveString(str):
+            def __eq__(self, other):
+                raise AssertionError("active key value comparison must not run")
+
+        for name, value in (
+            ("workspace_id", ActiveDictionary({"S": "demo-workspace"})),
+            ("call_sid", ActiveDictionary({"S": "demo-call"})),
+            ("workspace_id", {"S": ActiveString("demo-workspace")}),
+            ("call_sid", {"S": ActiveString("demo-call")}),
+        ):
+            response = item()
+            response[name] = value
+            self.client.get_item.return_value = {"Item": response}
+            with self.subTest(name=name, value=type(value).__name__), \
+                    self.assertRaisesRegex(
+                        ValueError,
+                        "^DynamoDB returned an invalid call status snapshot$",
+                    ):
+                self.load()
+
     def test_active_success_response_keys_are_rejected_without_running_overrides(self):
         class ActiveKey(str):
             touched = False
