@@ -4,7 +4,7 @@ import base64
 import binascii
 import hashlib
 import hmac
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from itertools import islice
 
 from zentomic.authentication import MAX_PUBLIC_URL_BYTES, MAX_SIGNATURE_CHARACTERS
@@ -35,7 +35,7 @@ def _auth_token_bytes(auth_token: str) -> bytes:
 
 def _validate_twilio_signature(
     public_url: str,
-    fields: Mapping[str, str],
+    fields: dict[str, str],
     signature: str,
     *,
     token: bytes,
@@ -43,7 +43,7 @@ def _validate_twilio_signature(
     """Validate request material with an already checked Auth Token."""
     if (type(public_url) is not str
             or len(public_url) > MAX_PUBLIC_URL_BYTES
-            or not isinstance(fields, Mapping)
+            or type(fields) is not dict
             or type(signature) is not str
             or len(signature) != MAX_SIGNATURE_CHARACTERS):
         return False
@@ -61,13 +61,10 @@ def _validate_twilio_signature(
     if not hmac.compare_digest(signature, canonical_signature):
         return False
 
-    try:
-        entries = tuple(islice(fields.items(), MAX_FORM_FIELDS + 1))
-    except Exception:
-        # A custom Mapping may fail while producing its view or iterating it.
-        # Treat that as malformed request material, matching this helper's
-        # false-on-invalid-input contract without exposing adapter internals.
-        return False
+    # The transport decoder produces a plain dictionary. Reject custom
+    # mappings before invoking their ``items`` extension point so unauthenticated
+    # request material cannot execute adapter behavior during verification.
+    entries = tuple(islice(fields.items(), MAX_FORM_FIELDS + 1))
     if len(entries) > MAX_FORM_FIELDS:
         return False
     for entry in entries:
@@ -131,7 +128,7 @@ def create_twilio_signature_validator(
     auth_token: str,
     *,
     previous_auth_tokens: Sequence[str] = (),
-) -> Callable[[str, Mapping[str, str], str], bool]:
+) -> Callable[[str, dict[str, str], str], bool]:
     """Create a reusable validator from trusted Auth Token configuration.
 
     Validate and encode the token once during adapter initialization so an
@@ -169,7 +166,7 @@ def create_twilio_signature_validator(
         raise ValueError("auth_token and previous_auth_tokens must be unique")
 
     def validator(
-        public_url: str, fields: Mapping[str, str], signature: str,
+        public_url: str, fields: dict[str, str], signature: str,
     ) -> bool:
         valid = False
         # Always check every configured token so request timing does not reveal
@@ -185,7 +182,7 @@ def create_twilio_signature_validator(
 
 def validate_twilio_signature(
     public_url: str,
-    fields: Mapping[str, str],
+    fields: dict[str, str],
     signature: str,
     *,
     auth_token: str,

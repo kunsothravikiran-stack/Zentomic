@@ -267,10 +267,15 @@ class TwilioSignatureTests(unittest.TestCase):
 
     def test_failing_mapping_returns_false(self):
         class FailingItems(dict):
+            touched = False
+
             def items(self):
+                self.touched = True
                 raise RuntimeError("synthetic-private-marker")
 
-        self.assertFalse(self.validate(fields=FailingItems(FIELDS)))
+        fields = FailingItems(FIELDS)
+        self.assertFalse(self.validate(fields=fields))
+        self.assertFalse(fields.touched)
 
     def test_malformed_mapping_entries_return_false(self):
         class MalformedItems(dict):
