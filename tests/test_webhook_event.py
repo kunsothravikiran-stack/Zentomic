@@ -99,61 +99,34 @@ class FormEventTests(unittest.TestCase):
                 parse_form_event(candidate)
         decoder.assert_not_called()
 
-    def test_header_collection_limit_does_not_trust_reported_length(self):
-        class UnderreportedHeaders(dict):
+    def test_active_header_mapping_is_rejected_before_hooks_run(self):
+        class ActiveHeaders(dict):
+            touched = False
+
             def __len__(self):
-                return 1
+                self.touched = True
+                raise AssertionError("active header length must not run")
 
-        class UninspectedHeaderName(str):
-            def lower(self):
-                raise AssertionError("oversized collection must not be scanned")
-
-        headers = UnderreportedHeaders({
-            UninspectedHeaderName("Content-Type"): FORM,
-            **{f"X-Synthetic-{index}": "value"
-               for index in range(MAX_HEADER_FIELDS)},
-        })
-        candidate = {**event(), "headers": headers}
-
-        with patch("zentomic.webhook_event.parse_form_body") as decoder:
-            with self.assertRaisesRegex(
-                ValueError, "^header collection exceeds size limit$",
-            ):
-                parse_form_event(candidate)
-        decoder.assert_not_called()
-
-    def test_broken_header_mappings_fail_with_private_value_errors(self):
-        class FailingItems(dict):
             def items(self):
-                raise RuntimeError("synthetic-private-marker")
+                self.touched = True
+                raise AssertionError("active header iteration must not run")
 
-        class MalformedItems(dict):
-            def items(self):
-                return iter([("Content-Type",)])
-
-        class ActiveEntry:
-            def __iter__(self):
-                raise AssertionError("active header entry iteration must not run")
-
-        class ActiveItems(dict):
-            def items(self):
-                return iter([ActiveEntry()])
-
-        cases = (
-            (FailingItems({"Content-Type": FORM}),
-             "^header collection could not be read$"),
-            (MalformedItems({"Content-Type": FORM}),
-             "^header collection contains an invalid entry$"),
-            (ActiveItems({"Content-Type": FORM}),
-             "^header collection contains an invalid entry$"),
+        candidates = (
+            {**event(), "headers": ActiveHeaders({"Content-Type": FORM})},
+            {**event(), "headers": None,
+             "multiValueHeaders": ActiveHeaders({"Content-Type": [FORM]})},
         )
-        for headers, message in cases:
-            with self.subTest(headers=type(headers).__name__), \
+        for field, candidate in zip(("headers", "multiValueHeaders"), candidates):
+            with self.subTest(field=field), \
                     patch("zentomic.webhook_event.parse_form_body") as decoder:
-                with self.assertRaisesRegex(ValueError, message) as caught:
-                    parse_form_event({**event(), "headers": headers})
+                with self.assertRaisesRegex(
+                    ValueError, "^headers must be a plain dictionary$",
+                ):
+                    parse_form_event(candidate)
                 decoder.assert_not_called()
-                self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
+        self.assertFalse(candidates[0]["headers"].touched)
+        self.assertFalse(candidates[1]["multiValueHeaders"].touched)
 
     def test_oversized_header_name_fails_before_case_folding(self):
         class OversizedHeaderName(str):

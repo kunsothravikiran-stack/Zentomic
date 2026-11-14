@@ -2,7 +2,6 @@
 
 import re
 from collections.abc import Mapping
-from itertools import islice
 from typing import Any
 
 from zentomic.webhook import parse_form_body
@@ -20,25 +19,15 @@ MAX_HEADER_NAME_CHARACTERS = 128
 def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
     if headers is None:
         return None
-    if not isinstance(headers, Mapping):
-        raise ValueError("headers must be a mapping")
-    # API Gateway bounds the wire request, but callers can invoke this offline
-    # helper with arbitrary mappings. Bound both collection size and each name
-    # before scanning or allocating a lowercase copy.
-    try:
-        entries = tuple(islice(headers.items(), MAX_HEADER_FIELDS + 1))
-    except Exception:
-        raise ValueError("header collection could not be read") from None
-    if len(entries) > MAX_HEADER_FIELDS:
+    # API Gateway JSON decoding produces an inert built-in dictionary. Reject
+    # programmatic mappings before invoking their length or iteration hooks at
+    # this unauthenticated boundary.
+    if type(headers) is not dict:
+        raise ValueError("headers must be a plain dictionary")
+    if len(headers) > MAX_HEADER_FIELDS:
         raise ValueError("header collection exceeds size limit")
     values = []
-    for entry in entries:
-        # ``Mapping.items()`` is an extension point for programmatic adapters.
-        # Require the inert pair shape produced by a decoded JSON dictionary
-        # before unpacking so a hostile iterable cannot execute here.
-        if type(entry) is not tuple or len(entry) != 2:
-            raise ValueError("header collection contains an invalid entry")
-        name, value = entry
+    for name, value in headers.items():
         # Only inert built-in primitives may cross this unauthenticated
         # boundary. Subclasses can override length, case folding, trimming,
         # indexing, or other operations performed below.

@@ -102,82 +102,39 @@ class AuthenticationTests(unittest.TestCase):
         validator.assert_not_called()
         self.assertEqual(candidate.header_reads, 0)
 
-    def test_signature_header_second_read_failures_are_private(self):
-        class FailingSecondItems(dict):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.reads = 0
+    def test_active_header_mappings_are_rejected_before_validation(self):
+        class ActiveHeaders(dict):
+            touched = False
+
+            def __len__(self):
+                self.touched = True
+                raise AssertionError("active header length must not run")
 
             def items(self):
-                self.reads += 1
-                if self.reads == 2:
-                    raise RuntimeError("synthetic-private-marker")
-                return super().items()
+                self.touched = True
+                raise AssertionError("active header iteration must not run")
 
-        candidate = event()
-        headers = FailingSecondItems(candidate["headers"])
-        candidate["headers"] = headers
-        validator = Mock(return_value=True)
-        with self.assertRaisesRegex(
-            ValueError, "^signature header collection could not be read$",
-        ) as caught:
-            validate_form_event(candidate, public_url=URL, validator=validator)
-        validator.assert_not_called()
-        self.assertEqual(headers.reads, 2)
-        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+        candidates = []
+        for key in ("headers", "multiValueHeaders"):
+            candidate = event()
+            if key == "multiValueHeaders":
+                candidate["headers"] = {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                }
+                value = {"X-Twilio-Signature": [SIGNATURE]}
+            else:
+                value = candidate["headers"]
+            candidate[key] = ActiveHeaders(value)
+            candidates.append((key, candidate))
 
-    def test_signature_rescan_rejects_nonstring_header_names(self):
-        class ChangingSecondItems(dict):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.reads = 0
-
-            def items(self):
-                self.reads += 1
-                entries = list(super().items())
-                if self.reads == 2:
-                    entries.append((1, "synthetic-private-marker"))
-                return iter(entries)
-
-        candidate = event()
-        headers = ChangingSecondItems(candidate["headers"])
-        candidate["headers"] = headers
-        validator = Mock(return_value=True)
-        with self.assertRaisesRegex(
-            ValueError, "^signature header name must be a plain string$",
-        ) as caught:
-            validate_form_event(candidate, public_url=URL, validator=validator)
-        validator.assert_not_called()
-        self.assertEqual(headers.reads, 2)
-        self.assertNotIn("synthetic-private-marker", str(caught.exception))
-
-    def test_signature_rescan_rejects_active_header_entries_without_iteration(self):
-        class ActiveEntry:
-            def __iter__(self):
-                raise AssertionError("active signature entry iteration must not run")
-
-        class ChangingSecondItems(dict):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.reads = 0
-
-            def items(self):
-                self.reads += 1
-                if self.reads == 2:
-                    return iter([ActiveEntry()])
-                return super().items()
-
-        candidate = event()
-        headers = ChangingSecondItems(candidate["headers"])
-        candidate["headers"] = headers
-        validator = Mock(return_value=True)
-        with self.assertRaisesRegex(
-            ValueError,
-            "^signature header collection contains an invalid entry$",
-        ):
-            validate_form_event(candidate, public_url=URL, validator=validator)
-        validator.assert_not_called()
-        self.assertEqual(headers.reads, 2)
+        for key, candidate in candidates:
+            validator = Mock(return_value=True)
+            with self.subTest(key=key), self.assertRaisesRegex(
+                ValueError, "^headers must be a plain dictionary$",
+            ):
+                validate_form_event(candidate, public_url=URL, validator=validator)
+            validator.assert_not_called()
+            self.assertFalse(candidate[key].touched)
 
     def test_active_signature_primitives_are_rejected_without_overrides(self):
         class ActiveSignature(str):
