@@ -2,7 +2,7 @@
 
 import unittest
 
-from zentomic.handler import lambda_handler
+from zentomic.handler import _response, lambda_handler
 
 
 def rest_event(method="GET"):
@@ -18,6 +18,16 @@ def http_event(method="GET"):
 
 
 class HandlerCorsTests(unittest.TestCase):
+    def test_empty_envelope_enforces_no_content_metadata(self):
+        result = _response(
+            204, {"ignored": "payload"}, empty=True,
+            **{"Content-Type": "text/plain", "Content-Length": "999"},
+        )
+
+        self.assertEqual(result["body"], "")
+        self.assertEqual(result["headers"]["Content-Length"], "0")
+        self.assertNotIn("Content-Type", result["headers"])
+
     def test_health_options_supports_cors_preflight(self):
         for factory in (rest_event, http_event):
             with self.subTest(format=factory.__name__):

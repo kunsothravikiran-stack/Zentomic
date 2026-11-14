@@ -10,42 +10,47 @@ def _response(
     **headers: str,
 ) -> dict:
     body = json.dumps(payload, separators=(",", ":"))
+    response_headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": str(len(body.encode("utf-8"))),
+        "Cache-Control": "no-store",
+        # The health payload is fixed public metadata, so simple browser
+        # checks may read success and error responses across origins.
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        # If a JSON response is opened as a document, deny executable,
+        # embedded, and navigational capabilities in modern browsers.
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+        # Isolate a top-level health response from a cross-origin opener.
+        "Cross-Origin-Opener-Policy": "same-origin",
+        # API Gateway serves the endpoint over HTTPS. Remember that choice
+        # for a year without extending policy to unrelated subdomains.
+        "Strict-Transport-Security": "max-age=31536000",
+        # Preserve frame denial for clients that do not enforce CSP.
+        "X-Frame-Options": "DENY",
+        # The endpoint never needs browser-controlled device capabilities.
+        "Permissions-Policy": (
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+            "microphone=(), payment=(), usb=()"
+        ),
+        # Do not disclose the health endpoint's URL through a Referer
+        # header if a browser follows or embeds content from this response.
+        "Referrer-Policy": "no-referrer",
+        # Keep the operational endpoint out of search results and prevent
+        # crawlers from following any content they might infer from it.
+        "X-Robots-Tag": "noindex, nofollow",
+        "X-Content-Type-Options": "nosniff",
+        **headers,
+    }
+    if empty:
+        # No-content responses cannot carry representation metadata. Enforce
+        # this in the shared envelope so future callers cannot accidentally
+        # advertise a body or override its zero length.
+        response_headers.pop("Content-Type", None)
+        response_headers["Content-Length"] = "0"
     return {
         "statusCode": status,
-        "headers": {
-            **({} if empty else {
-                "Content-Type": "application/json; charset=utf-8",
-            }),
-            "Content-Length": str(len(body.encode("utf-8"))),
-            "Cache-Control": "no-store",
-            # The health payload is fixed public metadata, so simple browser
-            # checks may read success and error responses across origins.
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-            # If a JSON response is opened as a document, deny executable,
-            # embedded, and navigational capabilities in modern browsers.
-            "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
-            # Isolate a top-level health response from a cross-origin opener.
-            "Cross-Origin-Opener-Policy": "same-origin",
-            # API Gateway serves the endpoint over HTTPS. Remember that choice
-            # for a year without extending policy to unrelated subdomains.
-            "Strict-Transport-Security": "max-age=31536000",
-            # Preserve frame denial for clients that do not enforce CSP.
-            "X-Frame-Options": "DENY",
-            # The endpoint never needs browser-controlled device capabilities.
-            "Permissions-Policy": (
-                "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
-                "microphone=(), payment=(), usb=()"
-            ),
-            # Do not disclose the health endpoint's URL through a Referer
-            # header if a browser follows or embeds content from this response.
-            "Referrer-Policy": "no-referrer",
-            # Keep the operational endpoint out of search results and prevent
-            # crawlers from following any content they might infer from it.
-            "X-Robots-Tag": "noindex, nofollow",
-            "X-Content-Type-Options": "nosniff",
-            **headers,
-        },
+        "headers": response_headers,
         "body": "" if head or empty else body,
         "isBase64Encoded": False,
     }
@@ -94,7 +99,6 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
             **{
                 "Access-Control-Allow-Headers": "Content-Type",
                 "Access-Control-Max-Age": "600",
-                "Content-Length": "0",
             },
         )
     if method not in ("GET", "HEAD"):
