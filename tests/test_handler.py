@@ -28,7 +28,10 @@ class HandlerTests(unittest.TestCase):
             with self.subTest(event=event):
                 result = lambda_handler(event, None)
                 self.assertEqual(result["statusCode"], 200)
-                self.assertEqual(json.loads(result["body"]), {"status": "ok", "service": "zentomic"})
+                self.assertEqual(
+                    json.loads(result["body"]),
+                    {"status": "ok", "service": "zentomic", "version": "0.1.0"},
+                )
 
     def test_proxy_response_contract(self):
         for event in (http_event(), rest_event(path="/missing"), rest_event("POST"), {}):

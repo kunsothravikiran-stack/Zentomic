@@ -175,7 +175,7 @@ class HandlerSecurityHeaderTests(unittest.TestCase):
 
         self.assertEqual(
             json.loads(get_response["body"]),
-            {"status": "ok", "service": "zentomic"},
+            {"status": "ok", "service": "zentomic", "version": "0.1.0"},
         )
         self.assertEqual(head_response["body"], "")
         self.assertEqual(

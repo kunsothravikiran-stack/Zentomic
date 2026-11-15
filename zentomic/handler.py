@@ -4,6 +4,8 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from zentomic import __version__
+
 
 def _response(
     status: int, payload: dict, *, head: bool = False, empty: bool = False,
@@ -112,4 +114,8 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
         return _response(
             405, {"error": "method_not_allowed"}, Allow="GET, HEAD, OPTIONS",
         )
-    return _response(200, {"status": "ok", "service": "zentomic"}, head=head)
+    return _response(
+        200,
+        {"status": "ok", "service": "zentomic", "version": __version__},
+        head=head,
+    )

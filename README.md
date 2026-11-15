@@ -19,8 +19,10 @@ deployment workflows, credentials, telephony operations, or AI API calls here.
 
 Implemented: a Lambda-compatible `/health` liveness endpoint supporting GET,
 HEAD, and OPTIONS with API Gateway REST API (v1) and HTTP API (v2) proxy events.
-GET returns `{"status":"ok","service":"zentomic"}` without checking external
-services. HEAD supports body-free liveness probes with the same status and
+GET returns `{"status":"ok","service":"zentomic","version":"0.1.0"}` without
+checking external services. The version is read from the package's single
+version source so operators can confirm which release is serving traffic. HEAD
+supports body-free liveness probes with the same status and
 headers as GET, following
 [HTTP HEAD semantics](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.2).
 Its proxy `body` is an empty string, including for unknown or invalid paths in
