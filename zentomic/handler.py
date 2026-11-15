@@ -29,6 +29,9 @@ def _response(
         "Cross-Origin-Resource-Policy": "cross-origin",
         # API Gateway serves the endpoint over HTTPS. Remember that choice
         # for a year without extending policy to unrelated subdomains.
+        # Let cross-origin monitoring dashboards include this public endpoint
+        # in Resource Timing without exposing any request or customer data.
+        "Timing-Allow-Origin": "*",
         "Strict-Transport-Security": "max-age=31536000",
         # Preserve frame denial for clients that do not enforce CSP.
         "X-Frame-Options": "DENY",
