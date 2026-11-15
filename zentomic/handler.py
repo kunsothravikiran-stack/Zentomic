@@ -23,6 +23,10 @@ def _response(
         "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
         # Isolate a top-level health response from a cross-origin opener.
         "Cross-Origin-Opener-Policy": "same-origin",
+        # The public health resource is intentionally readable across origins.
+        # State that policy explicitly so cross-origin isolated dashboards can
+        # load it without weakening isolation for their other resources.
+        "Cross-Origin-Resource-Policy": "cross-origin",
         # API Gateway serves the endpoint over HTTPS. Remember that choice
         # for a year without extending policy to unrelated subdomains.
         "Strict-Transport-Security": "max-age=31536000",
