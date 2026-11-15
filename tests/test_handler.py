@@ -29,6 +29,9 @@ class HandlerTests(unittest.TestCase):
                 result = lambda_handler(event, None)
                 self.assertEqual(result["statusCode"], 200)
                 self.assertEqual(
+                    result["headers"]["X-Zentomic-Version"], "0.1.0",
+                )
+                self.assertEqual(
                     json.loads(result["body"]),
                     {"status": "ok", "service": "zentomic", "version": "0.1.0"},
                 )
