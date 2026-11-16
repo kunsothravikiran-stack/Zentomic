@@ -118,5 +118,8 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
         200,
         {"status": "ok", "service": "zentomic", "version": __version__},
         head=head,
-        **{"X-Zentomic-Version": __version__},
+        **{
+            "Access-Control-Expose-Headers": "X-Zentomic-Version",
+            "X-Zentomic-Version": __version__,
+        },
     )

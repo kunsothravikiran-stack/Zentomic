@@ -32,6 +32,10 @@ class HandlerTests(unittest.TestCase):
                     result["headers"]["X-Zentomic-Version"], "0.1.0",
                 )
                 self.assertEqual(
+                    result["headers"]["Access-Control-Expose-Headers"],
+                    "X-Zentomic-Version",
+                )
+                self.assertEqual(
                     json.loads(result["body"]),
                     {"status": "ok", "service": "zentomic", "version": "0.1.0"},
                 )
