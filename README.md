@@ -24,7 +24,10 @@ checking external services. The version is read from the package's single
 version source so operators can confirm which release is serving traffic.
 Successful GET and HEAD responses also expose it in the
 `X-Zentomic-Version` header, with `Access-Control-Expose-Headers` allowing
-cross-origin browser monitors to read the release identifier. HEAD
+cross-origin browser monitors to read the release identifier. When AWS Lambda
+supplies an invocation ID, every response also exposes it as
+`X-Zentomic-Request-Id` so operators can correlate a probe with the matching
+Lambda invocation without returning request contents. HEAD
 supports body-free liveness probes with the same status and headers as GET, following
 [HTTP HEAD semantics](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.2).
 Its proxy `body` is an empty string, including for unknown or invalid paths in

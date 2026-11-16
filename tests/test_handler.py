@@ -5,6 +5,7 @@ import json
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from zentomic.handler import lambda_handler
@@ -57,6 +58,55 @@ class HandlerTests(unittest.TestCase):
                 self.assertEqual(result["headers"]["X-Content-Type-Options"], "nosniff")
                 self.assertIs(result["isBase64Encoded"], False)
                 self.assertIsInstance(json.loads(result["body"]), dict)
+
+    def test_lambda_request_id_correlates_every_response_path(self):
+        context = SimpleNamespace(aws_request_id="offline-request-123")
+        events = (
+            http_event(),
+            rest_event("HEAD"),
+            rest_event("OPTIONS"),
+            rest_event(path="/missing"),
+            rest_event("POST"),
+            None,
+        )
+        for event in events:
+            with self.subTest(event=event):
+                result = lambda_handler(event, context)
+                self.assertEqual(
+                    result["headers"]["X-Zentomic-Request-Id"],
+                    "offline-request-123",
+                )
+                self.assertIn(
+                    "X-Zentomic-Request-Id",
+                    result["headers"]["Access-Control-Expose-Headers"].split(", "),
+                )
+
+    def test_missing_or_invalid_lambda_request_id_is_not_exposed(self):
+        class ActiveRequestId(str):
+            def __len__(self):
+                raise AssertionError("active request ID length must not run")
+
+            def encode(self, *args, **kwargs):
+                raise AssertionError("active request ID encoding must not run")
+
+        contexts = (
+            None,
+            SimpleNamespace(),
+            SimpleNamespace(aws_request_id=None),
+            SimpleNamespace(aws_request_id=""),
+            SimpleNamespace(aws_request_id="with space"),
+            SimpleNamespace(aws_request_id="తెలుగు"),
+            SimpleNamespace(aws_request_id="x" * 129),
+            SimpleNamespace(aws_request_id=ActiveRequestId("active")),
+        )
+        for context in contexts:
+            with self.subTest(context=context):
+                result = lambda_handler(http_event(), context)
+                self.assertNotIn("X-Zentomic-Request-Id", result["headers"])
+                self.assertEqual(
+                    result["headers"]["Access-Control-Expose-Headers"],
+                    "X-Zentomic-Version",
+                )
 
     def test_unknown_paths_do_not_match_health(self):
         for factory in (rest_event, http_event):

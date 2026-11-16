@@ -7,8 +7,22 @@ from typing import Any
 from zentomic import __version__
 
 
+def _context_request_id(context: Any) -> str | None:
+    """Return a bounded Lambda invocation ID when the runtime supplies one."""
+    request_id = getattr(context, "aws_request_id", None)
+    if type(request_id) is not str or not request_id or len(request_id) > 128:
+        return None
+    try:
+        request_id.encode("ascii")
+    except UnicodeEncodeError:
+        return None
+    return request_id if all(character.isalnum() or character in "-_"
+                             for character in request_id) else None
+
+
 def _response(
     status: int, payload: dict, *, head: bool = False, empty: bool = False,
+    request_id: str | None = None,
     **headers: str,
 ) -> dict:
     body = json.dumps(payload, separators=(",", ":"))
@@ -51,6 +65,13 @@ def _response(
         "X-Content-Type-Options": "nosniff",
         **headers,
     }
+    if request_id is not None:
+        response_headers["X-Zentomic-Request-Id"] = request_id
+        exposed = response_headers.get("Access-Control-Expose-Headers")
+        response_headers["Access-Control-Expose-Headers"] = (
+            "X-Zentomic-Request-Id" if exposed is None
+            else f"{exposed}, X-Zentomic-Request-Id"
+        )
     if empty:
         # No-content responses cannot carry representation metadata. Enforce
         # this in the shared envelope so future callers cannot accidentally
@@ -67,44 +88,47 @@ def _response(
 
 def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
     """Handle REST v1 or HTTP v2 events without contacting external services."""
+    request_id = _context_request_id(context)
     # API Gateway JSON decoding produces plain dictionaries with plain string
     # keys. Reject programmatic Mapping implementations and active key
     # subclasses before invoking ``get`` or dictionary key comparisons.
     if type(event) is not dict or any(type(key) is not str for key in event):
-        return _response(400, {"error": "invalid_request"})
+        return _response(400, {"error": "invalid_request"}, request_id=request_id)
 
     version = event.get("version", "1.0")
     # API Gateway JSON decoding produces exact built-in strings. Reject active
     # subclasses before equality, truthiness, or length operations so a
     # programmatic adapter cannot execute overrides inside route admission.
     if type(version) is not str:
-        return _response(400, {"error": "invalid_request"})
+        return _response(400, {"error": "invalid_request"}, request_id=request_id)
     if version == "2.0":
         request_context = event.get("requestContext")
         if (type(request_context) is not dict
                 or any(type(key) is not str for key in request_context)):
-            return _response(400, {"error": "invalid_request"})
+            return _response(400, {"error": "invalid_request"}, request_id=request_id)
         http = request_context.get("http")
         if type(http) is not dict or any(type(key) is not str for key in http):
-            return _response(400, {"error": "invalid_request"})
+            return _response(400, {"error": "invalid_request"}, request_id=request_id)
         method = http.get("method")
         path = event.get("rawPath")
     elif version == "1.0":
         method = event.get("httpMethod")
         path = event.get("path")
     else:
-        return _response(400, {"error": "invalid_request"})
+        return _response(400, {"error": "invalid_request"}, request_id=request_id)
 
     if type(method) is not str or not method:
-        return _response(400, {"error": "invalid_request"})
+        return _response(400, {"error": "invalid_request"}, request_id=request_id)
     head = method == "HEAD"
     if type(path) is not str or not path:
-        return _response(400, {"error": "invalid_request"}, head=head)
+        return _response(
+            400, {"error": "invalid_request"}, head=head, request_id=request_id,
+        )
     if path != "/health":
-        return _response(404, {"error": "not_found"}, head=head)
+        return _response(404, {"error": "not_found"}, head=head, request_id=request_id)
     if method == "OPTIONS":
         return _response(
-            204, {}, empty=True, Allow="GET, HEAD, OPTIONS",
+            204, {}, empty=True, request_id=request_id, Allow="GET, HEAD, OPTIONS",
             **{
                 "Access-Control-Allow-Headers": "Content-Type",
                 "Access-Control-Max-Age": "600",
@@ -112,12 +136,14 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
         )
     if method not in ("GET", "HEAD"):
         return _response(
-            405, {"error": "method_not_allowed"}, Allow="GET, HEAD, OPTIONS",
+            405, {"error": "method_not_allowed"}, request_id=request_id,
+            Allow="GET, HEAD, OPTIONS",
         )
     return _response(
         200,
         {"status": "ok", "service": "zentomic", "version": __version__},
         head=head,
+        request_id=request_id,
         **{
             "Access-Control-Expose-Headers": "X-Zentomic-Version",
             "X-Zentomic-Version": __version__,
