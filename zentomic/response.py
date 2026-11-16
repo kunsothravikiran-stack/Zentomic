@@ -44,6 +44,10 @@ def twiml_response(xml: str) -> dict[str, Any]:
             "Content-Security-Policy": (
                 "default-src 'none'; frame-ancestors 'none'; sandbox"
             ),
+            # Prevent browsers from embedding the XML as a cross-origin
+            # subresource and avoid leaking its callback URL in Referer.
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "Referrer-Policy": "no-referrer",
             "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
         },

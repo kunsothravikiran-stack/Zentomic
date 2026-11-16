@@ -124,6 +124,8 @@ class TwimlResponseTests(unittest.TestCase):
             "Cache-Control": "no-store",
             "Content-Security-Policy":
                 "default-src 'none'; frame-ancestors 'none'; sandbox",
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "Referrer-Policy": "no-referrer",
             "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
         })
