@@ -27,6 +27,9 @@ class TwimlResponseTests(unittest.TestCase):
                     "headers": {"Content-Type": "application/xml; charset=utf-8",
                                 "Content-Length": str(len(xml.encode("utf-8"))),
                                 "Cache-Control": "no-store",
+                                "Content-Security-Policy":
+                                    "default-src 'none'; frame-ancestors 'none'; sandbox",
+                                "X-Frame-Options": "DENY",
                                 "X-Content-Type-Options": "nosniff"},
                     "body": xml,
                     "isBase64Encoded": False,
@@ -119,6 +122,9 @@ class TwimlResponseTests(unittest.TestCase):
             "Content-Type": "application/xml; charset=utf-8",
             "Content-Length": str(len(second["body"].encode("utf-8"))),
             "Cache-Control": "no-store",
+            "Content-Security-Policy":
+                "default-src 'none'; frame-ancestors 'none'; sandbox",
+            "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
         })
 

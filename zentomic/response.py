@@ -39,6 +39,12 @@ def twiml_response(xml: str) -> dict[str, Any]:
             "Content-Type": "application/xml; charset=utf-8",
             "Content-Length": str(len(encoded)),
             "Cache-Control": "no-store",
+            # Twilio ignores browser policies, but these keep a TwiML endpoint
+            # inert if its URL is accidentally opened or embedded in a browser.
+            "Content-Security-Policy": (
+                "default-src 'none'; frame-ancestors 'none'; sandbox"
+            ),
+            "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
         },
         "body": xml,

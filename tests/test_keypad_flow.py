@@ -54,6 +54,9 @@ class KeypadFlowTests(unittest.TestCase):
             "Content-Type": "application/xml; charset=utf-8",
             "Content-Length": str(len(response["body"].encode("utf-8"))),
             "Cache-Control": "no-store",
+            "Content-Security-Policy":
+                "default-src 'none'; frame-ancestors 'none'; sandbox",
+            "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
         })
         return decision, fromstring(response["body"])
