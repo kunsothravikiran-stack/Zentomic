@@ -50,9 +50,16 @@ def twiml_response(xml: str) -> dict[str, Any]:
             # Prevent browsers from embedding the XML as a cross-origin
             # subresource and avoid leaking its callback URL in Referer.
             "Cross-Origin-Resource-Policy": "same-origin",
+            # A TwiML callback is machine-readable XML and never needs access
+            # to browser-controlled device capabilities if opened directly.
+            "Permissions-Policy": (
+                "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+            ),
             "Referrer-Policy": "no-referrer",
             "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
+            # Keep public callback URLs out of search results if discovered.
+            "X-Robots-Tag": "noindex, nofollow",
         },
         "body": xml,
         "isBase64Encoded": False,

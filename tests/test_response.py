@@ -31,9 +31,13 @@ class TwimlResponseTests(unittest.TestCase):
                                     "default-src 'none'; frame-ancestors 'none'; sandbox",
                                 "Cross-Origin-Opener-Policy": "same-origin",
                                 "Cross-Origin-Resource-Policy": "same-origin",
+                                "Permissions-Policy":
+                                    "camera=(), geolocation=(), microphone=(), "
+                                    "payment=(), usb=()",
                                 "Referrer-Policy": "no-referrer",
                                 "X-Frame-Options": "DENY",
-                                "X-Content-Type-Options": "nosniff"},
+                                "X-Content-Type-Options": "nosniff",
+                                "X-Robots-Tag": "noindex, nofollow"},
                     "body": xml,
                     "isBase64Encoded": False,
                 })
@@ -129,9 +133,12 @@ class TwimlResponseTests(unittest.TestCase):
                 "default-src 'none'; frame-ancestors 'none'; sandbox",
             "Cross-Origin-Opener-Policy": "same-origin",
             "Cross-Origin-Resource-Policy": "same-origin",
+            "Permissions-Policy":
+                "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
             "Referrer-Policy": "no-referrer",
             "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
+            "X-Robots-Tag": "noindex, nofollow",
         })
 
     def test_builder_is_offline_and_does_not_log_body(self):

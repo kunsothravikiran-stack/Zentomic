@@ -58,9 +58,12 @@ class KeypadFlowTests(unittest.TestCase):
                 "default-src 'none'; frame-ancestors 'none'; sandbox",
             "Cross-Origin-Opener-Policy": "same-origin",
             "Cross-Origin-Resource-Policy": "same-origin",
+            "Permissions-Policy":
+                "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
             "Referrer-Policy": "no-referrer",
             "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
+            "X-Robots-Tag": "noindex, nofollow",
         })
         return decision, fromstring(response["body"])
 
