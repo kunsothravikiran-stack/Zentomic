@@ -44,6 +44,9 @@ def twiml_response(xml: str) -> dict[str, Any]:
             "Content-Security-Policy": (
                 "default-src 'none'; frame-ancestors 'none'; sandbox"
             ),
+            # Isolate accidental top-level navigation from its opener so the
+            # XML response cannot retain a cross-origin window relationship.
+            "Cross-Origin-Opener-Policy": "same-origin",
             # Prevent browsers from embedding the XML as a cross-origin
             # subresource and avoid leaking its callback URL in Referer.
             "Cross-Origin-Resource-Policy": "same-origin",

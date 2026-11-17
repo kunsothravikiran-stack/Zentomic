@@ -29,6 +29,7 @@ class TwimlResponseTests(unittest.TestCase):
                                 "Cache-Control": "no-store",
                                 "Content-Security-Policy":
                                     "default-src 'none'; frame-ancestors 'none'; sandbox",
+                                "Cross-Origin-Opener-Policy": "same-origin",
                                 "Cross-Origin-Resource-Policy": "same-origin",
                                 "Referrer-Policy": "no-referrer",
                                 "X-Frame-Options": "DENY",
@@ -126,6 +127,7 @@ class TwimlResponseTests(unittest.TestCase):
             "Cache-Control": "no-store",
             "Content-Security-Policy":
                 "default-src 'none'; frame-ancestors 'none'; sandbox",
+            "Cross-Origin-Opener-Policy": "same-origin",
             "Cross-Origin-Resource-Policy": "same-origin",
             "Referrer-Policy": "no-referrer",
             "X-Frame-Options": "DENY",
