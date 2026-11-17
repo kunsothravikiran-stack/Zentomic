@@ -56,6 +56,7 @@ class KeypadFlowTests(unittest.TestCase):
             "Cache-Control": "no-store",
             "Content-Security-Policy":
                 "default-src 'none'; frame-ancestors 'none'; sandbox",
+            "Cross-Origin-Embedder-Policy": "require-corp",
             "Cross-Origin-Opener-Policy": "same-origin",
             "Cross-Origin-Resource-Policy": "same-origin",
             "Permissions-Policy":

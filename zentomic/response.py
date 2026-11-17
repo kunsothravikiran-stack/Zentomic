@@ -44,6 +44,9 @@ def twiml_response(xml: str) -> dict[str, Any]:
             "Content-Security-Policy": (
                 "default-src 'none'; frame-ancestors 'none'; sandbox"
             ),
+            # Require explicitly same-origin or opted-in subresources if an
+            # XML response is ever opened as a browser document.
+            "Cross-Origin-Embedder-Policy": "require-corp",
             # Isolate accidental top-level navigation from its opener so the
             # XML response cannot retain a cross-origin window relationship.
             "Cross-Origin-Opener-Policy": "same-origin",
