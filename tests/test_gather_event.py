@@ -75,7 +75,7 @@ class GatherEventTests(unittest.TestCase):
                               ({"AccountSid": "other-account"}, True),
                               ({"CallSid": "other-call"}, True)):
             with self.subTest(fields=fields, valid=valid), patch(
-                "zentomic.gather_event.resolve_gather",
+                "zentomic.gather_event._resolve_validated_gather",
             ) as policy:
                 with self.assertRaises(ValueError):
                     self.resolve(callback(fields, "2.0", False), Mock(return_value=valid))
@@ -98,15 +98,20 @@ class GatherEventTests(unittest.TestCase):
                                      GatherDecision("route", "demo-sales", 1))
                     self.assertEqual(event, original)
 
-    def test_invalid_policy_configuration_is_not_hidden_by_valid_input(self):
+    def test_invalid_policy_configuration_fails_before_authentication(self):
         for overrides in ({"attempts": True}, {"max_attempts": 0},
+                          {"max_attempts": 11},
                           {"fallback_target": ""}, {"hangup_digit": "1"}):
+            validator = Mock(return_value=True)
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 self.resolve(callback({"Digits": "1"}, "2.0", False),
-                             Mock(return_value=True), **overrides)
+                             validator, **overrides)
+            validator.assert_not_called()
+        validator = Mock(return_value=True)
         with self.assertRaises(ValueError):
             self.resolve(callback({"Digits": "1"}, "2.0", False),
-                         Mock(return_value=True), {"11": "demo-sales"})
+                         validator, {"11": "demo-sales"})
+        validator.assert_not_called()
 
     def test_invalid_transport_and_route_container_fail_before_validator(self):
         for event, routes in (({}, {}), (callback({}, "2.0", False), [])):

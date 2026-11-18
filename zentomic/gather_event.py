@@ -12,9 +12,7 @@ from zentomic.gather import (
     GatherDecision,
     _resolve_validated_gather,
     _validate_gather_configuration,
-    resolve_gather,
 )
-from zentomic.routing import _snapshot_dtmf_routes
 
 
 def resolve_gather_event(
@@ -27,9 +25,9 @@ def resolve_gather_event(
     """Authenticate a keypad callback, then propose one collection decision.
 
     Routes and all keyword arguments come from trusted workspace/session
-    state, never request fields. Snapshot routes before invoking the validator.
-    Only authenticated Digits enters policy; missing input is silence. The
-    existing gather policy validates configuration after authentication.
+    state, never request fields. Validate and snapshot that configuration before
+    invoking the validator so broken policy never spends authentication work.
+    Only authenticated Digits enters policy; missing input is silence.
 
     Account/call binding is not collection-step binding or replay protection.
     Before acting, enforce the current step, deadline and transition budget;
@@ -37,12 +35,15 @@ def resolve_gather_event(
     and revalidate on conflicts. This helper does not load state, authorize
     destinations, render TwiML, persist, acknowledge callbacks, or place calls.
     """
-    menu = _snapshot_dtmf_routes(routes)
+    menu = _validate_gather_configuration(
+        routes, fallback_target=fallback_target, attempts=attempts,
+        max_attempts=max_attempts, hangup_digit=hangup_digit,
+    )
     fields = validate_call_event(
         event, public_url=public_url, validator=validator,
         expected_account_sid=expected_account_sid, expected_call_sid=expected_call_sid,
     )
-    return resolve_gather(
+    return _resolve_validated_gather(
         fields.get("Digits"), menu, fallback_target=fallback_target,
         attempts=attempts, max_attempts=max_attempts, hangup_digit=hangup_digit,
     )

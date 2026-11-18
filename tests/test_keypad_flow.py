@@ -118,7 +118,9 @@ class KeypadFlowTests(unittest.TestCase):
                         for extra, valid in (({}, False), ({"AccountSid": "other"}, True),
                                              ({"CallSid": "other"}, True)):
                             validator.return_value = valid
-                            with patch("zentomic.gather_event.resolve_gather") as policy:
+                            with patch(
+                                "zentomic.gather_event._resolve_validated_gather",
+                            ) as policy:
                                 with self.assertRaises(ValueError):
                                     self.collect({"Digits": digit, **extra}, version, encoded,
                                                  state, routes, validator)
