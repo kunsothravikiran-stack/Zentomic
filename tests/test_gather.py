@@ -6,7 +6,7 @@ from unittest.mock import patch
 from xml.etree.ElementTree import fromstring
 
 from tests.test_routing import OversizedMenu
-from zentomic.gather import GatherDecision, resolve_gather
+from zentomic.gather import MAX_GATHER_ATTEMPTS, GatherDecision, resolve_gather
 from zentomic.twiml import render_hangup
 
 
@@ -59,6 +59,22 @@ class GatherTests(unittest.TestCase):
     def test_custom_budget(self):
         self.assertEqual(self.decide(attempts=3, max_attempts=5), GatherDecision("retry", None, 4))
         self.assertEqual(self.decide(attempts=4, max_attempts=5), GatherDecision("fallback", "reception", 5))
+
+    def test_retry_budget_has_a_hard_cost_boundary(self):
+        self.assertEqual(MAX_GATHER_ATTEMPTS, 10)
+        self.assertEqual(
+            self.decide(attempts=8, max_attempts=MAX_GATHER_ATTEMPTS),
+            GatherDecision("retry", None, 9),
+        )
+        self.assertEqual(
+            self.decide(attempts=9, max_attempts=MAX_GATHER_ATTEMPTS),
+            GatherDecision("fallback", "reception", 10),
+        )
+        for max_attempts in (MAX_GATHER_ATTEMPTS + 1, 10_000):
+            with self.subTest(max_attempts=max_attempts), self.assertRaisesRegex(
+                ValueError, "^max_attempts must be an integer from 1 to 10$",
+            ):
+                self.decide(max_attempts=max_attempts)
 
     def test_active_digit_subclass_retries_without_running_overrides(self):
         class ActiveDigits(str):

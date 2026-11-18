@@ -7,6 +7,9 @@ from typing import Literal
 from zentomic.routing import DTMF_SYMBOLS, _snapshot_dtmf_routes, resolve_dtmf
 
 
+MAX_GATHER_ATTEMPTS = 10
+
+
 @dataclass(frozen=True)
 class GatherDecision:
     """Next action, optional destination, and updated completed-attempt count."""
@@ -23,8 +26,9 @@ def _validate_gather_configuration(
     """Return a private menu snapshot after validating all trusted state."""
     if type(attempts) is not int or attempts < 0:
         raise ValueError("attempts must be a nonnegative integer")
-    if type(max_attempts) is not int or max_attempts < 1:
-        raise ValueError("max_attempts must be a positive integer")
+    if (type(max_attempts) is not int
+            or not 1 <= max_attempts <= MAX_GATHER_ATTEMPTS):
+        raise ValueError("max_attempts must be an integer from 1 to 10")
     menu = _snapshot_dtmf_routes(routes)
     # Missing input exercises every route and fallback configuration check
     # without selecting a destination or consuming an attempt.
@@ -77,8 +81,10 @@ def resolve_gather(
 ) -> GatherDecision:
     """Consume one completed collection attempt without an unbounded retry loop.
 
-    `attempts` is the number already completed, before this input. Missing,
-    malformed, or unmapped input retries only while the budget allows it.
+    `attempts` is the number already completed, before this input. The trusted
+    retry budget is limited to ten attempts so configuration mistakes cannot
+    create an effectively unbounded callback loop. Missing, malformed, or
+    unmapped input retries only while the budget allows it.
     An exhausted budget always falls back, even for otherwise valid input.
     Every configuration entry is validated before making any decision.
     An optional unused DTMF symbol explicitly ends the call with no target.
