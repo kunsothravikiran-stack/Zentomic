@@ -14,6 +14,8 @@ _FORM_CONTENT_TYPE = re.compile(
 MAX_CONTENT_TYPE_CHARACTERS = 128
 MAX_HEADER_FIELDS = 128
 MAX_HEADER_NAME_CHARACTERS = 128
+MAX_EVENT_FIELDS = 64
+MAX_EVENT_KEY_CHARACTERS = 128
 
 
 def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
@@ -55,9 +57,14 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
 
 
 def _require_plain_string_keys(candidate: dict[Any, Any], label: str) -> None:
-    """Reject programmatic dictionaries that JSON decoding cannot produce."""
-    if any(type(key) is not str for key in candidate):
-        raise ValueError(f"{label} keys must be plain strings")
+    """Reject event containers that exceed the bounded proxy shape."""
+    if len(candidate) > MAX_EVENT_FIELDS:
+        raise ValueError(f"{label} exceeds field limit")
+    for key in candidate:
+        if type(key) is not str:
+            raise ValueError(f"{label} keys must be plain strings")
+        if len(key) > MAX_EVENT_KEY_CHARACTERS:
+            raise ValueError(f"{label} key exceeds size limit")
 
 
 def parse_form_event(event: Mapping[str, Any]) -> dict[str, str]:

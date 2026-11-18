@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from zentomic.webhook_event import (
     MAX_CONTENT_TYPE_CHARACTERS,
+    MAX_EVENT_FIELDS,
+    MAX_EVENT_KEY_CHARACTERS,
     MAX_HEADER_FIELDS,
     MAX_HEADER_NAME_CHARACTERS,
     parse_form_event,
@@ -231,6 +233,64 @@ class FormEventTests(unittest.TestCase):
                           {"body": "X=" + "x" * 16384}, {"isBase64Encoded": "false"}):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 parse_form_event({**event(), **overrides})
+
+    def test_proxy_structure_field_limits_are_inclusive(self):
+        cases = (
+            ("event", "1.0"),
+            ("v2 request context", "2.0"),
+            ("v2 HTTP context", "2.0"),
+        )
+        for location, version in cases:
+            candidate = event(version)
+            container = candidate
+            if location == "v2 request context":
+                container = candidate["requestContext"]
+            elif location == "v2 HTTP context":
+                container = candidate["requestContext"]["http"]
+            initial = len(container)
+            container.update({
+                f"X-Synthetic-{index}": None
+                for index in range(MAX_EVENT_FIELDS - initial)
+            })
+            with self.subTest(location=location, boundary=True):
+                self.assertEqual(len(container), MAX_EVENT_FIELDS)
+                self.assertEqual(parse_form_event(candidate), {"Digits": "1"})
+
+            container["X-One-Too-Many"] = None
+            with self.subTest(location=location, boundary=False), \
+                    patch("zentomic.webhook_event.parse_form_body") as decoder:
+                with self.assertRaisesRegex(
+                    ValueError, f"^{location} exceeds field limit$",
+                ):
+                    parse_form_event(candidate)
+                decoder.assert_not_called()
+
+    def test_proxy_structure_key_length_limits_are_inclusive(self):
+        cases = (
+            ("event", "1.0"),
+            ("v2 request context", "2.0"),
+            ("v2 HTTP context", "2.0"),
+        )
+        for location, version in cases:
+            candidate = event(version)
+            container = candidate
+            if location == "v2 request context":
+                container = candidate["requestContext"]
+            elif location == "v2 HTTP context":
+                container = candidate["requestContext"]["http"]
+            boundary = "X" * MAX_EVENT_KEY_CHARACTERS
+            container[boundary] = None
+            with self.subTest(location=location, boundary=True):
+                self.assertEqual(parse_form_event(candidate), {"Digits": "1"})
+
+            container["X" * (MAX_EVENT_KEY_CHARACTERS + 1)] = None
+            with self.subTest(location=location, boundary=False), \
+                    patch("zentomic.webhook_event.parse_form_body") as decoder:
+                with self.assertRaisesRegex(
+                    ValueError, f"^{location} key exceeds size limit$",
+                ):
+                    parse_form_event(candidate)
+                decoder.assert_not_called()
 
     def test_offline_private_and_nonmutating(self):
         candidate = {**event(), "body": "Digits=1&FutureField=synthetic-private-marker"}
