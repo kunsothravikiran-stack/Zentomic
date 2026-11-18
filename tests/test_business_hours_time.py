@@ -72,6 +72,37 @@ class BusinessHoursTimeTests(unittest.TestCase):
             with self.subTest(instant=repr(instant)), self.assertRaises(ValueError):
                 self.resolve(instant)
 
+    def test_timezone_offset_is_snapshotted_once(self):
+        class ChangingOffset(tzinfo):
+            def __init__(self):
+                self.calls = 0
+
+            def utcoffset(self, value):
+                self.calls += 1
+                return timedelta(hours=5 if self.calls == 1 else -5)
+
+            def dst(self, value):
+                return timedelta(0)
+
+        adapter = ChangingOffset()
+        instant = datetime(2026, 1, 5, 14, tzinfo=adapter)
+        self.assertEqual(self.resolve(instant, {0: [(0, 300)]}), "team")
+        self.assertEqual(adapter.calls, 1)
+
+    def test_timezone_offset_failures_are_sanitized(self):
+        class FailingOffset(tzinfo):
+            def utcoffset(self, value):
+                raise RuntimeError("synthetic-private-offset")
+
+        instant = datetime(2026, 1, 5, 14, tzinfo=FailingOffset())
+        with self.assertRaisesRegex(
+            ValueError,
+            "^instant must be a representable timezone-aware datetime$",
+        ) as caught:
+            self.resolve(instant)
+        self.assertNotIn("synthetic-private-offset", str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+
     def test_active_datetime_is_rejected_without_running_overrides(self):
         class ActiveDatetime(datetime):
             @property

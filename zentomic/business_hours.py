@@ -40,10 +40,18 @@ def resolve_business_hours_target_at(
     if not _valid_target(timezone_name):
         raise ValueError("timezone_name must identify an available IANA timezone")
     try:
-        if instant.tzinfo is None or instant.utcoffset() is None:
+        if instant.tzinfo is None:
             raise ValueError
-        utc = instant.astimezone(timezone.utc)
-    except (ValueError, OverflowError, TypeError):
+        # Snapshot a custom tzinfo adapter once. Calling ``utcoffset`` and then
+        # ``astimezone`` can observe two different offsets from mutable trusted
+        # configuration and route the same instant inconsistently.
+        offset = instant.utcoffset()
+        if offset is None:
+            raise ValueError
+        utc = (
+            instant.replace(tzinfo=None) - offset
+        ).replace(tzinfo=timezone.utc)
+    except Exception:
         raise ValueError("instant must be a representable timezone-aware datetime") from None
     try:
         zone = ZoneInfo(timezone_name)
