@@ -23,7 +23,12 @@ def _plain_bounded_proxy_container(candidate: Any) -> bool:
 
 def _context_request_id(context: Any) -> str | None:
     """Return a bounded Lambda invocation ID when the runtime supplies one."""
-    request_id = getattr(context, "aws_request_id", None)
+    try:
+        request_id = getattr(context, "aws_request_id", None)
+    except Exception:
+        # Correlation metadata is optional. A partial runtime/test adapter must
+        # not turn the liveness endpoint into an error before routing begins.
+        return None
     if type(request_id) is not str or not request_id or len(request_id) > 128:
         return None
     try:

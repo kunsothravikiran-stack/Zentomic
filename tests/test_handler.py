@@ -112,6 +112,18 @@ class HandlerTests(unittest.TestCase):
                     "X-Zentomic-Version",
                 )
 
+    def test_failing_context_request_id_does_not_break_health(self):
+        class FailingContext:
+            @property
+            def aws_request_id(self):
+                raise RuntimeError("synthetic-private-marker")
+
+        result = lambda_handler(http_event(), FailingContext())
+
+        self.assertEqual(result["statusCode"], 200)
+        self.assertNotIn("X-Zentomic-Request-Id", result["headers"])
+        self.assertNotIn("synthetic-private-marker", json.dumps(result))
+
     def test_unknown_paths_do_not_match_health(self):
         for factory in (rest_event, http_event):
             for path in ("/", "/health/", "/health/private", "/HEALTH"):
