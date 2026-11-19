@@ -9,6 +9,8 @@ from zentomic import __version__
 
 MAX_EVENT_FIELDS = 64
 MAX_EVENT_KEY_CHARACTERS = 128
+MAX_METHOD_CHARACTERS = 32
+MAX_PATH_CHARACTERS = 2048
 
 
 def _plain_bounded_proxy_container(candidate: Any) -> bool:
@@ -135,10 +137,12 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
     else:
         return _response(400, {"error": "invalid_request"}, request_id=request_id)
 
-    if type(method) is not str or not method:
+    if (type(method) is not str or not method
+            or len(method) > MAX_METHOD_CHARACTERS):
         return _response(400, {"error": "invalid_request"}, request_id=request_id)
     head = method == "HEAD"
-    if type(path) is not str or not path:
+    if (type(path) is not str or not path
+            or len(path) > MAX_PATH_CHARACTERS):
         return _response(
             400, {"error": "invalid_request"}, head=head, request_id=request_id,
         )

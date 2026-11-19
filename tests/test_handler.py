@@ -11,6 +11,8 @@ from unittest.mock import patch
 from zentomic.handler import (
     MAX_EVENT_FIELDS,
     MAX_EVENT_KEY_CHARACTERS,
+    MAX_METHOD_CHARACTERS,
+    MAX_PATH_CHARACTERS,
     lambda_handler,
 )
 
@@ -244,6 +246,28 @@ class HandlerTests(unittest.TestCase):
             container["X" * (MAX_EVENT_KEY_CHARACTERS + 1)] = None
             with self.subTest(location=location, boundary=False):
                 self.assertEqual(lambda_handler(candidate, None)["statusCode"], 400)
+
+    def test_route_field_length_limits_are_inclusive(self):
+        cases = (
+            ("method", rest_event(method="X" * MAX_METHOD_CHARACTERS), 405),
+            ("path", rest_event(path="/" + "x" * (MAX_PATH_CHARACTERS - 1)), 404),
+        )
+        for field, candidate, expected_status in cases:
+            with self.subTest(field=field, boundary=True):
+                self.assertEqual(
+                    lambda_handler(candidate, None)["statusCode"],
+                    expected_status,
+                )
+
+            oversized = copy.deepcopy(candidate)
+            key = "httpMethod" if field == "method" else "path"
+            oversized[key] += "x"
+            with self.subTest(field=field, boundary=False):
+                result = lambda_handler(oversized, None)
+                self.assertEqual(result["statusCode"], 400)
+                self.assertEqual(
+                    json.loads(result["body"]), {"error": "invalid_request"},
+                )
 
     def test_unsupported_version_is_rejected(self):
         for version in (None, "3.0", 2, []):
