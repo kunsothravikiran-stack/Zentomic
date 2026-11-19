@@ -8,7 +8,11 @@ from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from zentomic.handler import lambda_handler
+from zentomic.handler import (
+    MAX_EVENT_FIELDS,
+    MAX_EVENT_KEY_CHARACTERS,
+    lambda_handler,
+)
 
 
 def rest_event(method="GET", path="/health"):
@@ -181,6 +185,53 @@ class HandlerTests(unittest.TestCase):
                 result = lambda_handler(event, None)
                 self.assertEqual(result["statusCode"], 400)
                 self.assertEqual(json.loads(result["body"]), {"error": "invalid_request"})
+
+    def test_proxy_structure_field_limits_are_inclusive(self):
+        cases = (
+            ("event", http_event()),
+            ("v2 request context", http_event()),
+            ("v2 HTTP context", http_event()),
+        )
+        for location, candidate in cases:
+            container = candidate
+            if location == "v2 request context":
+                container = candidate["requestContext"]
+            elif location == "v2 HTTP context":
+                container = candidate["requestContext"]["http"]
+            container.update({
+                f"X-Synthetic-{index}": None
+                for index in range(MAX_EVENT_FIELDS - len(container))
+            })
+            with self.subTest(location=location, boundary=True):
+                self.assertEqual(lambda_handler(candidate, None)["statusCode"], 200)
+
+            container["X-One-Too-Many"] = None
+            with self.subTest(location=location, boundary=False):
+                result = lambda_handler(candidate, None)
+                self.assertEqual(result["statusCode"], 400)
+                self.assertEqual(
+                    json.loads(result["body"]), {"error": "invalid_request"},
+                )
+
+    def test_proxy_structure_key_length_limits_are_inclusive(self):
+        cases = (
+            ("event", http_event()),
+            ("v2 request context", http_event()),
+            ("v2 HTTP context", http_event()),
+        )
+        for location, candidate in cases:
+            container = candidate
+            if location == "v2 request context":
+                container = candidate["requestContext"]
+            elif location == "v2 HTTP context":
+                container = candidate["requestContext"]["http"]
+            container["X" * MAX_EVENT_KEY_CHARACTERS] = None
+            with self.subTest(location=location, boundary=True):
+                self.assertEqual(lambda_handler(candidate, None)["statusCode"], 200)
+
+            container["X" * (MAX_EVENT_KEY_CHARACTERS + 1)] = None
+            with self.subTest(location=location, boundary=False):
+                self.assertEqual(lambda_handler(candidate, None)["statusCode"], 400)
 
     def test_unsupported_version_is_rejected(self):
         for version in (None, "3.0", 2, []):

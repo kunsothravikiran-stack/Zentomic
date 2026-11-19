@@ -7,6 +7,20 @@ from typing import Any
 from zentomic import __version__
 
 
+MAX_EVENT_FIELDS = 64
+MAX_EVENT_KEY_CHARACTERS = 128
+
+
+def _plain_bounded_proxy_container(candidate: Any) -> bool:
+    """Return whether a decoded proxy container has a bounded inert shape."""
+    if type(candidate) is not dict or len(candidate) > MAX_EVENT_FIELDS:
+        return False
+    return all(
+        type(key) is str and len(key) <= MAX_EVENT_KEY_CHARACTERS
+        for key in candidate
+    )
+
+
 def _context_request_id(context: Any) -> str | None:
     """Return a bounded Lambda invocation ID when the runtime supplies one."""
     request_id = getattr(context, "aws_request_id", None)
@@ -92,7 +106,7 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
     # API Gateway JSON decoding produces plain dictionaries with plain string
     # keys. Reject programmatic Mapping implementations and active key
     # subclasses before invoking ``get`` or dictionary key comparisons.
-    if type(event) is not dict or any(type(key) is not str for key in event):
+    if not _plain_bounded_proxy_container(event):
         return _response(400, {"error": "invalid_request"}, request_id=request_id)
 
     version = event.get("version", "1.0")
@@ -103,11 +117,10 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
         return _response(400, {"error": "invalid_request"}, request_id=request_id)
     if version == "2.0":
         request_context = event.get("requestContext")
-        if (type(request_context) is not dict
-                or any(type(key) is not str for key in request_context)):
+        if not _plain_bounded_proxy_container(request_context):
             return _response(400, {"error": "invalid_request"}, request_id=request_id)
         http = request_context.get("http")
-        if type(http) is not dict or any(type(key) is not str for key in http):
+        if not _plain_bounded_proxy_container(http):
             return _response(400, {"error": "invalid_request"}, request_id=request_id)
         method = http.get("method")
         path = event.get("rawPath")
