@@ -13,6 +13,8 @@ from zentomic.webhook_event import (
     MAX_EVENT_KEY_CHARACTERS,
     MAX_HEADER_FIELDS,
     MAX_HEADER_NAME_CHARACTERS,
+    MAX_METHOD_CHARACTERS,
+    MAX_PROXY_VERSION_CHARACTERS,
     parse_form_event,
 )
 
@@ -212,6 +214,25 @@ class FormEventTests(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             parse_form_event(candidate)
                         decoder.assert_not_called()
+
+    def test_proxy_control_field_limits_precede_webhook_decoding(self):
+        cases = (
+            ({**event(), "version": "x" * (MAX_PROXY_VERSION_CHARACTERS + 1)},
+             "^unsupported proxy event version$"),
+            ({**event(), "httpMethod": "x" * (MAX_METHOD_CHARACTERS + 1)},
+             "^form webhook requires POST$"),
+            ({**event("2.0"), "requestContext": {
+                "http": {"method": "x" * (MAX_METHOD_CHARACTERS + 1)},
+            }}, "^form webhook requires POST$"),
+        )
+        for candidate, message in cases:
+            with self.subTest(message=message), \
+                    patch("zentomic.webhook_event._content_type") as content_type, \
+                    patch("zentomic.webhook_event.parse_form_body") as decoder:
+                with self.assertRaisesRegex(ValueError, message):
+                    parse_form_event(candidate)
+                content_type.assert_not_called()
+                decoder.assert_not_called()
 
     def test_malformed_event_and_v2_context(self):
         cases = [None, [], "invalid", {}, {**event(), "version": "3.0"}]

@@ -16,6 +16,8 @@ MAX_HEADER_FIELDS = 128
 MAX_HEADER_NAME_CHARACTERS = 128
 MAX_EVENT_FIELDS = 64
 MAX_EVENT_KEY_CHARACTERS = 128
+MAX_METHOD_CHARACTERS = 32
+MAX_PROXY_VERSION_CHARACTERS = 16
 
 
 def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
@@ -81,7 +83,8 @@ def parse_form_event(event: Mapping[str, Any]) -> dict[str, str]:
         raise ValueError("event must be a plain dictionary")
     _require_plain_string_keys(event, "event")
     version = event.get("version", "1.0")
-    if type(version) is not str:
+    if (type(version) is not str
+            or len(version) > MAX_PROXY_VERSION_CHARACTERS):
         raise ValueError("unsupported proxy event version")
     if version == "1.0":
         method = event.get("httpMethod")
@@ -97,7 +100,8 @@ def parse_form_event(event: Mapping[str, Any]) -> dict[str, str]:
         method = http.get("method")
     else:
         raise ValueError("unsupported proxy event version")
-    if type(method) is not str or method != "POST":
+    if (type(method) is not str or len(method) > MAX_METHOD_CHARACTERS
+            or method != "POST"):
         raise ValueError("form webhook requires POST")
 
     single = _content_type(event.get("headers"))
