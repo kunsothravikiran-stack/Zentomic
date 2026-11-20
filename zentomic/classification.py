@@ -36,8 +36,15 @@ def parse_intent_response(
             or isinstance(allowed_intents, (str, bytes))):
         raise ValueError("allowed_intents must be a collection of nonblank strings")
     # Read one extra item so an invalid, unexpectedly large allowlist is
-    # rejected without copying or validating the entire collection.
-    labels = tuple(islice(allowed_intents, MAX_ALLOWED_INTENTS + 1))
+    # rejected without copying or validating the entire collection. Normalize
+    # failures from trusted collection adapters so their private details never
+    # escape through the configuration boundary.
+    try:
+        labels = tuple(islice(allowed_intents, MAX_ALLOWED_INTENTS + 1))
+    except Exception:
+        raise ValueError(
+            "allowed_intents must be an iterable collection of nonblank strings"
+        ) from None
     if len(labels) > MAX_ALLOWED_INTENTS:
         raise ValueError("allowed_intents must contain at most 128 entries")
     if any(not _valid_intent_label(label) for label in labels):

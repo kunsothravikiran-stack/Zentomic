@@ -100,6 +100,24 @@ class ClassifierResponseTests(unittest.TestCase):
         ):
             self.parse(UnreadableResponse("{}"), OversizedAllowlist())
 
+    def test_failing_allowlist_iteration_is_normalized_privately(self):
+        class FailingAllowlist(Collection):
+            def __contains__(self, value):
+                return False
+
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^allowed_intents must be an iterable collection of nonblank strings$",
+        ) as caught:
+            self.parse(UnreadableResponse("{}"), FailingAllowlist())
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_allowlist_limit_is_inclusive(self):
         labels = tuple(f"intent-{index}" for index in range(MAX_ALLOWED_INTENTS))
         self.assertEqual(
