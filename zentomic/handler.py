@@ -11,6 +11,7 @@ MAX_EVENT_FIELDS = 64
 MAX_EVENT_KEY_CHARACTERS = 128
 MAX_METHOD_CHARACTERS = 32
 MAX_PATH_CHARACTERS = 2048
+MAX_PROXY_VERSION_CHARACTERS = 16
 
 
 def _plain_bounded_proxy_container(candidate: Any) -> bool:
@@ -118,9 +119,10 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
 
     version = event.get("version", "1.0")
     # API Gateway JSON decoding produces exact built-in strings. Reject active
-    # subclasses before equality, truthiness, or length operations so a
-    # programmatic adapter cannot execute overrides inside route admission.
-    if type(version) is not str:
+    # subclasses and bound routing metadata before equality checks so malformed
+    # direct invocations cannot carry an unbounded proxy discriminator.
+    if (type(version) is not str
+            or len(version) > MAX_PROXY_VERSION_CHARACTERS):
         return _response(400, {"error": "invalid_request"}, request_id=request_id)
     if version == "2.0":
         request_context = event.get("requestContext")

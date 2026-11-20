@@ -13,6 +13,7 @@ from zentomic.handler import (
     MAX_EVENT_KEY_CHARACTERS,
     MAX_METHOD_CHARACTERS,
     MAX_PATH_CHARACTERS,
+    MAX_PROXY_VERSION_CHARACTERS,
     lambda_handler,
 )
 
@@ -274,6 +275,20 @@ class HandlerTests(unittest.TestCase):
             with self.subTest(version=version):
                 result = lambda_handler({**rest_event(), "version": version}, None)
                 self.assertEqual(result["statusCode"], 400)
+
+    def test_proxy_version_length_limit_is_inclusive(self):
+        for length in (
+            MAX_PROXY_VERSION_CHARACTERS,
+            MAX_PROXY_VERSION_CHARACTERS + 1,
+        ):
+            with self.subTest(length=length):
+                result = lambda_handler(
+                    {**rest_event(), "version": "x" * length}, None,
+                )
+                self.assertEqual(result["statusCode"], 400)
+                self.assertEqual(
+                    json.loads(result["body"]), {"error": "invalid_request"},
+                )
 
     def test_active_route_strings_are_rejected_without_invoking_overrides(self):
         class ActiveString(str):
