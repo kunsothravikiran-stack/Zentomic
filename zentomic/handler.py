@@ -59,6 +59,10 @@ def _response(
         # If a JSON response is opened as a document, deny executable,
         # embedded, and navigational capabilities in modern browsers.
         "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+        # Require any subresources loaded after accidental browser navigation
+        # to opt in explicitly. This completes the browser isolation contract
+        # without preventing dashboards from fetching this public resource.
+        "Cross-Origin-Embedder-Policy": "require-corp",
         # Isolate a top-level health response from a cross-origin opener.
         "Cross-Origin-Opener-Policy": "same-origin",
         # The public health resource is intentionally readable across origins.

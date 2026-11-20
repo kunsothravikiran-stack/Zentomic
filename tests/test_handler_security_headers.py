@@ -51,6 +51,24 @@ class HandlerSecurityHeaderTests(unittest.TestCase):
                     "same-origin",
                 )
 
+    def test_cross_origin_embedder_policy_isolates_every_response(self):
+        events = (
+            rest_event(),
+            http_event("HEAD"),
+            http_event("OPTIONS"),
+            rest_event(path="/missing"),
+            rest_event("POST"),
+            {},
+            {**rest_event(), "version": "3.0"},
+        )
+        for event in events:
+            with self.subTest(event=event):
+                response = lambda_handler(event, None)
+                self.assertEqual(
+                    response["headers"]["Cross-Origin-Embedder-Policy"],
+                    "require-corp",
+                )
+
     def test_resource_policy_allows_public_cross_origin_health_checks(self):
         events = (
             rest_event(),
