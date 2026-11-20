@@ -59,6 +59,9 @@ def twiml_response(xml: str) -> dict[str, Any]:
                 "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
             ),
             "Referrer-Policy": "no-referrer",
+            # Twilio callback URLs are HTTPS-only. Remember that transport
+            # choice for the exact callback host without affecting subdomains.
+            "Strict-Transport-Security": "max-age=31536000",
             "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
             # Keep public callback URLs out of search results if discovered.

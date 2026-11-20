@@ -36,6 +36,7 @@ class TwimlResponseTests(unittest.TestCase):
                                     "camera=(), geolocation=(), microphone=(), "
                                     "payment=(), usb=()",
                                 "Referrer-Policy": "no-referrer",
+                                "Strict-Transport-Security": "max-age=31536000",
                                 "X-Frame-Options": "DENY",
                                 "X-Content-Type-Options": "nosniff",
                                 "X-Robots-Tag": "noindex, nofollow"},
@@ -138,6 +139,7 @@ class TwimlResponseTests(unittest.TestCase):
             "Permissions-Policy":
                 "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
             "Referrer-Policy": "no-referrer",
+            "Strict-Transport-Security": "max-age=31536000",
             "X-Frame-Options": "DENY",
             "X-Content-Type-Options": "nosniff",
             "X-Robots-Tag": "noindex, nofollow",
