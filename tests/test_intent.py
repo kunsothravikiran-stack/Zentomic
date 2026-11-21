@@ -128,6 +128,40 @@ class IntentRoutingTests(unittest.TestCase):
         ):
             self.resolve("sales", routes=ActiveLabelRoutes())
 
+    def test_failing_route_adapter_is_normalized_privately(self):
+        class FailingRoutes(Mapping):
+            def __iter__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, key):
+                raise RuntimeError("synthetic-private-marker")
+
+        with self.assertRaisesRegex(
+            ValueError, "^routes could not be read$",
+        ) as caught:
+            self.resolve(None, routes=FailingRoutes())
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
+    def test_failing_route_value_lookup_is_normalized_privately(self):
+        class FailingRoutes(Mapping):
+            def __iter__(self):
+                yield "sales"
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, key):
+                raise RuntimeError("synthetic-private-marker")
+
+        with self.assertRaisesRegex(
+            ValueError, "^route values could not be read$",
+        ) as caught:
+            self.resolve(None, routes=FailingRoutes())
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_invalid_mappings_are_rejected(self):
         for routes in (None, [], "sales", 1):
             with self.subTest(routes=routes), self.assertRaises(ValueError):

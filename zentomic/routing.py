@@ -33,7 +33,10 @@ def _snapshot_dtmf_routes(routes: Mapping[str, str]) -> dict[str, str]:
     # There are only twelve valid DTMF symbol keys. Read one extra key before
     # copying values so an invalid, unexpectedly large mapping is rejected
     # without allocating or iterating over all of it.
-    keys = tuple(islice(routes, MAX_DTMF_ROUTES + 1))
+    try:
+        keys = tuple(islice(routes, MAX_DTMF_ROUTES + 1))
+    except Exception:
+        raise ValueError("routes could not be read") from None
     if len(keys) > MAX_DTMF_ROUTES:
         raise ValueError("routes must contain at most 12 entries")
     # Validate keys before looking up values. Custom Mapping adapters can emit
@@ -44,7 +47,10 @@ def _snapshot_dtmf_routes(routes: Mapping[str, str]) -> dict[str, str]:
         raise ValueError("route keys must be single DTMF symbols")
     if len(set(keys)) != len(keys):
         raise ValueError("route keys must be unique DTMF symbols")
-    return {key: routes[key] for key in keys}
+    try:
+        return {key: routes[key] for key in keys}
+    except Exception:
+        raise ValueError("route values could not be read") from None
 
 
 def resolve_dtmf(

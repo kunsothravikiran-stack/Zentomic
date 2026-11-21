@@ -138,6 +138,40 @@ class RoutingTests(unittest.TestCase):
         ):
             self.resolve(None, DuplicateKeyMapping())
 
+    def test_failing_route_adapter_is_normalized_privately(self):
+        class FailingRoutes(Mapping):
+            def __iter__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, key):
+                raise RuntimeError("synthetic-private-marker")
+
+        with self.assertRaisesRegex(
+            ValueError, "^routes could not be read$",
+        ) as caught:
+            self.resolve(None, FailingRoutes())
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
+    def test_failing_route_value_lookup_is_normalized_privately(self):
+        class FailingRoutes(Mapping):
+            def __iter__(self):
+                yield "1"
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, key):
+                raise RuntimeError("synthetic-private-marker")
+
+        with self.assertRaisesRegex(
+            ValueError, "^route values could not be read$",
+        ) as caught:
+            self.resolve(None, FailingRoutes())
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_invalid_targets_are_rejected_even_on_unused_routes(self):
         for target in (None, "", " \t\n", 1, [], {}):
             with self.subTest(target=target), self.assertRaises(ValueError):

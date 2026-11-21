@@ -16,7 +16,10 @@ def _snapshot_intent_routes(routes: Mapping[str, str]) -> dict[str, str]:
         raise ValueError("routes must be a mapping")
     # Read one extra key before copying values so malformed workspace
     # configuration cannot cause an unbounded snapshot or validation pass.
-    keys = tuple(islice(routes, MAX_INTENT_ROUTES + 1))
+    try:
+        keys = tuple(islice(routes, MAX_INTENT_ROUTES + 1))
+    except Exception:
+        raise ValueError("routes could not be read") from None
     if len(keys) > MAX_INTENT_ROUTES:
         raise ValueError("routes must contain at most 128 entries")
     # Validate keys before looking up values. Custom Mapping adapters can emit
@@ -28,7 +31,10 @@ def _snapshot_intent_routes(routes: Mapping[str, str]) -> dict[str, str]:
         )
     if len(set(keys)) != len(keys):
         raise ValueError("intent labels must be unique")
-    return {key: routes[key] for key in keys}
+    try:
+        return {key: routes[key] for key in keys}
+    except Exception:
+        raise ValueError("route values could not be read") from None
 
 
 def _validate_intent_routes(
