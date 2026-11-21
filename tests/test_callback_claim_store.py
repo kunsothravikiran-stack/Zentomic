@@ -216,6 +216,24 @@ class CallbackClaimEventTests(unittest.TestCase):
             self.claim(callback(), object(), validator)
         validator.assert_not_called()
 
+    def test_unreadable_claimer_method_has_a_private_safe_diagnostic(self):
+        class UnreadableClaimer:
+            @property
+            def claim(self):
+                raise RuntimeError("synthetic-private-claimer")
+
+        validator = Mock(return_value=True)
+        with self.assertRaisesRegex(
+            ValueError,
+            "^claimer must provide a trusted callable claim method$",
+        ) as raised:
+            self.claim(callback(), UnreadableClaimer(), validator)
+
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertTrue(raised.exception.__suppress_context__)
+        self.assertNotIn("synthetic-private-claimer", str(raised.exception))
+        validator.assert_not_called()
+
     def test_claimer_must_return_an_exact_boolean(self):
         for value in (None, 0, 1, "true", [], {}):
             claimer = Mock()

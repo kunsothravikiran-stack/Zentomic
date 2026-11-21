@@ -54,7 +54,15 @@ def _prepare_callback_claim(
     workspace_id: str, call_sid: str, step_id: str, claimer: CallbackClaimer,
 ) -> PreparedCallbackClaim:
     """Validate a trusted claim boundary without consuming its key."""
-    claim = getattr(claimer, "claim", None)
+    try:
+        claim = getattr(claimer, "claim", None)
+    except Exception:
+        # A programmatic adapter may expose the boundary through an active
+        # descriptor. Keep discovery failures inside this helper's private,
+        # ValueError-only configuration contract without leaking details.
+        raise ValueError(
+            "claimer must provide a trusted callable claim method"
+        ) from None
     if not callable(claim):
         raise ValueError("claimer must provide a trusted callable claim method")
     return claim, _key(workspace_id, call_sid, step_id)
