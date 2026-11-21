@@ -95,7 +95,14 @@ def _speech_hints(hints: list[str] | tuple[str, ...] | None) -> str | None:
         return None
     if not isinstance(hints, (list, tuple)):
         raise ValueError("hints must be a list or tuple of at most 500 phrases")
-    phrases = tuple(islice(hints, MAX_SPEECH_HINTS + 1))
+    try:
+        phrases = tuple(islice(hints, MAX_SPEECH_HINTS + 1))
+    except Exception:
+        # A trusted collection adapter may fail while exposing its values.
+        # Keep those implementation details inside the configuration boundary.
+        raise ValueError(
+            "hints must be a list or tuple of at most 500 phrases"
+        ) from None
     if len(phrases) > MAX_SPEECH_HINTS:
         raise ValueError("hints must contain at most 500 phrases")
     for phrase in phrases:
@@ -191,7 +198,14 @@ def render_dial(
     # Snapshot at most one entry beyond the supported fan-out. A mutable list
     # or collection subtype must not bypass the limit between validation and
     # serialization or make this renderer allocate an unbounded tuple.
-    destinations = tuple(islice(numbers, MAX_DIAL_DESTINATIONS + 1))
+    try:
+        destinations = tuple(islice(numbers, MAX_DIAL_DESTINATIONS + 1))
+    except Exception:
+        # Normalize failures from trusted collection adapters instead of
+        # leaking their implementation details through call-flow rendering.
+        raise ValueError(
+            "numbers must be a list or tuple of 1 to 10 destinations"
+        ) from None
     if not 1 <= len(destinations) <= MAX_DIAL_DESTINATIONS:
         raise ValueError("numbers must be a list or tuple of 1 to 10 destinations")
     for number in destinations:

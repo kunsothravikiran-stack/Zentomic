@@ -65,6 +65,21 @@ class DialTests(unittest.TestCase):
         self.assertEqual(numbers.consumed, 11)
         serialize.assert_not_called()
 
+    def test_failing_destination_adapter_is_normalized_privately(self):
+        class FailingNumbers(list):
+            def __iter__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+        with patch("zentomic.twiml._serialize") as serialize, \
+                self.assertRaisesRegex(
+                    ValueError,
+                    "^numbers must be a list or tuple of 1 to 10 destinations$",
+                ) as caught:
+            self.render(FailingNumbers(["+12025550100"]))
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+        self.assertTrue(caught.exception.__suppress_context__)
+        serialize.assert_not_called()
+
     def test_duplicates_are_rejected_without_silently_dropping_a_member(self):
         with self.assertRaises(ValueError):
             self.render(["+12025550100", "+12025550100"])

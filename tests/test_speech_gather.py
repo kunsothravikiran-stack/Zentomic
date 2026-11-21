@@ -268,6 +268,19 @@ class SpeechGatherTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.render(hints=EndlessHints())
 
+    def test_failing_hint_adapter_is_normalized_privately(self):
+        class FailingHints(list):
+            def __iter__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^hints must be a list or tuple of at most 500 phrases$",
+        ) as caught:
+            self.render(hints=FailingHints(["sales"]))
+        self.assertNotIn("synthetic-private-marker", str(caught.exception))
+        self.assertTrue(caught.exception.__suppress_context__)
+
     def test_hints_reject_unicode_line_boundaries_without_reflecting_text(self):
         for separator in ("\u0085", "\u2028", "\u2029"):
             phrase = "synthetic-private" + separator + "support"
