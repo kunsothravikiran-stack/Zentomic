@@ -138,6 +138,38 @@ class BusinessHoursTests(unittest.TestCase):
             with self.subTest(hours=type(hours).__name__), self.assertRaises(ValueError):
                 self.resolve(hours)
 
+    def test_adapter_failures_use_private_configuration_errors(self):
+        class FailingDays(Mapping):
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+            def __getitem__(self, key):
+                raise AssertionError("lookup must not run")
+
+        class FailingLookup(dict):
+            def __getitem__(self, key):
+                raise RuntimeError("synthetic-private-marker")
+
+        class FailingList(list):
+            def __iter__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+        cases = (
+            FailingDays(),
+            FailingLookup({0: []}),
+            {0: FailingList([(0, 1)])},
+            {0: [FailingList([0, 1])]},
+        )
+        for hours in cases:
+            with self.subTest(hours=type(hours).__name__), self.assertRaises(
+                ValueError,
+            ) as caught:
+                self.resolve(hours)
+            self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_errors_and_success_are_silent_and_do_not_echo_configuration(self):
         with patch("builtins.print") as output:
             self.assertEqual(self.resolve({0: [(0, 1440)]}), "team")

@@ -135,6 +135,30 @@ class BusinessHoursDateTests(unittest.TestCase):
             with self.subTest(overrides=type(overrides).__name__), self.assertRaises(ValueError):
                 self.resolve(overrides)
 
+    def test_override_adapter_failures_use_private_configuration_errors(self):
+        first = date(2026, 1, 5)
+
+        class FailingDates(Mapping):
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                raise RuntimeError("synthetic-private-marker")
+
+            def __getitem__(self, key):
+                raise AssertionError("lookup must not run")
+
+        class FailingLookup(dict):
+            def __getitem__(self, key):
+                raise RuntimeError("synthetic-private-marker")
+
+        for overrides in (FailingDates(), FailingLookup({first: []})):
+            with self.subTest(overrides=type(overrides).__name__), self.assertRaises(
+                ValueError,
+            ) as caught:
+                self.resolve(overrides)
+            self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_snapshots_preserve_configuration_and_exact_targets_without_output(self):
         overrides = {date(2026, 1, 5): [[540, 720], [600, 780]]}
         before = copy.deepcopy(overrides)

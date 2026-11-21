@@ -1,9 +1,10 @@
 """Bounded, offline business-hours routing from trusted workspace-local time."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from itertools import islice
 from struct import error as StructError
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from zentomic.routing import _valid_target
@@ -12,6 +13,16 @@ from zentomic.routing import _valid_target
 MAX_DAILY_WINDOWS = 24
 MAX_DATE_OVERRIDES = 366
 MINUTES_PER_DAY = 1440
+
+
+def _bounded_snapshot(
+    values: Iterable[Any], limit: int, error: str,
+) -> tuple[Any, ...]:
+    """Snapshot a trusted adapter without leaking implementation failures."""
+    try:
+        return tuple(islice(values, limit))
+    except Exception:
+        raise ValueError(error) from None
 
 
 def resolve_business_hours_target_at(
@@ -74,7 +85,10 @@ def resolve_business_hours_target_at(
         return target
     if not isinstance(date_overrides, Mapping):
         raise ValueError("date_overrides must be a local-date mapping")
-    dates = tuple(islice(date_overrides, MAX_DATE_OVERRIDES + 1))
+    dates = _bounded_snapshot(
+        date_overrides, MAX_DATE_OVERRIDES + 1,
+        "date_overrides could not be read",
+    )
     if len(dates) > MAX_DATE_OVERRIDES:
         raise ValueError("date_overrides must contain at most 366 dates")
     for day in dates:
@@ -84,8 +98,12 @@ def resolve_business_hours_target_at(
     if len(set(dates)) != len(dates):
         raise ValueError("date_overrides must not contain duplicate dates")
     for day in dates:
+        try:
+            windows = date_overrides[day]
+        except Exception:
+            raise ValueError("date_overrides could not be read") from None
         override_target = resolve_business_hours_target(
-            {weekday: date_overrides[day]}, weekday=weekday, minute_of_day=minute,
+            {weekday: windows}, weekday=weekday, minute_of_day=minute,
             open_target=open_target, closed_target=closed_target,
         )
         if day == local.date():
@@ -125,7 +143,7 @@ def resolve_business_hours_target(
     if not isinstance(hours, Mapping):
         raise ValueError("hours must be a weekday mapping")
     # Bound arbitrary mappings and list subclasses before allocating snapshots.
-    days = tuple(islice(hours, 8))
+    days = _bounded_snapshot(hours, 8, "hours could not be read")
     if len(days) > 7:
         raise ValueError("hours must contain at most 7 days")
     for day in days:
@@ -135,16 +153,24 @@ def resolve_business_hours_target(
         raise ValueError("hours must not contain duplicate days")
     active = False
     for day in days:
-        windows = hours[day]
+        try:
+            windows = hours[day]
+        except Exception:
+            raise ValueError("hours could not be read") from None
         if not isinstance(windows, (list, tuple)):
             raise ValueError("daily hours must be a list or tuple of at most 24 windows")
-        snapshot = tuple(islice(windows, MAX_DAILY_WINDOWS + 1))
+        snapshot = _bounded_snapshot(
+            windows, MAX_DAILY_WINDOWS + 1,
+            "daily hours could not be read",
+        )
         if len(snapshot) > MAX_DAILY_WINDOWS:
             raise ValueError("daily hours must be a list or tuple of at most 24 windows")
         for window in snapshot:
             if not isinstance(window, (list, tuple)):
                 raise ValueError("each hours window must contain start and end minutes")
-            endpoints = tuple(islice(window, 3))
+            endpoints = _bounded_snapshot(
+                window, 3, "hours window could not be read",
+            )
             if len(endpoints) != 2:
                 raise ValueError("each hours window must contain start and end minutes")
             start, end = endpoints
