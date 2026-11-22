@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl
 
 MAX_BODY_BYTES = 16 * 1024
 MAX_FORM_FIELDS = 128
+MAX_FORM_FIELD_NAME_BYTES = 256
 _MAX_BASE64_CHARS = 4 * ((MAX_BODY_BYTES + 2) // 3)
 _INVALID_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
@@ -61,7 +62,17 @@ def parse_form_body(body: str, *, is_base64_encoded: bool = False) -> dict[str, 
 
     fields = {}
     for name, value in pairs:
-        if not name or name in fields:
-            raise ValueError("form field names must be nonempty and unique")
+        # Bound and sanitize names before dictionary membership hashes them.
+        # Values remain opaque and may legitimately contain whitespace or
+        # controls such as newlines in transcription provider payloads.
+        if (not name or len(name) > MAX_FORM_FIELD_NAME_BYTES
+                or any(char.isspace() or ord(char) < 32 or ord(char) == 127
+                       for char in name)
+                or len(name.encode("utf-8")) > MAX_FORM_FIELD_NAME_BYTES):
+            raise ValueError(
+                "form field names must be nonempty, bounded, and contain no whitespace or controls"
+            )
+        if name in fields:
+            raise ValueError("form field names must be unique")
         fields[name] = value
     return fields
