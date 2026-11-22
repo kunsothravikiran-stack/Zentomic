@@ -56,6 +56,17 @@ class DialResultTests(unittest.TestCase):
         ):
             self.resolve(ActiveStatus("busy"))
 
+    def test_oversized_status_is_rejected_before_set_lookup(self):
+        class LookupTrap:
+            def __contains__(self, value):
+                raise AssertionError("oversized dial status was looked up")
+
+        with patch("zentomic.dial._KNOWN_STATUSES", LookupTrap()):
+            with self.assertRaisesRegex(
+                ValueError, "^unsupported Number dial result status$",
+            ):
+                self.resolve("x" * 10_000)
+
     def test_configuration_is_validated_even_for_terminal_results(self):
         for target in (None, "", " \t", True, 1, [], {}):
             for status in ("completed", "busy"):
@@ -97,3 +108,4 @@ class DialResultTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

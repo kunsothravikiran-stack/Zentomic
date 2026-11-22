@@ -8,6 +8,8 @@ from zentomic.routing import _valid_target
 
 _FAILED_STATUSES = frozenset({"busy", "no-answer", "failed"})
 _TERMINAL_STATUSES = frozenset({"completed", "canceled"})
+_KNOWN_STATUSES = _FAILED_STATUSES | _TERMINAL_STATUSES
+_MAX_STATUS_CHARACTERS = max(map(len, _KNOWN_STATUSES))
 
 
 @dataclass(frozen=True)
@@ -60,7 +62,9 @@ def _resolve_validated_dial_result(
 def _validate_dial_result_status(status: str) -> None:
     """Admit one inert, supported Number dial-result status."""
     # Provider form decoding yields an exact built-in string. Reject subclasses
-    # before hashing or comparing them so untrusted callback objects cannot run
-    # overridden methods inside the outcome policy.
-    if type(status) is not str or status not in _FAILED_STATUSES | _TERMINAL_STATUSES:
+    # and clearly oversized input before hashing or comparing so untrusted
+    # callback objects cannot execute overrides or impose unbounded work inside
+    # the outcome policy.
+    if (type(status) is not str or len(status) > _MAX_STATUS_CHARACTERS
+            or status not in _KNOWN_STATUSES):
         raise ValueError("unsupported Number dial result status")
