@@ -146,6 +146,30 @@ class FormEventTests(unittest.TestCase):
         decoder.assert_not_called()
         self.assertNotIn("synthetic-private-marker", str(caught.exception))
 
+    def test_header_names_require_ascii_http_tokens(self):
+        valid_names = ("X-Request-ID", "X_Custom", "X!#$%&'*+.^`|~")
+        for name in valid_names:
+            candidate = event()
+            candidate["headers"][name] = "value"
+            with self.subTest(name=name):
+                self.assertEqual(parse_form_event(candidate), {"Digits": "1"})
+
+        invalid_names = (
+            "", " X-Test", "X Test", "X\tTest", "X\nTest", "X:Test",
+            "X,Test", "X@Test", "Tést", "X\x00Test", "X\x7fTest",
+        )
+        for name in invalid_names:
+            candidate = event()
+            candidate["headers"][name] = "synthetic-private-marker"
+            with self.subTest(name=ascii(name)), \
+                    patch("zentomic.webhook_event.parse_form_body") as decoder:
+                with self.assertRaisesRegex(
+                    ValueError, "^header name must be a bounded HTTP token$",
+                ) as caught:
+                    parse_form_event(candidate)
+                decoder.assert_not_called()
+            self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_active_header_primitives_are_rejected_without_running_overrides(self):
         class ActiveName(str):
             def __len__(self):

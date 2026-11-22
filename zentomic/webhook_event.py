@@ -11,6 +11,7 @@ _FORM_CONTENT_TYPE = re.compile(
     r'application/x-www-form-urlencoded(?:[ \t]*;[ \t]*charset=(?:utf-8|"utf-8"))?',
     re.IGNORECASE | re.ASCII,
 )
+_HEADER_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", re.ASCII)
 MAX_CONTENT_TYPE_CHARACTERS = 128
 MAX_HEADER_FIELDS = 128
 MAX_HEADER_NAME_CHARACTERS = 128
@@ -37,8 +38,13 @@ def _content_type(headers: Any, *, multiple: bool = False) -> str | None:
         # indexing, or other operations performed below.
         if type(name) is not str:
             raise ValueError("header name must be a plain string")
-        if len(name) > MAX_HEADER_NAME_CHARACTERS:
-            raise ValueError("header name exceeds size limit")
+        # HTTP field names use the ASCII token grammar. Reject whitespace,
+        # controls, separators, and Unicode before case folding or comparing
+        # names so malformed direct Lambda events cannot introduce ambiguous
+        # structural keys at this unauthenticated boundary.
+        if (len(name) > MAX_HEADER_NAME_CHARACTERS
+                or not _HEADER_NAME.fullmatch(name)):
+            raise ValueError("header name must be a bounded HTTP token")
         if name.lower() == "content-type":
             values.append(value)
     if not values:
