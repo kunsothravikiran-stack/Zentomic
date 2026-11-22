@@ -59,6 +59,23 @@ class FormBodyTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.assert_invalid(body, is_base64_encoded=True)
 
+    def test_noncanonical_base64_padding_bits_are_rejected(self):
+        canonical = base64.b64encode(b"A=12").decode()
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        final_index = alphabet.index(canonical[-3])
+        noncanonical = canonical[:-3] + alphabet[final_index | 1] + "=="
+
+        self.assertNotEqual(noncanonical, canonical)
+        self.assertEqual(
+            base64.b64decode(noncanonical, validate=True),
+            base64.b64decode(canonical, validate=True),
+        )
+        self.assertEqual(
+            parse_form_body(canonical, is_base64_encoded=True),
+            {"A": "12"},
+        )
+        self.assert_invalid(noncanonical, is_base64_encoded=True)
+
     def test_body_and_flag_types_are_strict(self):
         for body in (None, False, 0, [], {}, b"Digits=1"):
             with self.subTest(body=body):

@@ -35,6 +35,12 @@ def parse_form_body(body: str, *, is_base64_encoded: bool = False) -> dict[str, 
         raise ValueError("form body exceeds size limit")
     try:
         raw = base64.b64decode(body, validate=True) if is_base64_encoded else body.encode("utf-8")
+        # API Gateway emits canonical Base64. Reject alternate encodings with
+        # nonzero padding bits so one decoded request body has one transport
+        # representation for replay controls and request diagnostics.
+        if (is_base64_encoded
+                and base64.b64encode(raw).decode("ascii") != body):
+            raise ValueError("noncanonical base64 body")
         if len(raw) > MAX_BODY_BYTES:
             raise ValueError("form body exceeds size limit")
         form = raw.decode("utf-8")
