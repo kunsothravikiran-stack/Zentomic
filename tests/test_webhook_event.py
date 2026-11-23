@@ -337,6 +337,33 @@ class FormEventTests(unittest.TestCase):
                     parse_form_event(candidate)
                 decoder.assert_not_called()
 
+    def test_proxy_structure_keys_reject_invisible_controls(self):
+        locations = (
+            ("event", lambda candidate: candidate),
+            ("v2 request context", lambda candidate: candidate["requestContext"]),
+            ("v2 HTTP context", lambda candidate: candidate["requestContext"]["http"]),
+        )
+        for label, select in locations:
+            for character in ("\\x00", "\\u200b", "\\u202e", "\\ufeff", "\\ud800"):
+                candidate = event("2.0")
+                select(candidate)[f"X{character}Synthetic"] = "synthetic-private-marker"
+                with self.subTest(label=label, character=ascii(character)), \\
+                        patch("zentomic.webhook_event.parse_form_body") as decoder:
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        f"^{label} key contains an invisible control$",
+                    ) as caught:
+                        parse_form_event(candidate)
+                    decoder.assert_not_called()
+                self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
+    def test_proxy_structure_keys_preserve_visible_unicode_extensions(self):
+        candidate = event("2.0")
+        candidate["X-Café"] = None
+        candidate["requestContext"]["X-😀"] = None
+        candidate["requestContext"]["http"]["X-日本語"] = None
+        self.assertEqual(parse_form_event(candidate), {"Digits": "1"})
+
     def test_offline_private_and_nonmutating(self):
         candidate = {**event(), "body": "Digits=1&FutureField=synthetic-private-marker"}
         original = copy.deepcopy(candidate)
