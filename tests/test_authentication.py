@@ -218,6 +218,24 @@ class AuthenticationTests(unittest.TestCase):
                     self.assertEqual(str(caught.exception),
                                      "public_url must be a configured HTTPS callback URL")
 
+    def test_invisible_unicode_controls_in_callback_urls_are_rejected(self):
+        for character in ("\u200b", "\u202e", "\ufeff"):
+            for url in (f"https://exam{character}ple.invalid/voice",
+                        f"https://example.invalid/{character}voice",
+                        f"https://example.invalid/voice?value={character}"):
+                with self.subTest(character=ascii(character), url=ascii(url)):
+                    validator = Mock(return_value=True)
+                    with patch("zentomic.authentication.parse_form_event") as parse:
+                        with self.assertRaisesRegex(
+                            ValueError,
+                            "^public_url must be a configured HTTPS callback URL$",
+                        ):
+                            validate_form_event(
+                                event(), public_url=url, validator=validator,
+                            )
+                    parse.assert_not_called()
+                    validator.assert_not_called()
+
     def test_valid_unicode_callback_urls_reach_validator_unchanged(self):
         for url in ("https://example.invalid/café?value=\U0001f600",
                     "https://example.invalid/caf%C3%A9?value=%F0%9F%98%80"):

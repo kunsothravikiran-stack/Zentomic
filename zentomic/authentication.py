@@ -1,6 +1,7 @@
 """Dependency-injected signature gate for future form webhook adapters."""
 
 import re
+import unicodedata
 from collections.abc import Callable, Mapping
 from itertools import islice
 from typing import Any
@@ -98,7 +99,11 @@ def validate_form_event(
         encoded_url = public_url.encode("utf-8")
         if len(encoded_url) > MAX_PUBLIC_URL_BYTES:
             raise ValueError("public URL exceeds size limit")
-        if (any(char.isspace() for char in public_url)
+        if (any(
+                char.isspace()
+                or unicodedata.category(char) in {"Cc", "Cf", "Cs"}
+                for char in public_url
+            )
                 or _INVALID_URL_ESCAPE.search(public_url)):
             raise ValueError("invalid public URL characters")
         url = urlsplit(public_url)
@@ -108,7 +113,7 @@ def validate_form_event(
         url.port  # Reject malformed/out-of-range ports without rewriting the URL.
     except ValueError:
         valid_url = False
-    if not valid_url or any(ord(char) < 32 or ord(char) == 127 for char in public_url):
+    if not valid_url:
         raise ValueError("public_url must be a configured HTTPS callback URL")
     if not callable(validator):
         raise ValueError("validator must be a trusted callable")
