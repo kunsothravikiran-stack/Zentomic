@@ -74,11 +74,15 @@ def _require_plain_string_keys(candidate: dict[Any, Any], label: str) -> None:
             raise ValueError(f"{label} keys must be plain strings")
         if len(key) > MAX_EVENT_KEY_CHARACTERS:
             raise ValueError(f"{label} key exceeds size limit")
-        # Invisible controls can make unknown proxy fields appear identical to
-        # trusted structural keys in diagnostics and reviews. Preserve visible
-        # Unicode extension keys, but reject controls, formatting marks, and
-        # surrogates before any downstream lookup.
-        if any(unicodedata.category(char) in {"Cc", "Cf", "Cs"} for char in key):
+        # Invisible controls and Unicode line separators can make unknown proxy
+        # fields appear identical to trusted structural keys or split one field
+        # across log lines. Preserve visible Unicode extension keys, but reject
+        # controls, formatting marks, surrogates, and line separators before
+        # any downstream lookup.
+        if any(
+            unicodedata.category(char) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+            for char in key
+        ):
             raise ValueError(f"{label} key contains an invisible control")
 
 

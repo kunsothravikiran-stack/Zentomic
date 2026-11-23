@@ -344,11 +344,16 @@ class FormEventTests(unittest.TestCase):
             ("v2 HTTP context", lambda candidate: candidate["requestContext"]["http"]),
         )
         for label, select in locations:
-            for character in ("\x00", "\u200b", "\u202e", "\ufeff", "\ud800"):
+            for character in (
+                "\x00", "\u200b", "\u2028", "\u2029", "\u202e", "\ufeff",
+                "\ud800",
+            ):
                 candidate = event("2.0")
                 select(candidate)[f"X{character}Synthetic"] = "synthetic-private-marker"
-                with self.subTest(label=label, character=ascii(character)), \\
-                        patch("zentomic.webhook_event.parse_form_body") as decoder:
+                with (
+                    self.subTest(label=label, character=ascii(character)),
+                    patch("zentomic.webhook_event.parse_form_body") as decoder,
+                ):
                     with self.assertRaisesRegex(
                         ValueError,
                         f"^{label} key contains an invisible control$",
