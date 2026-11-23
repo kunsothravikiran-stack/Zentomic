@@ -3,6 +3,7 @@
 import base64
 import binascii
 import re
+import unicodedata
 from urllib.parse import parse_qsl
 
 
@@ -66,8 +67,11 @@ def parse_form_body(body: str, *, is_base64_encoded: bool = False) -> dict[str, 
         # Values remain opaque and may legitimately contain whitespace or
         # controls such as newlines in transcription provider payloads.
         if (not name or len(name) > MAX_FORM_FIELD_NAME_BYTES
-                or any(char.isspace() or ord(char) < 32 or ord(char) == 127
-                       for char in name)
+                or any(
+                    char.isspace()
+                    or unicodedata.category(char) in {"Cc", "Cf", "Cs"}
+                    for char in name
+                )
                 or len(name.encode("utf-8")) > MAX_FORM_FIELD_NAME_BYTES):
             raise ValueError(
                 "form field names must be nonempty, bounded, and contain no whitespace or controls"

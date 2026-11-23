@@ -31,12 +31,15 @@ class FormFieldNameTests(unittest.TestCase):
                 parse_form_body(f"{quote(name)}=1")
 
     def test_whitespace_and_control_characters_are_rejected_in_names(self):
-        for name in ("First Name", "First\tName", "First\nName", "A\x00B", "A\x7fB", "A\u2003B"):
+        for name in (
+            "First Name", "First\tName", "First\nName", "A\x00B", "A\x7fB",
+            "A\u2003B", "A\u200bB", "A\u202eB", "A\ufeffB",
+        ):
             with self.subTest(name=ascii(name)), self.assertRaises(ValueError):
                 parse_form_body(f"{quote(name)}=1")
 
     def test_values_remain_opaque(self):
-        for value in ("First Name", "line\nbreak", "A\x00B", "A\u2003B"):
+        for value in ("First Name", "line\nbreak", "A\x00B", "A\u2003B", "A\u202eB"):
             with self.subTest(value=ascii(value)):
                 self.assertEqual(
                     parse_form_body(f"Field={quote(value)}"),
