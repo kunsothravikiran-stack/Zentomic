@@ -1,6 +1,7 @@
 """Dependency-free liveness route for API Gateway proxy integrations."""
 
 import json
+import unicodedata
 from collections.abc import Mapping
 from typing import Any
 
@@ -19,7 +20,15 @@ def _plain_bounded_proxy_container(candidate: Any) -> bool:
     if type(candidate) is not dict or len(candidate) > MAX_EVENT_FIELDS:
         return False
     return all(
-        type(key) is str and len(key) <= MAX_EVENT_KEY_CHARACTERS
+        type(key) is str
+        and len(key) <= MAX_EVENT_KEY_CHARACTERS
+        # Reject invisible controls and Unicode line separators before route
+        # lookup so malformed direct invocations cannot hide or split proxy
+        # fields in diagnostics. Visible Unicode extension keys remain valid.
+        and not any(
+            unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+            for character in key
+        )
         for key in candidate
     )
 

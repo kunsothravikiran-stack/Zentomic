@@ -248,6 +248,33 @@ class HandlerTests(unittest.TestCase):
             with self.subTest(location=location, boundary=False):
                 self.assertEqual(lambda_handler(candidate, None)["statusCode"], 400)
 
+    def test_proxy_structure_keys_reject_invisible_controls(self):
+        locations = (
+            ("event", lambda candidate: candidate),
+            ("v2 request context", lambda candidate: candidate["requestContext"]),
+            ("v2 HTTP context", lambda candidate: candidate["requestContext"]["http"]),
+        )
+        for label, select in locations:
+            for character in (
+                "\x00", "\u200b", "\u2028", "\u2029", "\u202e",
+                "\ufeff", "\ud800",
+            ):
+                candidate = http_event()
+                select(candidate)[f"X{character}Synthetic"] = None
+                with self.subTest(label=label, character=ascii(character)):
+                    result = lambda_handler(candidate, None)
+                    self.assertEqual(result["statusCode"], 400)
+                    self.assertEqual(
+                        json.loads(result["body"]), {"error": "invalid_request"},
+                    )
+
+    def test_proxy_structure_keys_preserve_visible_unicode_extensions(self):
+        candidate = http_event()
+        candidate["X-Café"] = None
+        candidate["requestContext"]["X-😀"] = None
+        candidate["requestContext"]["http"]["X-日本語"] = None
+        self.assertEqual(lambda_handler(candidate, None)["statusCode"], 200)
+
     def test_route_field_length_limits_are_inclusive(self):
         cases = (
             ("method", rest_event(method="X" * MAX_METHOD_CHARACTERS), 405),
