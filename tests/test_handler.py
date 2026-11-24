@@ -135,6 +135,29 @@ class HandlerTests(unittest.TestCase):
                     self.assertEqual(result["statusCode"], 404)
                     self.assertEqual(json.loads(result["body"]), {"error": "not_found"})
 
+    def test_paths_with_invisible_controls_are_invalid_requests(self):
+        for factory in (rest_event, http_event):
+            for character in (
+                "\x00", "\n", "\u200b", "\u2028", "\u2029", "\u202e",
+                "\ufeff", "\ud800",
+            ):
+                with self.subTest(format=factory.__name__, character=ascii(character)):
+                    result = lambda_handler(
+                        factory(path=f"/health{character}"), None,
+                    )
+                    self.assertEqual(result["statusCode"], 400)
+                    self.assertEqual(
+                        json.loads(result["body"]), {"error": "invalid_request"},
+                    )
+
+    def test_visible_unicode_unknown_paths_remain_not_found(self):
+        for factory in (rest_event, http_event):
+            for path in ("/café", "/日本語", "/😀"):
+                with self.subTest(format=factory.__name__, path=path):
+                    self.assertEqual(
+                        lambda_handler(factory(path=path), None)["statusCode"], 404,
+                    )
+
     def test_health_rejects_other_methods(self):
         for factory in (rest_event, http_event):
             for method in ("POST", "PUT", "DELETE", "PATCH", "head", "get"):
@@ -143,6 +166,18 @@ class HandlerTests(unittest.TestCase):
                     self.assertEqual(result["statusCode"], 405)
                     self.assertEqual(
                         result["headers"]["Allow"], "GET, HEAD, OPTIONS",
+                    )
+
+    def test_malformed_http_methods_are_invalid_requests(self):
+        for factory in (rest_event, http_event):
+            for method in (
+                "GET ", " GET", "GET\t", "GET\n", "GET/POST", "GÉT", "ＧＥＴ",
+            ):
+                with self.subTest(format=factory.__name__, method=ascii(method)):
+                    result = lambda_handler(factory(method=method), None)
+                    self.assertEqual(result["statusCode"], 400)
+                    self.assertEqual(
+                        json.loads(result["body"]), {"error": "invalid_request"},
                     )
 
     def test_head_matches_get_without_content_for_both_proxy_formats(self):

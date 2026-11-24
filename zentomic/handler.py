@@ -13,6 +13,17 @@ MAX_EVENT_KEY_CHARACTERS = 128
 MAX_METHOD_CHARACTERS = 32
 MAX_PATH_CHARACTERS = 2048
 MAX_PROXY_VERSION_CHARACTERS = 16
+_HTTP_TOKEN_CHARACTERS = frozenset(
+    "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+)
+
+
+def _contains_invisible_control(value: str) -> bool:
+    """Return whether text contains controls unsafe in proxy metadata."""
+    return any(
+        unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        for character in value
+    )
 
 
 def _plain_bounded_proxy_container(candidate: Any) -> bool:
@@ -25,10 +36,7 @@ def _plain_bounded_proxy_container(candidate: Any) -> bool:
         # Reject invisible controls and Unicode line separators before route
         # lookup so malformed direct invocations cannot hide or split proxy
         # fields in diagnostics. Visible Unicode extension keys remain valid.
-        and not any(
-            unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
-            for character in key
-        )
+        and not _contains_invisible_control(key)
         for key in candidate
     )
 
@@ -152,12 +160,17 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
     else:
         return _response(400, {"error": "invalid_request"}, request_id=request_id)
 
+    # HTTP methods use the ASCII token grammar. Reject whitespace, controls,
+    # separators, and Unicode before route comparison so malformed direct
+    # invocations are distinguished from supported but disallowed methods.
     if (type(method) is not str or not method
-            or len(method) > MAX_METHOD_CHARACTERS):
+            or len(method) > MAX_METHOD_CHARACTERS
+            or any(character not in _HTTP_TOKEN_CHARACTERS for character in method)):
         return _response(400, {"error": "invalid_request"}, request_id=request_id)
     head = method == "HEAD"
     if (type(path) is not str or not path
-            or len(path) > MAX_PATH_CHARACTERS):
+            or len(path) > MAX_PATH_CHARACTERS
+            or _contains_invisible_control(path)):
         return _response(
             400, {"error": "invalid_request"}, head=head, request_id=request_id,
         )
