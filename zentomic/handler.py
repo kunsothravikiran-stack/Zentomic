@@ -12,6 +12,7 @@ MAX_EVENT_FIELDS = 64
 MAX_EVENT_KEY_CHARACTERS = 128
 MAX_METHOD_CHARACTERS = 32
 MAX_PATH_CHARACTERS = 2048
+MAX_PATH_BYTES = 2048
 MAX_PROXY_VERSION_CHARACTERS = 16
 _HTTP_TOKEN_CHARACTERS = frozenset(
     "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -24,6 +25,18 @@ def _contains_invisible_control(value: str) -> bool:
         unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
         for character in value
     )
+
+
+def _valid_proxy_path(value: Any) -> bool:
+    """Return whether API Gateway path metadata is inert and bounded."""
+    if (type(value) is not str or not value
+            or len(value) > MAX_PATH_CHARACTERS
+            or _contains_invisible_control(value)):
+        return False
+    try:
+        return len(value.encode("utf-8")) <= MAX_PATH_BYTES
+    except UnicodeEncodeError:
+        return False
 
 
 def _plain_bounded_proxy_container(candidate: Any) -> bool:
@@ -168,9 +181,7 @@ def lambda_handler(event: Mapping[str, Any], context: Any) -> dict:
             or any(character not in _HTTP_TOKEN_CHARACTERS for character in method)):
         return _response(400, {"error": "invalid_request"}, request_id=request_id)
     head = method == "HEAD"
-    if (type(path) is not str or not path
-            or len(path) > MAX_PATH_CHARACTERS
-            or _contains_invisible_control(path)):
+    if not _valid_proxy_path(path):
         return _response(
             400, {"error": "invalid_request"}, head=head, request_id=request_id,
         )

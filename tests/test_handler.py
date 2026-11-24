@@ -12,6 +12,7 @@ from zentomic.handler import (
     MAX_EVENT_FIELDS,
     MAX_EVENT_KEY_CHARACTERS,
     MAX_METHOD_CHARACTERS,
+    MAX_PATH_BYTES,
     MAX_PATH_CHARACTERS,
     MAX_PROXY_VERSION_CHARACTERS,
     lambda_handler,
@@ -157,6 +158,26 @@ class HandlerTests(unittest.TestCase):
                     self.assertEqual(
                         lambda_handler(factory(path=path), None)["statusCode"], 404,
                     )
+
+    def test_path_utf8_byte_limit_is_inclusive(self):
+        exact = "/" + "é" * ((MAX_PATH_BYTES - 2) // 2) + "a"
+        oversized = exact + "é"
+        self.assertEqual(len(exact.encode("utf-8")), MAX_PATH_BYTES)
+        self.assertLessEqual(len(exact), MAX_PATH_CHARACTERS)
+        self.assertGreater(len(oversized.encode("utf-8")), MAX_PATH_BYTES)
+        self.assertLessEqual(len(oversized), MAX_PATH_CHARACTERS)
+
+        for factory in (rest_event, http_event):
+            with self.subTest(format=factory.__name__, boundary=True):
+                self.assertEqual(
+                    lambda_handler(factory(path=exact), None)["statusCode"], 404,
+                )
+            with self.subTest(format=factory.__name__, boundary=False):
+                result = lambda_handler(factory(path=oversized), None)
+                self.assertEqual(result["statusCode"], 400)
+                self.assertEqual(
+                    json.loads(result["body"]), {"error": "invalid_request"},
+                )
 
     def test_health_rejects_other_methods(self):
         for factory in (rest_event, http_event):
