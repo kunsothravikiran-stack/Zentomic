@@ -66,6 +66,19 @@ class TwimlResponseTests(unittest.TestCase):
                              "xml must be a nonblank UTF-8 encodable string "
                              "of at most 65536 bytes")
 
+    def test_xml_1_0_invalid_characters_are_rejected(self):
+        for char in ("\x00", "\x08", "\x0b", "\x1f", "\ud800", "\udfff",
+                     "\ufffe", "\uffff"):
+            with self.subTest(char=ascii(char)), self.assertRaises(
+                ValueError,
+            ) as caught:
+                twiml_response("<Response>safe" + char + "</Response>")
+            self.assertEqual(
+                str(caught.exception),
+                "xml must be a nonblank UTF-8 encodable string "
+                "of at most 65536 bytes",
+            )
+
     def test_body_size_limit_uses_utf8_bytes_and_is_inclusive(self):
         bodies = (
             "x" * MAX_TWIML_BYTES,

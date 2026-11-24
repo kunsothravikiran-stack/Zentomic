@@ -10,8 +10,9 @@ def twiml_response(xml: str) -> dict[str, Any]:
     """Wrap application-generated TwiML in an explicit v1/v2 success response.
 
     Supply output from zentomic.twiml renderers, never caller/model-supplied XML.
-    This checks text encoding and applies a local 64 KiB body limit, not XML
-    syntax, TwiML verbs, authorization, or safe destinations. It does not
+    This checks text encoding, XML 1.0 character validity, and applies a local
+    64 KiB body limit, not XML syntax, TwiML verbs, authorization, or safe
+    destinations. It does not
     authenticate, persist state, send a response, or expose a voice endpoint.
     Authentication failures need their own non-success response and must not
     use this success-only helper.
@@ -26,6 +27,17 @@ def twiml_response(xml: str) -> dict[str, Any]:
     # length, whitespace, or encoding operation can invoke overridden code.
     if (type(xml) is not str or len(xml) > MAX_TWIML_BYTES
             or not xml.strip()):
+        raise ValueError(error)
+    # UTF-8 can encode several control and noncharacter code points that XML
+    # 1.0 forbids. Renderers already reject them in prompts, but enforce the
+    # response boundary too so a corrupted or independently assembled document
+    # cannot be returned as application/xml.
+    if any(
+        not (char in "\t\n\r" or 0x20 <= ord(char) <= 0xD7FF
+             or 0xE000 <= ord(char) <= 0xFFFD
+             or 0x10000 <= ord(char) <= 0x10FFFF)
+        for char in xml
+    ):
         raise ValueError(error)
     try:
         encoded = xml.encode("utf-8")
