@@ -20,19 +20,22 @@ _HTTP_TOKEN_CHARACTERS = frozenset(
 )
 
 
-def _contains_invisible_control(value: str) -> bool:
-    """Return whether text contains controls unsafe in proxy metadata."""
-    return any(
-        unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
-        for character in value
-    )
+def _contains_unsafe_proxy_character(value: str) -> bool:
+    """Return whether text contains controls or reserved noncharacters."""
+    for character in value:
+        codepoint = ord(character)
+        if (unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+                or 0xFDD0 <= codepoint <= 0xFDEF
+                or (codepoint & 0xFFFF) in {0xFFFE, 0xFFFF}):
+            return True
+    return False
 
 
 def _valid_proxy_path(value: Any) -> bool:
     """Return whether API Gateway path metadata is inert and bounded."""
     if (type(value) is not str or not value
             or len(value) > MAX_PATH_CHARACTERS
-            or _contains_invisible_control(value)):
+            or _contains_unsafe_proxy_character(value)):
         return False
     try:
         return len(value.encode("utf-8")) <= MAX_PATH_BYTES
@@ -47,11 +50,11 @@ def _plain_bounded_proxy_container(candidate: Any) -> bool:
     for key in candidate:
         if (type(key) is not str
                 or len(key) > MAX_EVENT_KEY_CHARACTERS
-                # Reject invisible controls and Unicode line separators before
-                # route lookup so malformed direct invocations cannot hide or
-                # split proxy fields in diagnostics. Visible Unicode extension
-                # keys remain valid within the same byte budget as ASCII keys.
-                or _contains_invisible_control(key)):
+                # Reject controls, line separators, and reserved noncharacters
+                # before route lookup so malformed direct invocations cannot
+                # hide or split proxy fields in diagnostics. Visible Unicode
+                # extension keys remain valid within the ASCII key byte budget.
+                or _contains_unsafe_proxy_character(key)):
             return False
         try:
             if len(key.encode("utf-8")) > MAX_EVENT_KEY_BYTES:

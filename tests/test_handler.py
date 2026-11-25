@@ -137,11 +137,12 @@ class HandlerTests(unittest.TestCase):
                     self.assertEqual(result["statusCode"], 404)
                     self.assertEqual(json.loads(result["body"]), {"error": "not_found"})
 
-    def test_paths_with_invisible_controls_are_invalid_requests(self):
+    def test_paths_with_unsafe_unicode_are_invalid_requests(self):
         for factory in (rest_event, http_event):
             for character in (
                 "\x00", "\n", "\u200b", "\u2028", "\u2029", "\u202e",
-                "\ufeff", "\ud800",
+                "\ufeff", "\ud800", "\ufdd0", "\ufdef", "\ufffe", "\uffff",
+                "\U0001fffe", "\U0010ffff",
             ):
                 with self.subTest(format=factory.__name__, character=ascii(character)):
                     result = lambda_handler(
@@ -333,7 +334,7 @@ class HandlerTests(unittest.TestCase):
                     json.loads(result["body"]), {"error": "invalid_request"},
                 )
 
-    def test_proxy_structure_keys_reject_invisible_controls(self):
+    def test_proxy_structure_keys_reject_unsafe_unicode(self):
         locations = (
             ("event", lambda candidate: candidate),
             ("v2 request context", lambda candidate: candidate["requestContext"]),
@@ -342,7 +343,8 @@ class HandlerTests(unittest.TestCase):
         for label, select in locations:
             for character in (
                 "\x00", "\u200b", "\u2028", "\u2029", "\u202e",
-                "\ufeff", "\ud800",
+                "\ufeff", "\ud800", "\ufdd0", "\ufdef", "\ufffe", "\uffff",
+                "\U0001fffe", "\U0010ffff",
             ):
                 candidate = http_event()
                 select(candidate)[f"X{character}Synthetic"] = None
