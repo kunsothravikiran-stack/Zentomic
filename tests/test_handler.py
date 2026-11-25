@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from zentomic.handler import (
     MAX_EVENT_FIELDS,
+    MAX_EVENT_KEY_BYTES,
     MAX_EVENT_KEY_CHARACTERS,
     MAX_METHOD_CHARACTERS,
     MAX_PATH_BYTES,
@@ -303,6 +304,34 @@ class HandlerTests(unittest.TestCase):
             container["X" * (MAX_EVENT_KEY_CHARACTERS + 1)] = None
             with self.subTest(location=location, boundary=False):
                 self.assertEqual(lambda_handler(candidate, None)["statusCode"], 400)
+
+    def test_proxy_structure_key_utf8_byte_limits_are_inclusive(self):
+        exact = "é" * (MAX_EVENT_KEY_BYTES // 2)
+        oversized = exact + "é"
+        self.assertEqual(len(exact.encode("utf-8")), MAX_EVENT_KEY_BYTES)
+        self.assertLessEqual(len(exact), MAX_EVENT_KEY_CHARACTERS)
+        self.assertGreater(len(oversized.encode("utf-8")), MAX_EVENT_KEY_BYTES)
+        self.assertLessEqual(len(oversized), MAX_EVENT_KEY_CHARACTERS)
+
+        locations = (
+            ("event", lambda candidate: candidate),
+            ("v2 request context", lambda candidate: candidate["requestContext"]),
+            ("v2 HTTP context", lambda candidate: candidate["requestContext"]["http"]),
+        )
+        for label, select in locations:
+            candidate = http_event()
+            select(candidate)[exact] = None
+            with self.subTest(location=label, boundary=True):
+                self.assertEqual(lambda_handler(candidate, None)["statusCode"], 200)
+
+            del select(candidate)[exact]
+            select(candidate)[oversized] = None
+            with self.subTest(location=label, boundary=False):
+                result = lambda_handler(candidate, None)
+                self.assertEqual(result["statusCode"], 400)
+                self.assertEqual(
+                    json.loads(result["body"]), {"error": "invalid_request"},
+                )
 
     def test_proxy_structure_keys_reject_invisible_controls(self):
         locations = (

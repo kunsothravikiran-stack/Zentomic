@@ -9,6 +9,7 @@ from zentomic import __version__
 
 
 MAX_EVENT_FIELDS = 64
+MAX_EVENT_KEY_BYTES = 128
 MAX_EVENT_KEY_CHARACTERS = 128
 MAX_METHOD_CHARACTERS = 32
 MAX_PATH_CHARACTERS = 2048
@@ -43,15 +44,21 @@ def _plain_bounded_proxy_container(candidate: Any) -> bool:
     """Return whether a decoded proxy container has a bounded inert shape."""
     if type(candidate) is not dict or len(candidate) > MAX_EVENT_FIELDS:
         return False
-    return all(
-        type(key) is str
-        and len(key) <= MAX_EVENT_KEY_CHARACTERS
-        # Reject invisible controls and Unicode line separators before route
-        # lookup so malformed direct invocations cannot hide or split proxy
-        # fields in diagnostics. Visible Unicode extension keys remain valid.
-        and not _contains_invisible_control(key)
-        for key in candidate
-    )
+    for key in candidate:
+        if (type(key) is not str
+                or len(key) > MAX_EVENT_KEY_CHARACTERS
+                # Reject invisible controls and Unicode line separators before
+                # route lookup so malformed direct invocations cannot hide or
+                # split proxy fields in diagnostics. Visible Unicode extension
+                # keys remain valid within the same byte budget as ASCII keys.
+                or _contains_invisible_control(key)):
+            return False
+        try:
+            if len(key.encode("utf-8")) > MAX_EVENT_KEY_BYTES:
+                return False
+        except UnicodeEncodeError:
+            return False
+    return True
 
 
 def _context_request_id(context: Any) -> str | None:
