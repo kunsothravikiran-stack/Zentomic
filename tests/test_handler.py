@@ -334,6 +334,22 @@ class HandlerTests(unittest.TestCase):
                     json.loads(result["body"]), {"error": "invalid_request"},
                 )
 
+    def test_proxy_structure_keys_must_not_be_empty(self):
+        locations = (
+            ("event", lambda candidate: candidate),
+            ("v2 request context", lambda candidate: candidate["requestContext"]),
+            ("v2 HTTP context", lambda candidate: candidate["requestContext"]["http"]),
+        )
+        for label, select in locations:
+            candidate = http_event()
+            select(candidate)[""] = None
+            with self.subTest(location=label):
+                result = lambda_handler(candidate, None)
+                self.assertEqual(result["statusCode"], 400)
+                self.assertEqual(
+                    json.loads(result["body"]), {"error": "invalid_request"},
+                )
+
     def test_proxy_structure_keys_reject_unsafe_unicode(self):
         locations = (
             ("event", lambda candidate: candidate),

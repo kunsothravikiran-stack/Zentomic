@@ -49,6 +49,7 @@ def _plain_bounded_proxy_container(candidate: Any) -> bool:
         return False
     for key in candidate:
         if (type(key) is not str
+                or not key
                 or len(key) > MAX_EVENT_KEY_CHARACTERS
                 # Reject controls, line separators, and reserved noncharacters
                 # before route lookup so malformed direct invocations cannot
