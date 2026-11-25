@@ -72,6 +72,8 @@ def _require_plain_string_keys(candidate: dict[Any, Any], label: str) -> None:
     for key in candidate:
         if type(key) is not str:
             raise ValueError(f"{label} keys must be plain strings")
+        if not key:
+            raise ValueError(f"{label} keys must not be empty")
         if len(key) > MAX_EVENT_KEY_CHARACTERS:
             raise ValueError(f"{label} key exceeds size limit")
         # Invisible controls and Unicode line separators can make unknown proxy

@@ -337,6 +337,27 @@ class FormEventTests(unittest.TestCase):
                     parse_form_event(candidate)
                 decoder.assert_not_called()
 
+    def test_proxy_structure_keys_must_not_be_empty(self):
+        locations = (
+            ("event", lambda candidate: candidate),
+            ("v2 request context", lambda candidate: candidate["requestContext"]),
+            ("v2 HTTP context", lambda candidate: candidate["requestContext"]["http"]),
+        )
+        for label, select in locations:
+            candidate = event("2.0")
+            select(candidate)[""] = "synthetic-private-marker"
+            with (
+                self.subTest(label=label),
+                patch("zentomic.webhook_event.parse_form_body") as decoder,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    f"^{label} keys must not be empty$",
+                ) as caught:
+                    parse_form_event(candidate)
+                decoder.assert_not_called()
+            self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_proxy_structure_keys_reject_invisible_controls(self):
         locations = (
             ("event", lambda candidate: candidate),
