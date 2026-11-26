@@ -87,6 +87,12 @@ def _require_plain_string_keys(candidate: dict[Any, Any], label: str) -> None:
             for char in key
         ):
             raise ValueError(f"{label} key contains an invisible control")
+        if any(
+            0xFDD0 <= ord(char) <= 0xFDEF
+            or (ord(char) & 0xFFFF) in {0xFFFE, 0xFFFF}
+            for char in key
+        ):
+            raise ValueError(f"{label} key contains a Unicode noncharacter")
         # Keep multibyte extension keys inside the same request-work budget as
         # ASCII keys. Encoding after the character checks also fails closed if
         # a future unsafe-character policy accidentally permits a surrogate.

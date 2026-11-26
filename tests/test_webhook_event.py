@@ -417,6 +417,33 @@ class FormEventTests(unittest.TestCase):
                     decoder.assert_not_called()
                 self.assertNotIn("synthetic-private-marker", str(caught.exception))
 
+    def test_proxy_structure_keys_reject_unicode_noncharacters(self):
+        locations = (
+            ("event", lambda candidate: candidate),
+            ("v2 request context", lambda candidate: candidate["requestContext"]),
+            ("v2 HTTP context", lambda candidate: candidate["requestContext"]["http"]),
+        )
+        for label, select in locations:
+            for character in (
+                "\ufdd0", "\ufdef", "\ufffe", "\uffff", "\U0001fffe",
+                "\U0010ffff",
+            ):
+                candidate = event("2.0")
+                select(candidate)[f"X{character}Synthetic"] = (
+                    "synthetic-private-marker"
+                )
+                with (
+                    self.subTest(label=label, character=ascii(character)),
+                    patch("zentomic.webhook_event.parse_form_body") as decoder,
+                ):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        f"^{label} key contains a Unicode noncharacter$",
+                    ) as caught:
+                        parse_form_event(candidate)
+                    decoder.assert_not_called()
+                self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_proxy_structure_keys_preserve_visible_unicode_extensions(self):
         candidate = event("2.0")
         candidate["X-Café"] = None
