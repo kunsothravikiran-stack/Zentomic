@@ -102,6 +102,8 @@ def validate_form_event(
         if (any(
                 char.isspace()
                 or unicodedata.category(char) in {"Cc", "Cf", "Cs"}
+                or 0xFDD0 <= ord(char) <= 0xFDEF
+                or (ord(char) & 0xFFFF) in {0xFFFE, 0xFFFF}
                 for char in public_url
             )
                 or _INVALID_URL_ESCAPE.search(public_url)):
