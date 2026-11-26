@@ -35,9 +35,23 @@ class FormBodyTests(unittest.TestCase):
         })
 
     def test_unknown_fields_and_name_case_are_preserved(self):
-        self.assertEqual(parse_form_body("Digits=1&digits=2&FutureField=new"), {
-            "Digits": "1", "digits": "2", "FutureField": "new",
+        self.assertEqual(parse_form_body("Digits=1&digits=2&Futur%C3%A9=new"), {
+            "Digits": "1", "digits": "2", "Futuré": "new",
         })
+
+    def test_field_names_reject_unicode_noncharacters(self):
+        for character in (
+            "\ufdd0", "\ufdef", "\ufffe", "\uffff", "\U0001fffe",
+            "\U0010ffff",
+        ):
+            body = urlencode({f"X{character}Synthetic": "synthetic-private-marker"})
+            with self.subTest(character=ascii(character)), \
+                    self.assertRaisesRegex(
+                        ValueError,
+                        "^form field names must be nonempty, bounded, and contain no whitespace or controls$",
+                    ) as caught:
+                parse_form_body(body)
+            self.assertNotIn("synthetic-private-marker", str(caught.exception))
 
     def test_duplicate_decoded_names_are_rejected(self):
         for body in ("Digits=1&Digits=2", "Digits=1&%44igits=1", "A=&A=", "a+b=1&a%20b=2"):

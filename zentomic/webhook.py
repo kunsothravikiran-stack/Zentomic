@@ -70,6 +70,8 @@ def parse_form_body(body: str, *, is_base64_encoded: bool = False) -> dict[str, 
                 or any(
                     char.isspace()
                     or unicodedata.category(char) in {"Cc", "Cf", "Cs"}
+                    or 0xFDD0 <= ord(char) <= 0xFDEF
+                    or (ord(char) & 0xFFFF) in {0xFFFE, 0xFFFF}
                     for char in name
                 )
                 or len(name.encode("utf-8")) > MAX_FORM_FIELD_NAME_BYTES):
