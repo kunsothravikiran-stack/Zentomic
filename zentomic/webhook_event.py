@@ -17,6 +17,7 @@ MAX_CONTENT_TYPE_CHARACTERS = 128
 MAX_HEADER_FIELDS = 128
 MAX_HEADER_NAME_CHARACTERS = 128
 MAX_EVENT_FIELDS = 64
+MAX_EVENT_KEY_BYTES = 128
 MAX_EVENT_KEY_CHARACTERS = 128
 MAX_METHOD_CHARACTERS = 32
 MAX_PROXY_VERSION_CHARACTERS = 16
@@ -86,6 +87,14 @@ def _require_plain_string_keys(candidate: dict[Any, Any], label: str) -> None:
             for char in key
         ):
             raise ValueError(f"{label} key contains an invisible control")
+        # Keep multibyte extension keys inside the same request-work budget as
+        # ASCII keys. Encoding after the character checks also fails closed if
+        # a future unsafe-character policy accidentally permits a surrogate.
+        try:
+            if len(key.encode("utf-8")) > MAX_EVENT_KEY_BYTES:
+                raise ValueError(f"{label} key exceeds UTF-8 byte limit")
+        except UnicodeEncodeError as error:
+            raise ValueError(f"{label} key is not valid UTF-8") from error
 
 
 def parse_form_event(event: Mapping[str, Any]) -> dict[str, str]:

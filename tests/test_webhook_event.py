@@ -10,6 +10,7 @@ from unittest.mock import patch
 from zentomic.webhook_event import (
     MAX_CONTENT_TYPE_CHARACTERS,
     MAX_EVENT_FIELDS,
+    MAX_EVENT_KEY_BYTES,
     MAX_EVENT_KEY_CHARACTERS,
     MAX_HEADER_FIELDS,
     MAX_HEADER_NAME_CHARACTERS,
@@ -336,6 +337,39 @@ class FormEventTests(unittest.TestCase):
                 ):
                     parse_form_event(candidate)
                 decoder.assert_not_called()
+
+    def test_proxy_structure_key_utf8_byte_limits_are_inclusive(self):
+        exact = "é" * (MAX_EVENT_KEY_BYTES // 2)
+        oversized = exact + "é"
+        self.assertEqual(len(exact.encode("utf-8")), MAX_EVENT_KEY_BYTES)
+        self.assertLessEqual(len(exact), MAX_EVENT_KEY_CHARACTERS)
+        self.assertGreater(len(oversized.encode("utf-8")), MAX_EVENT_KEY_BYTES)
+        self.assertLessEqual(len(oversized), MAX_EVENT_KEY_CHARACTERS)
+
+        locations = (
+            ("event", lambda candidate: candidate),
+            ("v2 request context", lambda candidate: candidate["requestContext"]),
+            ("v2 HTTP context", lambda candidate: candidate["requestContext"]["http"]),
+        )
+        for label, select in locations:
+            candidate = event("2.0")
+            select(candidate)[exact] = None
+            with self.subTest(label=label, boundary=True):
+                self.assertEqual(parse_form_event(candidate), {"Digits": "1"})
+
+            del select(candidate)[exact]
+            select(candidate)[oversized] = "synthetic-private-marker"
+            with (
+                self.subTest(label=label, boundary=False),
+                patch("zentomic.webhook_event.parse_form_body") as decoder,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    f"^{label} key exceeds UTF-8 byte limit$",
+                ) as caught:
+                    parse_form_event(candidate)
+                decoder.assert_not_called()
+            self.assertNotIn("synthetic-private-marker", str(caught.exception))
 
     def test_proxy_structure_keys_must_not_be_empty(self):
         locations = (
