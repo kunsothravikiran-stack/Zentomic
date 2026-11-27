@@ -105,6 +105,24 @@ class CallAuthenticationTests(unittest.TestCase):
                     validator.assert_not_called()
                     self.assertNotIn("synthetic-private-marker", str(caught.exception))
 
+    def test_unicode_noncharacters_in_trusted_identifiers_fail_before_authentication(self):
+        for key in ("expected_account_sid", "expected_call_sid"):
+            for character in (
+                "\ufdd0", "\ufdef", "\ufffe", "\uffff",
+                "\U0001fffe", "\U0010ffff",
+            ):
+                value = f"synthetic-private-marker{character}"
+                with self.subTest(key=key, character=ascii(character)):
+                    validator = Mock(return_value=True)
+                    with patch("zentomic.authentication.validate_form_event") as gate:
+                        with self.assertRaisesRegex(
+                            ValueError, "^expected call identifiers must not contain Unicode noncharacters$",
+                        ) as caught:
+                            validate(event(), validator, **{key: value})
+                    gate.assert_not_called()
+                    validator.assert_not_called()
+                    self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_utf8_opaque_identifiers_round_trip_without_normalization(self):
         # These test opaque-string behavior, not provider SID assignment.
         for identifier in (" synthetic-id ", "caf\u00e9", "cafe\u0301", "call-\U0001f4de"):

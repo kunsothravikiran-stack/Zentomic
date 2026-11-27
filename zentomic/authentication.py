@@ -157,6 +157,17 @@ def validate_call_event(
             )
         if not expected.strip():
             raise ValueError("expected call identifiers must be nonblank strings")
+        # Unicode permanently reserves noncharacters for internal use. Reject
+        # them in trusted session state so identifiers remain safe to compare,
+        # persist, and include in structured diagnostics across services.
+        if any(
+            0xFDD0 <= ord(char) <= 0xFDEF
+            or (ord(char) & 0xFFFF) in {0xFFFE, 0xFFFF}
+            for char in expected
+        ):
+            raise ValueError(
+                "expected call identifiers must not contain Unicode noncharacters"
+            )
         try:
             encoded = expected.encode("utf-8")
         except UnicodeEncodeError:
