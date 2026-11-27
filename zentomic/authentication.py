@@ -157,6 +157,16 @@ def validate_call_event(
             )
         if not expected.strip():
             raise ValueError("expected call identifiers must be nonblank strings")
+        # Control and formatting characters can make trusted session keys
+        # ambiguous in logs and structured diagnostics. Provider identifiers
+        # are opaque, but they must still remain visibly representable.
+        if any(
+            unicodedata.category(char) in {"Cc", "Cf", "Zl", "Zp"}
+            for char in expected
+        ):
+            raise ValueError(
+                "expected call identifiers must not contain invisible controls"
+            )
         # Unicode permanently reserves noncharacters for internal use. Reject
         # them in trusted session state so identifiers remain safe to compare,
         # persist, and include in structured diagnostics across services.

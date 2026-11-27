@@ -105,6 +105,24 @@ class CallAuthenticationTests(unittest.TestCase):
                     validator.assert_not_called()
                     self.assertNotIn("synthetic-private-marker", str(caught.exception))
 
+    def test_invisible_controls_in_trusted_identifiers_fail_before_authentication(self):
+        for key in ("expected_account_sid", "expected_call_sid"):
+            for character in (
+                "\x00", "\n", "\u200b", "\u2028", "\u2029", "\u202e", "\ufeff",
+            ):
+                value = f"synthetic-private-marker{character}"
+                with self.subTest(key=key, character=ascii(character)):
+                    validator = Mock(return_value=True)
+                    with patch("zentomic.authentication.validate_form_event") as gate:
+                        with self.assertRaisesRegex(
+                            ValueError,
+                            "^expected call identifiers must not contain invisible controls$",
+                        ) as caught:
+                            validate(event(), validator, **{key: value})
+                    gate.assert_not_called()
+                    validator.assert_not_called()
+                    self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_unicode_noncharacters_in_trusted_identifiers_fail_before_authentication(self):
         for key in ("expected_account_sid", "expected_call_sid"):
             for character in (
