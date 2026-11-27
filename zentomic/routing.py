@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from itertools import islice
+import unicodedata
 
 
 DTMF_SYMBOLS = "0123456789*#"
@@ -10,7 +11,7 @@ MAX_TARGET_IDENTIFIER_BYTES = 256
 
 
 def _valid_target(value: object) -> bool:
-    """Reject oversized or unusable identifiers at the persistence boundary."""
+    """Reject oversized, invisible, or reserved target identifiers."""
     # Target identifiers originate in trusted configuration, but requiring an
     # exact built-in string keeps a programmatic adapter from executing
     # overridden length, whitespace, or encoding behavior during validation.
@@ -19,6 +20,16 @@ def _valid_target(value: object) -> bool:
     if (type(value) is not str or len(value) > MAX_TARGET_IDENTIFIER_BYTES
             or not value.strip()):
         return False
+    # Targets can appear in logs, persistence keys, and operational tooling.
+    # Keep opaque visible Unicode unchanged, but reject characters that can
+    # hide, split, or reorder an identifier as well as code points Unicode
+    # permanently reserves for internal use.
+    for character in value:
+        codepoint = ord(character)
+        if (unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+                or 0xFDD0 <= codepoint <= 0xFDEF
+                or (codepoint & 0xFFFF) in {0xFFFE, 0xFFFF}):
+            return False
     try:
         encoded = value.encode("utf-8")
     except UnicodeEncodeError:
@@ -63,8 +74,8 @@ def resolve_dtmf(
 
     Missing, malformed, or unmapped input returns the configured fallback.
     Configuration errors raise ValueError, even when the input would fall back.
-    Targets must be UTF-8 encodable and are returned unchanged, not repaired
-    or normalized; they are not phone numbers to
+    Targets must be visibly representable UTF-8 and are returned unchanged,
+    not repaired or normalized; they are not phone numbers to
     dial. Callers must authorize and resolve them within the current workspace.
     This function never mutates the menu, logs inputs, or contacts services.
     """

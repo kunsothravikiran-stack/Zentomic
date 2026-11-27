@@ -191,6 +191,35 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(self.resolve("1", {"1": "team/Sales"}), "team/Sales")
         self.assertEqual(resolve_dtmf(None, {}, fallback_target="team/Reception"), "team/Reception")
 
+    def test_target_identifiers_reject_invisible_controls(self):
+        for character in ("\x00", "\n", "\u200b", "\u202e", "\u2028", "\ufeff"):
+            with self.subTest(character=ascii(character)):
+                with self.assertRaisesRegex(ValueError, "^route targets must be nonblank"):
+                    self.resolve("1", {"1": f"team{character}sales"})
+                with self.assertRaisesRegex(ValueError, "^fallback_target must be a nonblank"):
+                    resolve_dtmf(
+                        "1", self.routes,
+                        fallback_target=f"team{character}reception",
+                    )
+
+    def test_target_identifiers_reject_unicode_noncharacters(self):
+        for character in (
+            "\ufdd0", "\ufdef", "\ufffe", "\uffff",
+            "\U0001fffe", "\U0010ffff",
+        ):
+            with self.subTest(character=ascii(character)):
+                with self.assertRaisesRegex(ValueError, "^route targets must be nonblank"):
+                    self.resolve("1", {"1": f"team{character}sales"})
+                with self.assertRaisesRegex(ValueError, "^fallback_target must be a nonblank"):
+                    resolve_dtmf(
+                        "1", self.routes,
+                        fallback_target=f"team{character}reception",
+                    )
+
+    def test_visible_unicode_target_identifiers_are_preserved(self):
+        routes = {"1": "équipe/ventes-\U0001f600"}
+        self.assertEqual(self.resolve("1", routes), "équipe/ventes-\U0001f600")
+
     def test_requires_no_network_environment_or_logging(self):
         output = StringIO()
         with patch.dict("os.environ", {}, clear=True), patch(
