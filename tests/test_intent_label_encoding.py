@@ -134,6 +134,30 @@ class IntentLabelEncodingTests(unittest.TestCase):
                     self.assertNotIn("private-", str(caught.exception))
                     self.assertNotIsInstance(caught.exception, UnicodeError)
 
+    def test_invisible_and_reserved_labels_fail_across_admission_and_routing(self):
+        for character in (
+            "\x00", "\n", "\u200b", "\u2028", "\u2029", "\u202e", "\ufeff",
+            "\ufdd0", "\ufdef", "\ufffe", "\uffff", "\U0001fffe",
+            "\U0010ffff",
+        ):
+            label = f"private{character}label"
+            routes = {"sales": "team/sales", label: "team/other"}
+            operations = (
+                lambda: parse_intent_response(None, allowed_intents=routes),
+                lambda: resolve_intent(
+                    "sales", routes, fallback_target="reception", confirmed=True,
+                ),
+                lambda: resolve_intent_confirmation(
+                    "1", "sales", routes, fallback_target="reception", attempts=0,
+                ),
+            )
+            for operation in operations:
+                with self.subTest(character=ascii(character), operation=operation):
+                    with self.assertRaises(ValueError) as caught:
+                        operation()
+                    self.assertNotIn("private", str(caught.exception))
+                    self.assertNotIsInstance(caught.exception, UnicodeError)
+
     def test_confirmation_validates_labels_before_every_outcome(self):
         routes = {"sales": "team/sales", "private-\ud800": "team/other"}
         for digits in (None, "1", "2", "9"):

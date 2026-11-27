@@ -25,8 +25,9 @@ def parse_intent_response(
 ) -> str | None:
     """Accept exactly {\"intent\": <allowlisted string>} or return None.
 
-    The allowlist may contain at most 128 labels. Labels must be nonblank UTF-8
-    strings of at most 256 bytes and match exactly, without normalization.
+    The allowlist may contain at most 128 labels. Labels must be visibly
+    representable, nonblank UTF-8 strings of at most 256 bytes and match
+    exactly, without normalization.
     Invalid trusted configuration raises ValueError;
     malformed, oversized, ambiguous, or unknown model output returns None.
     An empty allowlist admits nothing. This neither invokes a model nor

@@ -64,9 +64,9 @@ def resolve_intent(
 ) -> str:
     """Select an allowlisted target only after explicit caller confirmation.
 
-    Intent labels must be nonblank UTF-8 strings of at most 256 bytes and match
-    exactly, without trimming, case folding, or coercion, consistent with
-    classifier allowlist validation.
+    Intent labels must be visibly representable, nonblank UTF-8 strings of at
+    most 256 bytes and match exactly, without trimming, case folding, or
+    coercion, consistent with classifier allowlist validation.
     Missing, malformed, unknown, or unconfirmed intents use the fallback.
     Only the boolean True counts as confirmation, not truthy strings/numbers.
     Invalid configuration raises ValueError before any route is selected.
