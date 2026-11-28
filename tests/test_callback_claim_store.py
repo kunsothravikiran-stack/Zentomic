@@ -102,6 +102,28 @@ class CallbackClaimStoreTests(unittest.TestCase):
                 store.claim("workspace", "call", value)
         self.assertTrue(store.claim("workspace", "call", "valid-step"))
 
+    def test_invisible_and_reserved_identifiers_do_not_consume_capacity(self):
+        store = InMemoryCallbackClaimStore(max_entries=1)
+        for character in (
+            "\x00", "\n", "\u200b", "\u2028", "\u2029", "\u202e", "\ufeff",
+            "\ufdd0", "\ufdef", "\ufffe", "\uffff", "\U0001fffe",
+            "\U0010ffff",
+        ):
+            value = f"synthetic-private-marker{character}"
+            for position, key in enumerate((
+                (value, "call", "step"),
+                ("workspace", value, "step"),
+                ("workspace", "call", value),
+            )):
+                with self.subTest(character=ascii(character), position=position):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "^claim identifiers must be nonblank UTF-8 strings of at most 256 bytes$",
+                    ) as caught:
+                        store.claim(*key)
+                    self.assertNotIn("synthetic-private-marker", str(caught.exception))
+        self.assertTrue(store.claim("workspace", "call", "valid-step"))
+
     def test_active_identifier_subclasses_are_rejected_before_execution(self):
         for position, key in enumerate((
             (ActiveIdentifier("workspace"), "call", "step"),

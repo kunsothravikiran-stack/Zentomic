@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from threading import Lock
 from typing import Any, Callable, Protocol
+import unicodedata
 
 from zentomic.authentication import SignatureValidator, validate_call_event
 
@@ -41,6 +42,16 @@ def _key(workspace_id: str, call_sid: str, step_id: str) -> tuple[str, str, str]
         if (type(value) is not str or len(value) > MAX_CLAIM_IDENTIFIER_BYTES
                 or not value.strip()):
             raise ValueError(_IDENTIFIER_ERROR)
+        # Claim keys can enter persistence, logs, and operational tooling.
+        # Preserve visible Unicode exactly, but reject characters that can
+        # hide, split, or reorder an identifier and permanently reserved
+        # noncharacters that cannot be safely interchanged between services.
+        for character in value:
+            codepoint = ord(character)
+            if (unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+                    or 0xFDD0 <= codepoint <= 0xFDEF
+                    or (codepoint & 0xFFFF) in {0xFFFE, 0xFFFF}):
+                raise ValueError(_IDENTIFIER_ERROR)
         try:
             encoded = value.encode("utf-8")
         except UnicodeEncodeError:
