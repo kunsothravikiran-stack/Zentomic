@@ -151,6 +151,29 @@ class CallStatusStoreTests(unittest.TestCase):
         self.assertEqual((saved.status, saved.revision), ("completed", 1))
         self.assertEqual(store.load("workspace", "call"), saved)
 
+    def test_invisible_and_reserved_identifiers_do_not_spend_capacity(self):
+        store = InMemoryCallStatusStore(max_entries=1)
+        for character in (
+            "\x00", "\n", "\u200b", "\u2028", "\u2029", "\u202e", "\ufeff",
+            "\ufdd0", "\ufdef", "\ufffe", "\uffff", "\U0001fffe",
+            "\U0010ffff",
+        ):
+            identity = f"synthetic-private-marker{character}"
+            for workspace, call in ((identity, "call"), ("workspace", identity)):
+                for operation in (
+                    lambda: store.load(workspace, call),
+                    lambda: store.observe(workspace, call, "ringing",
+                                          expected_revision=0),
+                ):
+                    with self.subTest(character=ascii(character)), self.assertRaisesRegex(
+                        ValueError,
+                        "^status identifiers must be nonblank UTF-8 strings of at most 256 bytes$",
+                    ) as caught:
+                        operation()
+                    self.assertNotIn("synthetic-private-marker", str(caught.exception))
+        saved = store.observe("workspace", "call", "completed", expected_revision=0)
+        self.assertEqual((saved.status, saved.revision), ("completed", 1))
+
     def test_active_identifier_subclasses_are_rejected_before_execution(self):
         for position, key in enumerate((
             (ActiveIdentifier("workspace"), "call"),
