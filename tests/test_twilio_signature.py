@@ -136,6 +136,24 @@ class TwilioSignatureTests(unittest.TestCase):
             self.assertTrue(validator(URL, FIELDS, _signature(URL, FIELDS)))
         encode_token.assert_called_once_with(TOKEN)
 
+    def test_invisible_and_reserved_auth_token_characters_are_rejected(self):
+        for character in (
+            "\x00", "\n", "\u200b", "\u2028", "\u2029", "\u202e", "\ufeff",
+            "\ufdd0", "\ufdef", "\ufffe", "\uffff", "\U0001fffe",
+            "\U0010ffff",
+        ):
+            token = f"synthetic-private-marker{character}"
+            for operation in (
+                lambda: create_twilio_signature_validator(token),
+                lambda: self.validate(token=token),
+            ):
+                with self.subTest(character=ascii(character)), self.assertRaisesRegex(
+                    ValueError,
+                    "^auth_token must be a nonempty UTF-8 string of at most 256 bytes$",
+                ) as caught:
+                    operation()
+                self.assertNotIn("synthetic-private-marker", str(caught.exception))
+
     def test_factory_supports_bounded_token_rotation(self):
         previous = "previous-token"
         current_signature = _signature(URL, FIELDS)

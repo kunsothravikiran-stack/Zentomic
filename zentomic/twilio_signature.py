@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import unicodedata
 from collections.abc import Callable, Sequence
 from itertools import islice
 
@@ -22,6 +23,18 @@ def _auth_token_bytes(auth_token: str) -> bytes:
             or not auth_token
             or len(auth_token) > MAX_AUTH_TOKEN_BYTES):
         raise ValueError("auth_token must be a nonempty UTF-8 string of at most 256 bytes")
+    # Secret-manager copy/paste errors can introduce invisible characters that
+    # are impossible to diagnose safely without disclosing the token. Reject
+    # controls, formatting marks, line separators, surrogates, and permanently
+    # reserved noncharacters while preserving visible Unicode token bytes.
+    for character in auth_token:
+        codepoint = ord(character)
+        if (unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+                or 0xFDD0 <= codepoint <= 0xFDEF
+                or (codepoint & 0xFFFF) in {0xFFFE, 0xFFFF}):
+            raise ValueError(
+                "auth_token must be a nonempty UTF-8 string of at most 256 bytes"
+            )
     try:
         encoded = auth_token.encode("utf-8")
     except UnicodeEncodeError:
